@@ -1,0 +1,204 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 28 课：Agent 评测与生产化</h2>
+    <p class="subtitle">这是第四部分（Agent 工程）的最后一课。前面我们把一个 Agent"造出来、接上工具、记住知识、会规划、能训练"——但这一切都还不是交付。<strong>怎么证明它真能上生产？</strong>这一课把"跑分"与"可用"分开，用可靠性指标（pass^k）替代单次最好成绩，把评测从"看结果"推进到"看轨迹"，再补齐安全、成本与发布门禁——用一套可执行的检查，回答"它到底能不能上"。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清"跑分高 ≠ 能用"，并用 pass^k 算出可靠性随试验次数的衰减<br>② 把评测分成"结果评测"与"过程评测"，定位一条失败轨迹是从哪一步开始歪的<br>③ 用最小权限、沙箱、发布门禁与四线监控，回答"这个 Agent 能不能上生产"</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步逻辑递进：从"为什么跑分不算数"到"怎么守住上线质量"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要证明一个 Agent 真能上生产，<strong>这就要求</strong>先承认一件事：跑分高不等于能用——分数里混着格式适配、蒙对与噪声，而 <b>tokens</b> 与延迟根本不在分数里。<b class="rn-key">跑分不等于可用</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然「<b>跑分不等于可用</b>」，<strong>所以</strong>要看它在同一任务上稳不稳——<strong>这就要求</strong>用"连续 k 次都对"的可靠性指标（pass^k），而不是单次最好成绩；换个 <b>context</b> 还能不能对，才是生产关心的。<b class="rn-key">要看连续成功率</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然「<b>要看连续成功率</b>」，<strong>那么</strong>单看终态还不够——<strong>这就要求</strong>评过程：一条轨迹里哪一步开始歪，要能定位到具体动作与当时写进 <b>context</b> 的内容。<b class="rn-key">过程也要能评</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">既然「<b>过程也要能评</b>」，那么评过程时会看清一件事：Agent 的每一步都真的作用于外部世界（改数据、发邮件、调接口），一旦某一步被外部文本诱导，就会越权去改它本不该动的东西——而模型的 <b>context</b> 又分不清"指令"与"被读的数据"——<strong>这就要求</strong>先用最小权限与沙箱把风险关进笼子。<b class="rn-key">生产先解决安全</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>生产先解决安全</b>」，<strong>那么</strong>加进来的沙箱、校验与人审都会推高开销——<strong>这就要求</strong>把账算平：盯住 <b>tokens</b> 与尾部延迟，用缓存与模型路由把成本压住。<b class="rn-key">成本延迟要盯住</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>成本延迟要盯住</b>」，<strong>那么</strong>最后一步是把上面所有检查变成发布门禁——<strong>这就要求</strong>灰度上线、质量监控四线、可回滚，每次发布都跑同一套 <b>tokens</b> 账与用例，证明它"真能上生产"而不是"演示能跑"。<b class="rn-key">上线要有发布门禁</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">Agent 评测</span><span class="meta-tag">pass^k</span><span class="meta-tag">轨迹评测</span><span class="meta-tag">安全与权限</span><span class="meta-tag">成本与延迟</span><span class="meta-tag">发布门禁</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="28-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">榜单分数高，就代表线上能用吗？分数里混进了什么？</div><div class="card-q-hint">提示：从「换一批数据、再跑一次」两个动作去拆——榜单给你的是一个数，线上要的是长期稳定。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>Agent 的评测和模型评测一样有<strong>构念效度</strong>问题（即"测的分数是否真的代表你要测的能力"，第 19 课）：分数 = 真实能力 + 环境适配 + 蒙对 + 噪声。以代码任务为例：SWE-bench（Jimenez 等，arXiv:2310.06770，ICLR 2024）发布时，当时最好模型 Claude 2（用 BM25 检索）约 <strong>1.96%</strong>；随后 SWE-agent（Yang 等，arXiv:2405.15793）报告 <strong>12.47%</strong>（其论文自己的对照基线是 3.8%，约 3.3×）。注意这是<strong>两篇论文、两套基线</strong>，不能直接相除。</div>
+      <div class="content-section"><p>上一课我们把"会工具、会规划"训进了权重。现在到了最后一关：<strong>榜单分数高，为什么上线还是翻车？</strong></p><p><strong>因为</strong>榜单测的是"在这套任务、这个环境、这次采样下能不能答对"，而生产关心的是"换一组数据、多跑几百次、还要付得起 <b>tokens</b> 与延迟"——两者不是同一件事。<strong>就像</strong>驾照场地考 vs 真实马路：场地里倒库满分，不等于雨天晚高峰也能开好。<strong>所以</strong>先把"跑分"与"可用"的差距摆清楚。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：跑分里的"非能力成分"</div>
+        <div class="step"><div class="step-title">Step 1：一个分数由四部分组成</div>
+          <table><tr><th>成分</th><th>说明</th><th>上线后还在吗</th></tr><tr><td>真实能力</td><td>确实会做</td><td><strong>在</strong></td></tr><tr><td>环境适配</td><td>贴合这套任务格式</td><td>换环境就没了</td></tr><tr><td>蒙对</td><td>瞎猜命中</td><td>换数据就没了</td></tr><tr><td>噪声</td><td>抽样波动</td><td>不承载能力</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条拆解：上线后真正留下来的只有<strong>真实能力</strong>——其余三项会在换数据、换环境、重复采样时蒸发。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：同一榜单上的巨大差距</div>
+          <table><tr><th>方案</th><th>SWE-bench 解决率</th></tr><tr><td>SWE-bench 当时最好模型 Claude 2（BM25 检索，2023）</td><td><strong>1.96%</strong>（arXiv:2310.06770）</td></tr><tr><td>SWE-agent 报告</td><td><strong>12.47%</strong>（arXiv:2405.15793）</td></tr><tr><td>同论文口径</td><td>12.47% ÷ 3.8%（其对照基线）≈ <strong>3.3×</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：两篇论文、两套基线不能直接相除；按 SWE-agent 论文自己的对照基线 3.8%（即 3.79% 的四舍五入），提升约 <strong>3.3×</strong>。可见"换方法"能改分数，但绝对水位仍然很低：<strong>榜单上的高分，往往只是相对进步。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：人的基线与 AI 的差距</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>GAIA 人类基线（arXiv:2311.12983）</td><td>约 92%</td></tr><tr><td>同期 AI 系统</td><td>明显更低（差距数十个百分点）</td></tr><tr><td>含义</td><td>任务对人类简单、对 Agent 难</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：GAIA 的设计目标是"人类约 92% 能做对、对 AI 却很难"。<strong>把人类与 AI 的差距摆在台面上，比看单一分数更能说明"离能用还有多远"。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>评测的第一步是<strong>承认分数不等于能力</strong>：只有"真实能力"会跟着你上线，环境适配、蒙对与噪声都会蒸发。所以看 Agent 的分数，先问三件事——<strong>换数据还灵吗？换环境还灵吗？重复跑还灵吗？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','28-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','28-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-28-1" class="llm-section"><button class="llm-btn" onclick="startChat('28-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="28-1"><div class="chat-toolbar"><button onclick="copyChat('28-1')">📋 复制对话</button><button onclick="clearChat('28-1')">🗑 清空</button><button onclick="stopLLM('28-1')" id="stop-btn-28-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('28-1')" id="regenerate-btn-28-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="28-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"跑分 vs 可用"有疑问？比如「该看哪个榜单」「怎么设计自己的测试集」？<br><br>说清你的场景，我帮你判断该补哪一类评测。</div></div><div class="chat-input-row"><textarea data-input="28-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('28-1')}" rows="1" placeholder="例如：怎么建自己的评测集？"></textarea><button onclick="sendLLM('28-1')">发送</button></div></div></div>
+      <div id="tab-qna-28-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('28-1')">🔄 换一批</button></div><div class="qna-list" data-qna="28-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="28-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">同一个任务，怎么保证它每次都能做对？</div><div class="card-q-hint">提示：一次成功说明不了什么——想想要"连续几次都对"才算稳，这个概率会怎么随次数变化？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>τ-bench</strong>（Yao 等，arXiv:2406.12045）用"模拟用户 + 领域 API + 政策文档"评测 Agent，并提出 <strong>pass^k</strong>：同一任务连续 k 次尝试都成功的概率，用来衡量<strong>可靠性</strong>而非单次最好成绩。报告显示：即便是当时最好的函数调用 Agent（如 gpt-4o），<strong>两域合计</strong>的任务成功率也 <strong>&lt; 50%</strong>（这是两域平均口径；零售单域 pass@1 约 61%、高于此，不应与单域数字直接对撞），零售场景 <strong>pass^8 &lt; 25%</strong>。</div>
+      <div class="content-section"><p>上一张卡片说明跑分不等于可用。那么生产最关心的"稳定"该怎么量？<strong>为什么单次成功率不够，要看连续成功率？</strong></p><p><strong>因为</strong>一次成功可能只是运气；用户会反复用、任务会重复跑，而可靠性是<strong>连乘</strong>的——单次 90% 看着不错，连做 10 次全对就只剩三成多。<strong>就像</strong>验枪不能只打一发：要连续打靶都上环，才算枪准；单发命中可能是手气。<strong>所以</strong>要用 pass^k 把"稳定性"算出来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：pass^k 与可靠性的衰减</div>
+        <div class="step"><div class="step-title">Step 1：pass^k 的定义</div>
+          <table><tr><th>指标</th><th>含义</th></tr><tr><td>pass@k</td><td>k 次里有 1 次成功即可（能力上限）</td></tr><tr><td>pass^k</td><td>每任务 k 次全都成功（可靠性）</td></tr><tr><td>严格定义</td><td>pass^k = E[(pᵢ)^k]：每个任务 i 的连续 k 次全对率 pᵢ^k，再在任务上取平均</td></tr><tr><td>与 p^k 的关系</td><td>f(x)=x^k 在 k&gt;1 时为凸，由 Jensen 不等式有 <strong>E[(pᵢ)^k] ≥ p^k</strong>——所以 <strong>p^k 只是下界</strong>（保守估计），真实 pass^k 不低于它</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条区分：<strong>pass@k 回答"能不能做到"，pass^k 回答"能不能每次都做到"</strong>——换个 <b>context</b> 还能不能对，才是可靠性真正要回答的；注意 p^k 只是 pass^k 的<strong>下界</strong>，真实可靠性不会低于它。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：单次成功率如何随次数衰减</div>
+          <table><tr><th>单次 p</th><th>连续 8 次全对 ≈ p^8</th></tr><tr><td>0.90</td><td>0.90⁸ ≈ <strong>0.430</strong></td></tr><tr><td>0.70</td><td>0.70⁸ ≈ <strong>0.058</strong></td></tr><tr><td>0.50</td><td>0.50⁸ ≈ <strong>0.0039</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：单次 50% 时，连续 8 次全对只剩 <strong>0.39%</strong>；即便单次 90%，8 次全对也只有 <strong>43%</strong>。这就是 τ-bench 报告"pass^8 &lt; 25%"的含义——<strong>它比单次成功率吓人得多。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：这对发布意味着什么</div>
+          <table><tr><th>要求</th><th>推论</th></tr><tr><td>要 8 次全对 ≥ 99%</td><td>单次 p 需 ≈ <strong>0.9987</strong>（0.9987⁸ ≈ 0.99）</td></tr><tr><td>实际做法</td><td>关键动作加重试、幂等与人审</td></tr><tr><td>结论</td><td>靠"提高单次成功率"很难达标，必须加兜底</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：要 8 次全对到 99%，单次要 0.9987 以上（0.9987⁸ ≈ 0.99）。注意这是按<strong>保守下界 p^k 反推的充分条件</strong>——真实 pass^k 不低于 p^k，所以做到 0.9987 一定够、反之未必要这么高。现实中仍很难。所以工程上不追求"单次完美"，而是<strong>对关键动作加重试 + 幂等 + 人工确认</strong>。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>可靠性的正确量法是 <strong>pass^k（连续 k 次全对）</strong>，p^k 是它的<strong>下界</strong>（真实值不低于 p^k），比单次成功率严格得多。生产上的结论很实在：<strong>别指望"单次做到完美"，要给关键动作准备重试、幂等与人审兜底。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','28-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','28-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-28-2" class="llm-section"><button class="llm-btn" onclick="startChat('28-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="28-2"><div class="chat-toolbar"><button onclick="copyChat('28-2')">📋 复制对话</button><button onclick="clearChat('28-2')">🗑 清空</button><button onclick="stopLLM('28-2')" id="stop-btn-28-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('28-2')" id="regenerate-btn-28-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="28-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 pass^k 有疑问？比如「k 取多少合适」「怎么提升稳定性」？<br><br>说清你的场景与容错要求，我帮你定 k 与兜底策略。</div></div><div class="chat-input-row"><textarea data-input="28-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('28-2')}" rows="1" placeholder="例如：pass^k 里 k 该取多少？"></textarea><button onclick="sendLLM('28-2')">发送</button></div></div></div>
+      <div id="tab-qna-28-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('28-2')">🔄 换一批</button></div><div class="qna-list" data-qna="28-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="28-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">为什么"最终答对"不能证明中间没走弯路？</div><div class="card-q-hint">提示：结果栏只记"最后对不对"——那"怎么走到的"记在哪里？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>Agent 评测分两层：<strong>结果评测</strong>（终态是否等于目标态，τ-bench 就是比对对话结束后的数据库状态）与<strong>过程评测</strong>（每一步动作是否合理、是否违规）。只看结果会漏掉"过程错但终态对"，而真正的生产风险（越权、绕规矩、偶然成功）恰恰藏在过程里。</div>
+      <div class="content-section"><p>上一张卡片用 pass^k 量了稳定性。但"对"本身还需要拆开看——<strong>为什么最终答对，不能证明中间没走弯路？</strong></p><p><strong>因为</strong>终态只记录"结果"，不记录"怎么来的"：一次执行可能绕了远路、越了权限、靠偶然一步蒙对，而终态看起来一样。要定位问题，必须回看每一步动作与当时写进 <b>context</b> 的内容。<strong>就像</strong>看监控回放：只看最后东西到位了不够，要知道是哪一步差点出事。<strong>所以</strong>评测要分结果与过程两层。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：结果评测 vs 过程评测</div>
+        <div class="step"><div class="step-title">Step 1：两层各测什么</div>
+          <table><tr><th>层</th><th>测什么</th><th>能发现</th><th>漏掉</th></tr><tr><td>结果评测</td><td>终态 = 目标态</td><td>任务是否完成</td><td>过程违规 / 绕路</td></tr><tr><td>过程评测</td><td>每步动作是否合理</td><td>违规、多余调用、越权</td><td>整体是否达成目标</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条分工：<strong>结果评测管"做没做成"，过程评测管"做得对不对"</strong>——生产两者都要。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：定位"从哪一步开始歪"</div>
+          <table><tr><th>步</th><th>动作</th><th>判定</th></tr><tr><td>1–7</td><td>查询、核对</td><td>正常</td></tr><tr><td>8</td><td>跳过政策校验直接改数据</td><td><strong>越规（结果可能仍对）</strong></td></tr><tr><td>9–10</td><td>收尾</td><td>正常</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：一条 10 步轨迹，终态正确，但第 <strong>8 步</strong>违规——只做结果评测会判"通过"，做过程评测才能把这 1 步捞出来。<strong>定位到步，才谈得上修。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：过程评测的成本</div>
+          <table><tr><th>方法</th><th>成本</th><th>适用</th></tr><tr><td>规则校验</td><td>低</td><td>可写死的约束（权限、格式）</td></tr><tr><td>人工抽检</td><td>高</td><td>高风险动作的抽查</td></tr><tr><td>LLM 当裁判</td><td>中</td><td>开放性步骤的合理性判断</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条选型：先用<strong>规则</strong>拦硬约束（便宜、确定），再对开放式步骤用 <strong>LLM 裁判</strong>（需校准），高风险动作才上<strong>人工</strong>——三层配比，而不是全靠人。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>评测要分两层：<strong>结果评测</strong>回答"做没做成"，<strong>过程评测</strong>回答"做得对不对"。生产风险大多藏在过程里——所以判据是：<strong>先有终态比对，再能定位到具体是第几步、哪个动作出的问题。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','28-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','28-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-28-3" class="llm-section"><button class="llm-btn" onclick="startChat('28-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="28-3"><div class="chat-toolbar"><button onclick="copyChat('28-3')">📋 复制对话</button><button onclick="clearChat('28-3')">🗑 清空</button><button onclick="stopLLM('28-3')" id="stop-btn-28-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('28-3')" id="regenerate-btn-28-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="28-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对轨迹评测有疑问？比如「怎么记录轨迹」「LLM 裁判怎么校准」？<br><br>说清你的任务与风险点，我帮你设计两层评测。</div></div><div class="chat-input-row"><textarea data-input="28-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('28-3')}" rows="1" placeholder="例如：轨迹怎么评？"></textarea><button onclick="sendLLM('28-3')">发送</button></div></div></div>
+      <div id="tab-qna-28-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('28-3')">🔄 换一批</button></div><div class="qna-list" data-qna="28-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="28-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">Agent 读到的外部文本，和你的指令在模型眼里有区别吗？</div><div class="card-q-hint">提示：Agent 读进来的外部文本，和你的指令，在模型眼里有区别吗？再想它会"照做"什么。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>对模型来说，<strong>系统指令、用户问题、工具返回的网页内容都是同一套 token 序列</strong>——没有类型区分。这正是<strong>提示注入</strong>（prompt injection）的根源：一段外部文本里写着"忽略以上指令"，模型可能真的照做。MCP 规范也明确：<strong>工具描述不可全信</strong>，调用前应取得用户同意。</div>
+      <div class="content-section"><p>上一张卡片说过程也要能评。但比"评测"更靠前的是"别出事"——<strong>为什么必须先解决权限与安全？</strong></p><p><strong>因为</strong>Agent 会真的执行动作（改数据、发邮件、调接口），而它读进来的外部文本与你的指令在 <b>context</b> 里长得一模一样，无法从"这段来自网页"推出"它不是指令"。<strong>就像</strong>给小孩一把万能钥匙之前，得先装好锁、划好能进的房间——否则钥匙越强，风险越大。<strong>所以</strong>要先把威胁与防线摊开。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：威胁与四道防线</div>
+        <div class="step"><div class="step-title">Step 1：三类主要威胁</div>
+          <table><tr><th>威胁</th><th>怎么发生</th></tr><tr><td>提示注入</td><td>外部文本被当成指令执行</td></tr><tr><td>越权调用</td><td>Agent 用了不该有的权限</td></tr><tr><td>数据外泄</td><td>把敏感信息写进外部请求</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条分类：三类威胁的共性都是<strong>"模型分不清指令与数据"</strong>——防御必须做在系统层，而不是指望模型自己识别。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：攻击面有多大（示意）</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>挂载工具数</td><td>10 个</td></tr><tr><td>每个工具每次返回外部文本</td><td>1 段</td></tr><tr><td>可被注入的入口</td><td>10 × 1 = <strong>10 个</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：10 个工具各返回 1 段外部文本，就有 <strong>10 个</strong>注入入口；只要 1 个被污染，整条链路都可能被劫持。<strong>攻击面随工具数线性增长。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：四道防线</div>
+          <table><tr><th>防线</th><th>做法</th></tr><tr><td>数据 / 指令分区</td><td>用结构化标记隔开外部内容</td></tr><tr><td>最小权限</td><td>只给完成任务所需的权限</td></tr><tr><td>沙箱 / 人工确认</td><td>高风险动作沙箱执行、需用户同意</td></tr><tr><td>输出校验</td><td>对写操作做业务校验与审计</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条总纲：四道防线是<strong>纵深防御</strong>——任何一道都不完美，但叠加后能把"一次注入"变成"难以造成不可逆后果"。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>安全的前提是承认一条事实：<strong>对模型来说，指令和数据都是 token 序列，没有类型之分</strong>。因此防御只能在系统层——分区、最小权限、沙箱、输出校验，四道一起上。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','28-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','28-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-28-4" class="llm-section"><button class="llm-btn" onclick="startChat('28-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="28-4"><div class="chat-toolbar"><button onclick="copyChat('28-4')">📋 复制对话</button><button onclick="clearChat('28-4')">🗑 清空</button><button onclick="stopLLM('28-4')" id="stop-btn-28-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('28-4')" id="regenerate-btn-28-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="28-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 Agent 安全有疑问？比如「提示注入怎么防」「权限怎么划」？<br><br>说清你的工具与数据敏感度，我帮你排优先级。</div></div><div class="chat-input-row"><textarea data-input="28-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('28-4')}" rows="1" placeholder="例如：提示注入怎么防？"></textarea><button onclick="sendLLM('28-4')">发送</button></div></div></div>
+      <div id="tab-qna-28-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('28-4')">🔄 换一批</button></div><div class="qna-list" data-qna="28-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="28-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">要让一个跑通的 Agent 上线，token 与延迟的账要怎么算？</div><div class="card-q-hint">提示：算一算一次任务要几次模型调用、多少 token；再想用户能等的延迟上限是多少。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>Agent 的成本结构与单次问答完全不同：一次任务要多次模型往返、每次都要带上工具定义与历史（承第 20/21 课），所以 <b>tokens</b> 按步数放大；延迟则受"多轮串联"影响，用户感知的是<strong>尾部延迟</strong>（P95），而不是平均值。</div>
+      <div class="content-section"><p>上一张卡片把安全关进了笼子。但一个"又对又安全"的 Agent 仍可能被叫停——<strong>为什么成本和延迟能把它拦下来？</strong></p><p><strong>因为</strong>Agent 的每次任务都是多次模型调用叠加：一次问答约 200 token，10 步 Agent 每步重发一次历史，累计 200 × 55 = 11,000 token；延迟也随轮次串起来，尾部延迟被放大。<strong>就像</strong>预算有限的项目：方案再好，超支就只能砍。<strong>所以</strong>要把成本与延迟的账算清楚。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：成本与延迟的来源</div>
+        <div class="step"><div class="step-title">Step 1：一次 Agent 任务的 token 账</div>
+          <table><tr><th>项</th><th>数值（示意：以单次 200 token、10 步为例）</th></tr><tr><td>一次问答输入</td><td>200 token</td></tr><tr><td>10 步任务、每步重发历史</td><td>200 × (1+…+10) = 200 × 55 = <strong>11,000 token</strong></td></tr><tr><td>倍数</td><td>11,000 ÷ 200 = <strong>55×</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意：以单次 200 token、10 步为例）：同一个问题，走 Agent 要 <strong>11,000 token</strong>，是单次问答的 <strong>55 倍</strong>（承第 20 课的平方增长口径；此处每步按 200 token 假设，与第 26 课"每步 2,000 token"是不同假设，两处都属示意、不能直接比对）。<strong>能力提升是真实的，账单也是真实的。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：用户感知的是尾部延迟</div>
+          <table><tr><th>指标</th><th>含义</th><th>为什么重要</th></tr><tr><td>平均延迟</td><td>所有请求的均值</td><td>掩盖掉最慢的那批</td></tr><tr><td>P95 延迟</td><td>95% 请求都不超过它</td><td><strong>用户体验由它决定</strong></td></tr><tr><td>Agent 特点</td><td>多轮串联，尾部被放大</td><td>一步慢、整条慢</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条提醒：Agent 的每一步都串在一条链上，所以<strong>单步的慢会被累加</strong>——盯平均延迟会低估用户的真实等待。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：三种降本手段</div>
+          <table><tr><th>手段</th><th>做法</th><th>代价</th></tr><tr><td>缓存</td><td>复用相同前缀 / 相同子问题</td><td>需判断可否复用</td></tr><tr><td>模型路由</td><td>简单步走小模型，难步走大模型</td><td>需准确分类</td></tr><tr><td>减少步数</td><td>能一次调用解决就别上循环</td><td>可能牺牲能力</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条排序：<strong>先减步数（最省）、再上缓存与路由</strong>——第 20 课"能简单就别复杂"在成本这一维同样成立。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>Agent 的成本与延迟不是"附带开销"，而是<strong>能否上线的一等约束</strong>：token 按步数放大到数十倍、尾部延迟被多轮串起来。降本的顺序是<strong>先减步数，再缓存与路由</strong>。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','28-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','28-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-28-5" class="llm-section"><button class="llm-btn" onclick="startChat('28-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="28-5"><div class="chat-toolbar"><button onclick="copyChat('28-5')">📋 复制对话</button><button onclick="clearChat('28-5')">🗑 清空</button><button onclick="stopLLM('28-5')" id="stop-btn-28-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('28-5')" id="regenerate-btn-28-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="28-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对成本延迟有疑问？比如「怎么估一次任务多少钱」「P95 怎么降」？<br><br>说清你的步数与模型选型，我帮你估账。</div></div><div class="chat-input-row"><textarea data-input="28-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('28-5')}" rows="1" placeholder="例如：一次 Agent 任务要多少 token？"></textarea><button onclick="sendLLM('28-5')">发送</button></div></div></div>
+      <div id="tab-qna-28-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('28-5')">🔄 换一批</button></div><div class="qna-list" data-qna="28-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="28-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">为什么上线必须配一套发布门禁与回滚？</div><div class="card-q-hint">提示：想一想"演示能跑"和"线上稳定"最大的区别——线上出一次大事的代价是什么？怎么把风险控制住？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>把前面五张卡片串起来，就是一套<strong>发布门禁</strong>：同一套私有评测集 + 同一提示 + 固定模型版本；质量、可靠性、安全、成本四线同时达标才放量；先灰度、再全量；任何一条越线就回滚。第 19 课的"发布门禁"在这里扩展到了 Agent 的轨迹与动作层。</div>
+      <div class="content-section"><p>前面五张卡片分别讲了分数、可靠性、过程、安全、成本。最后一步是把它们变成一道门——<strong>为什么上线必须配门禁与回滚？</strong></p><p><strong>因为</strong>"演示能跑"只证明一次；线上要面对千变万化的输入，一次越权、一次数据泄露的代价远高于拦住的收益。<strong>就像</strong>飞机起飞前的检查单：不是不信任飞行员，而是用固定流程把"偶发疏忽"变成"每次都拦住"。<strong>所以</strong>要把检查固化成门禁。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：发布门禁怎么定</div>
+        <div class="step"><div class="step-title">Step 1：门禁必须固定四件事</div>
+          <table><tr><th>固定项</th><th>为什么</th></tr><tr><td>同一私有评测集</td><td>防污染、可比</td></tr><tr><td>同一提示 + 模型版本</td><td>排除混淆变量</td></tr><tr><td>同一判分口径</td><td>分数可跨版本比</td></tr><tr><td>同一 tokens 账</td><td>成本可回归</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条原则：门禁的价值在于<strong>可比</strong>——四项只要有一项变，历史分数就失去参照。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：四条监控线同时达线</div>
+          <table><tr><th>线</th><th>指标</th><th>越线动作</th></tr><tr><td>质量</td><td>任务成功率（完成率）</td><td>回滚</td></tr><tr><td>可靠性</td><td>pass^k、错误率、重试率</td><td>回滚</td></tr><tr><td>安全</td><td>越权 / 注入告警</td><td><strong>立即停量</strong></td></tr><tr><td>成本延迟</td><td>tokens / P95</td><td>限流或降级</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条纪律：<strong>四条线是"与"不是"或"</strong>——任何一条不达标都不放量；安全线优先级最高，触发即停。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：灰度的节奏</div>
+          <table><tr><th>阶段</th><th>流量</th><th>观察</th></tr><tr><td>灰度</td><td>5%</td><td>观察 1 个完整周期</td></tr><tr><td>扩量</td><td>50%</td><td>不复现问题才继续</td></tr><tr><td>全量</td><td>100%</td><td>保持回滚能力</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：5% → 50% → 100% 的三段放量，让问题在"影响 5% 用户"时暴露，而不是在 100% 时才发现。<strong>灰度是把风险切成可控的小块。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>第四部分收口：从 Transformer 到 Agent 生产化，主线始终是同一件事——<strong>把"看起来行"变成"可验证地行"</strong>。Agent 的上线门禁是这条主线的最后一站：<strong>固定评测集 + 四线监控 + 灰度回滚</strong>，用可执行的检查代替"应该没问题"。这也是第四部分对"把模型造出来、再让它上得了线"这条路给出的回答——全课程还没结束：从下一课起进入<b>第五部分 · 自主研究</b>。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','28-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','28-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-28-6" class="llm-section"><button class="llm-btn" onclick="startChat('28-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="28-6"><div class="chat-toolbar"><button onclick="copyChat('28-6')">📋 复制对话</button><button onclick="clearChat('28-6')">🗑 清空</button><button onclick="stopLLM('28-6')" id="stop-btn-28-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('28-6')" id="regenerate-btn-28-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="28-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对发布门禁有疑问？比如「灰度多久合适」「指标怎么定阈值」？<br><br>说清你的业务与风险容忍度，我帮你定门禁与回滚策略。</div></div><div class="chat-input-row"><textarea data-input="28-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('28-6')}" rows="1" placeholder="例如：发布门禁该看哪些指标？"></textarea><button onclick="sendLLM('28-6')">发送</button></div></div></div>
+      <div id="tab-qna-28-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('28-6')">🔄 换一批</button></div><div class="qna-list" data-qna="28-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 28 课完成 · 下一课：第 29 课「自主研究全景与自主度分级」</p>
+    <a href="#" onclick="switchLesson(29);return false;">进入第 29 课：自主研究全景与自主度分级 →</a>　·　<a href="#" onclick="switchLesson(27);return false;">← 上一课：Agent 训练</a>
+  </div></div>

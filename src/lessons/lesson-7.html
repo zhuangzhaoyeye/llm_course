@@ -1,0 +1,207 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 7 课：Scaling Laws 与算力预算</h2>
+    <p class="subtitle">第一部分我们看清了模型长什么样。现在进入第二部分——模型是怎么被"造"出来的。第一站是最底层的约束：给定一笔算力预算，该造多大的模型、喂多少数据？这不是拍脑袋，而是有可计算的公式。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 用 C ≈ 6ND 估算一次训练的算力，并反推给定预算下的最优模型大小与 token 数<br>② 说清 Chinchilla 的 20:1 规则怎么来的，以及为什么现代模型故意"过训练"<br>③ 判断一个模型的训练配方是否合理，并解释 MoE（混合专家：把模型拆成许多个专家子网络，每个 token 只激活其中少数几个，用较少计算换取更大参数量）为什么让数据墙更严重</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：从"算力怎么算"到"给定预算怎么分配"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要谈"该造多大模型"，<strong>必须先能算清一次训练花多少算力</strong>——<strong>因此</strong>需要一条可复算的公式：训练 FLOPs ≈ 6 × 参数量 × token 数（前向 2 + 反向 4），<strong>否则</strong>"预算"只是一个说不清的量。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">有了算力公式，下一个问题是这笔算力怎么在"模型大小 N"和"数据量 D"之间分——<strong>这就要求</strong>做实验找出最优分配：Chinchilla 用 400+ 次训练发现 N 与 D 应<strong>等比例增长</strong>（各正比于 C<sup>0.5</sup>），<strong>于是</strong>得到"约 20 token / 参数"的经验规则。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">但 20:1 只是"训练最省"的点，<strong>因为</strong> inference 成本正比于参数量而非 <b class="rn-key">token</b> 数，<strong>所以</strong>现代模型故意<strong>过训练</strong>——用远超 20:1 的数据量训一个更小的模型，训练多花一点、推理长期省很多（Llama 3 8B 用了约 1875:1）。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">过训练需要海量数据，<strong>这就要求</strong>回答"数据够不够"——高质量公开文本约 300 万亿 token（估算），而 Chinchilla 规则下万亿参数模型需要 20 万亿 token 量级，<strong>于是</strong>出现"数据墙"：算力还在涨，可用的新数据却快见底。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">数据墙之下，<strong>因此</strong>出现两条绕行路线：一是 <b class="rn-key">MoE</b>（把总参数做大、激活参数压住，用容量换数据效率），二是合成数据与数据复用；<strong>但</strong> MoE 让 <b class="rn-key">token</b> 需求按<strong>总参数</strong>而非激活参数增长，<strong>于是</strong>数据墙反而更严重。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">把上面五步收成一个可操作的决策流程：给定预算 C → 用 N<sub>opt</sub> ≈ √(C / (6 × 20)) 定模型大小 → 按过训练倍数定 token 数 → 检查数据是否够 → 不够则考虑 MoE 或合成数据，<strong>于是</strong>你就能自己审一份训练配方。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">Scaling Laws</span><span class="meta-tag">Chinchilla</span><span class="meta-tag">Compute Budget</span><span class="meta-tag">Overtraining</span><span class="meta-tag">Data Wall</span><span class="meta-tag">MoE</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="7-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">模型越大越好，还是数据也要按比例跟上？——两篇论文为此打了一架，后来谁赢了？</div><div class="card-q-hint">提示：先想"模型大小"和"数据量"是不是在抢同一笔算力预算；再看两篇论文各主张把预算多分给谁；最后想：如果实验口径或做法有偏差，结论会不会整个反过来。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Scaling Law（缩放律：把「模型多大、数据多少」写成能预测的经验公式）</strong>领域最有名的一次分歧。① <strong>Kaplan et al. 2020</strong>（《Scaling Laws for Neural Language Models》, arXiv:2001.08361）：损失随模型规模 N、数据量 D、算力 C 呈<strong>幂律（power law：损失按固定指数随规模下降的规律）</strong>下降；他们发现「更大的模型样本效率更高」，主张把算力主要投给模型——算力翻 10 倍时，参数涨约 5.5 倍、数据只涨约 1.8 倍。② <strong>Hoffmann et al. 2022</strong>（《Training Compute-Optimal Large Language Models》, arXiv:2203.15556，DeepMind）：用 400+ 次受控实验修正为 N 与 D <strong>近似等比例增长</strong>（各 ∝ C<sup>0.5</sup>），经验上约 <strong>20 token / 参数</strong>；并用 70B 参数、1.4T <strong>token（模型读写文本的最小单位）</strong>的 Chinchilla，在同等的算力下打败了 280B 参数的 Gopher。痛点：当时整个行业都在「把模型做大、数据几乎不变」，却没人验证过这笔账到底该怎么分。</div>
+      <div class="content-section"><p>上一课我们把 LLM 家族画成了一张全景图。从这一课起，镜头切到「模型是怎么被造出来的」，第一站是最底层的约束——算力。</p><p>要谈「该造多大模型」，前提是先能算清一次训练花多少算力。这条公式（训练 FLOPs ≈ 6 × 参数量 × token 数，算力按 BF16（一种训练常用的半精度浮点格式）口径计）已在第 5 课推导过，这里直接拿来用，不再重复。</p><p>但「怎么算」只是一把尺子，真正有故事的问题是<strong>怎么分</strong>：同一笔算力预算，是换成一个更大的模型，还是换成更多的训练数据？2019 到 2022 年，这个问题被两篇论文公开「吵」了一架。</p><p>可以把这<strong>类比</strong>成给仓库配货架和货：算力是装修预算，货架是模型参数（决定能装多少），货是要喂的数据（决定装了什么）。Kaplan 一派说「多搭货架，货少一点也高效」；Chinchilla 一派说「货架和货要按比例一起加，光搭货架是浪费」。</p><p>谁赢了、为什么赢，以及这个故事怎么直接引出后面「过训练」的那张卡，都在下面的算账里。</p><p><strong>照 Kaplan 的配方，算力会被浪费</strong>：GPT-3 用 175B 参数却只喂了 300B token（约 1.7 token / 参数），而按后来修正的 20:1，它本应喂约 3.5T token——数据少了约 <strong>12 倍</strong>，多出来的是「空转」的大模型。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 两篇论文的算账：同一笔预算到底怎么分</div>
+        <div class="step"><div class="step-title">Step 1：两派的主张——算力翻 10 倍，各分给谁</div>
+          <table><tr><th>论文</th><th>参数量随算力增长</th><th>数据量随算力增长</th><th>两者相乘（≈6ND 倍数）</th></tr><tr><td>Kaplan et al. (2020)</td><td>N ∝ C<sup>0.73</sup>（约 5.5×）</td><td>D ∝ C<sup>0.27</sup>（约 1.8×）</td><td>5.5 × 1.8 ≈ 9.9×</td></tr><tr><td>Chinchilla (2022)</td><td>N ∝ C<sup>0.50</sup>（约 3.16×）</td><td>D ∝ C<sup>0.50</sup>（约 3.16×）</td><td>3.16 × 3.16 ≈ 10×</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">两派都自洽——都把算力放大了约 10 倍。差别全在「给谁多」：Kaplan 让模型涨 5.5 倍、数据只涨 1.8 倍；Chinchilla 让两者都涨约 3.16 倍。这就是「模型越大越好」与「数据也要跟上」的分歧点。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：同一笔预算，两种分法各花多少（数值为示意）</div>
+          <table><tr><th>方案</th><th>参数量 N</th><th>数据 D</th><th>算力 6ND</th><th>相对基准</th></tr><tr><td>基准（示意）</td><td>10B</td><td>100B</td><td>6 × 10e9 × 100e9 = 6 × 10²¹</td><td>1×</td></tr><tr><td>只把参数翻倍（Kaplan 式）</td><td>20B</td><td>100B</td><td>6 × 20e9 × 100e9 = 1.2 × 10²²</td><td>2×</td></tr><tr><td>参数与数据一起翻倍（Chinchilla 式）</td><td>20B</td><td>200B</td><td>6 × 20e9 × 200e9 = 2.4 × 10²²</td><td>4×</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">同样把参数翻倍：数据不动，算力只涨 2 倍；数据跟着翻倍，算力才涨 4 倍。因为 C ≈ 6ND 是 N 与 D 的<strong>乘积</strong>——两者各翻一倍，乘积就翻四倍。（这一组数值是示意，不指向任何真实模型。）</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：把「20:1」解出来</div>
+          <table><tr><th>步骤</th><th>计算</th><th>结果</th></tr><tr><td>算力公式</td><td>C ≈ 6 × N × D</td><td>——</td></tr><tr><td>代入 D = 20 N</td><td>C ≈ 6 × N × 20N</td><td>= 120 N²</td></tr><tr><td>反解模型大小</td><td>N ≈ √(C / 120)</td><td>给定预算即可定 N</td></tr><tr><td>复算 Chinchilla</td><td>70B × 20</td><td>= 1.4 × 10¹² = 1.4T token</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">70B × 20 = 1.4T，与论文里 Chinchilla 的「70B 参数、1.4T token」完全对上。所以「20 token / 参数」不是拍脑袋的经验值，而是从 N ∝ C<sup>0.5</sup>、D ∝ C<sup>0.5</sup> 与 C ≈ 6ND 联立解出来的。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 4：Gopher vs Chinchilla——同算力下的胜负</div>
+          <table><tr><th>模型</th><th>参数量</th><th>训练 token</th><th>token / 参数</th><th>训练算力 6ND</th></tr><tr><td>Gopher</td><td>280B</td><td>300B</td><td>≈1.1</td><td>6 × 280e9 × 300e9 ≈ 5.04 × 10²³</td></tr><tr><td><strong>Chinchilla</strong></td><td><strong>70B</strong></td><td><strong>1.4T</strong></td><td><strong>20</strong></td><td>6 × 70e9 × 1.4e12 ≈ 5.88 × 10²³</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">两者算力几乎一样（5.04e23 vs 5.88e23，相差约 17%），Chinchilla 的参数只有 Gopher 的 1/4，却在多数基准上更好。这一局 Chinchilla 赢——因为 Gopher 正是「模型大、数据少」的旧配方（1.1 token / 参数，远低于 20）。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>这不是「谁对谁错」的学术八卦，而是一次关于<strong>口径与实验方法</strong>的教训：Kaplan 的分配之所以偏保守，是因为实验中的口径偏差（哪些参数与算力被计入）与设置差异，把结论推向了「模型越大越好」。Chinchilla 修正后给出一个可复算的答案——<strong>同一笔算力下，模型与数据应近似等比例增长（约 20 token / 参数）</strong>。<strong>但「训练最省」不等于「总成本最省」</strong>：工业界很快发现，把模型压小、数据喂到远超 20:1（过训练），长期推理反而更便宜——这正是本课第 3 张卡要算的账。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','7-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','7-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-7-1" class="llm-section"><button class="llm-btn" onclick="startChat('7-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="7-1"><div class="chat-toolbar"><button onclick="copyChat('7-1')">📋 复制对话</button><button onclick="clearChat('7-1')">🗑 清空</button><button onclick="stopLLM('7-1')" id="stop-btn-7-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('7-1')" id="regen-btn-7-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="7-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 Kaplan 与 Chinchilla 的分歧有疑问？比如「为什么两篇会算出不同答案？」「20:1 是普适常数吗？」<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="7-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('7-1')}" rows="1" placeholder="例如：如果算力翻 4 倍，两派分别会怎么分配？"></textarea><button onclick="sendLLM('7-1')">发送</button></div></div></div>
+      <div id="tab-qna-7-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('7-1')">🔄 换一批</button></div><div class="qna-list" data-qna="7-1"><div class="qna-item"><div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">1.</span><span class="q-text">Kaplan 主张「把预算多给模型」，到底多给多少？和 Chinchilla 差在哪？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('7-1-0', this)" title="标记已学透"><span class="q-arrow">▾</span></div><div class="qna-item-a"><p>两派都同意「算力翻 10 倍，就把训练放大 10 倍」，分歧只在<strong>分给谁</strong>：</p><table><tr><th>对象</th><th>参数量</th><th>训练 token</th><th>token / 参数</th></tr><tr><td>Kaplan 的推荐（10× 算力）</td><td>涨约 5.5×</td><td>涨约 1.8×</td><td>比值随算力增大而下降</td></tr><tr><td>照此配方的 GPT-3</td><td>175B</td><td>300B</td><td>≈1.7</td></tr><tr><td>Chinchilla 的推荐（10× 算力）</td><td>涨约 3.16×</td><td>涨约 3.16×</td><td>≈20</td></tr></table><p>两派的「10 倍」都自洽：Kaplan 是 5.5 × 1.8 ≈ 9.9 倍，Chinchilla 是 3.16 × 3.16 ≈ 10 倍。差别全在「给模型还是给数据」——这就是「模型越大越好」与「数据也要跟上」的分歧点。</p><br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('7-1-0')">💡 咨询 AI</button></div></div><div class="qna-item"><div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">2.</span><span class="q-text">两篇论文的结论为什么会差这么多？是有人算错了吗？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('7-1-1', this)" title="标记已学透"><span class="q-arrow">▾</span></div><div class="qna-item-a"><p>不是造假，而是<strong>口径与实验设置</strong>的系统性偏差。2024 年的复核工作（Porian et al., 2024, arXiv:2406.19146）把分歧拆成几件事：</p><table><tr><th>分歧来源</th><th>Kaplan (2020)</th><th>Chinchilla (2022) 及后续复核</th></tr><tr><td>最优参数拟合指数</td><td>N<sub>opt</sub> ∝ C<sup>0.73</sup></td><td>N<sub>opt</sub> ∝ C<sup>0.50</sup></td></tr><tr><td>算力 / 参数口径</td><td>未计入最后一层等算力项</td><td>计入全部相关算力项</td></tr><tr><td>学习率与 warmup</td><td>所有 run 共用一套调度</td><td>每个 run 对准自己的训练长度</td></tr><tr><td>实验规模</td><td>偏小，主要靠小模型外推</td><td>400+ 个模型，最大到 16B</td></tr></table><p>教训：scaling law 是实验<strong>拟合</strong>出来的经验公式，口径或实验设计有偏，结论就会偏——它天生需要后来者用更好的实验去修正。所以「20:1」只是很好的近似，不是物理常数。</p><br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('7-1-1')">💡 咨询 AI</button></div></div><div class="qna-item"><div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">3.</span><span class="q-text">「20 token / 参数」这个比例具体是怎么算出来的？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('7-1-2', this)" title="标记已学透"><span class="q-arrow">▾</span></div><div class="qna-item-a"><p>它不是实验里直接量出来的常数，而是从「等比例增长」这条拟合关系与算力公式联立解出来的：</p><table><tr><th>步骤</th><th>计算</th><th>结果</th></tr><tr><td>算力公式</td><td>C ≈ 6 × N × D</td><td>——</td></tr><tr><td>代入 D = 20 N</td><td>6 × N × 20N</td><td>= 120 N²</td></tr><tr><td>反解模型大小</td><td>N ≈ √(C / 120)</td><td>给预算即可定 N</td></tr><tr><td>复算 Chinchilla</td><td>70B × 20</td><td>= 1.4 × 10¹² = 1.4T token</td></tr></table><p>70B × 20 = 1.4T，与论文里 Chinchilla 的「70B 参数、1.4T token」完全对上。对比之下，Kaplan 的分配是「参数涨 5.5 倍、数据只涨 1.8 倍」——同一笔预算，数据明显给少了。</p><br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('7-1-2')">💡 咨询 AI</button></div></div><div class="qna-item"><div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">4.</span><span class="q-text">70B 的 Chinchilla 真的打赢了 280B 的 Gopher？两者的算力差多少？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('7-1-3', this)" title="标记已学透"><span class="q-arrow">▾</span></div><div class="qna-item-a"><p>那一局用的正是「等算力、只换配方」的对照实验：</p><table><tr><th>模型</th><th>参数量</th><th>训练 token</th><th>token / 参数</th><th>训练算力 6ND</th></tr><tr><td>Gopher（旧配方）</td><td>280B</td><td>300B</td><td>≈1.1</td><td>≈5.04 × 10²³</td></tr><tr><td>Chinchilla（新配方）</td><td>70B</td><td>1.4T</td><td>20</td><td>≈5.88 × 10²³</td></tr></table><p>两者算力只差约 17%（5.88e23 ÷ 5.04e23 ≈ 1.17），可近似看作同一笔预算。Chinchilla 参数只有 Gopher 的 <strong>1/4</strong>，训练 token 却是它的 <strong>约 4.7 倍</strong>，结果在多数基准上更好——这直接证明了「当时的模型普遍训练不足」。</p><br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('7-1-3')">💡 咨询 AI</button></div></div><div class="qna-item"><div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">5.</span><span class="q-text">Chinchilla 赢了，为什么现在的模型反而不按 20:1 来了？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('7-1-4', this)" title="标记已学透"><span class="q-arrow">▾</span></div><div class="qna-item-a"><p>因为 20:1 只买到「<strong>训练</strong>最省」，买不到「<strong>总成本</strong>最省」：</p><table><tr><th>模型</th><th>参数量</th><th>训练 token</th><th>token / 参数</th></tr><tr><td>Chinchilla（2022，训练最省）</td><td>70B</td><td>1.4T</td><td>20</td></tr><tr><td>Llama 3 8B（2024，激进过训练）</td><td>8B</td><td>15T</td><td>≈1875</td></tr></table><p>Llama 3 系在约 15T token 上预训练（arXiv:2407.21783），8B 模型的 token / 参数比高达约 1875:1，是 20:1 的近 100 倍。原因是推理成本正比于参数量、且要乘以服务次数——把模型压小、数据喂饱，长期更便宜。为什么这笔账划算，正是本课第 3 张卡要算的。</p><br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('7-1-4')">💡 咨询 AI</button></div></div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="7-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">给定一笔算力预算，模型该造多大、数据该喂多少？</div><div class="card-q-hint">提示：先想两个极端——模型极大但数据极少，和模型极小但数据极多，哪个更亏？再想"每翻倍一次模型，数据该跟着翻多少"。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Chinchilla 缩放律</strong>（Hoffmann et al., DeepMind, 2022）：在固定算力预算下，模型大小 N 与训练 token 数 D 应<strong>等比例增长</strong>——N<sub>opt</sub> ∝ C<sup>0.5</sup>、D<sub>opt</sub> ∝ C<sup>0.5</sup>，经验上约 <strong>20 token / 参数</strong>。论文训练了 400+ 个模型（70M~16B 参数、5B~500B token）得出该结论，并用 70B 参数 / 1.4T token 的 Chinchilla 模型在同等算力下击败了 280B 参数 / 300B token 的 Gopher。</div>
+      <div class="content-section"><p>上一张卡片我们有了算力公式 C ≈ 6ND。现在问题来了：<strong>给定一笔预算 C，N 和 D 该怎么分？</strong></p><p>先看两个极端：模型极大但数据极少（参数没喂饱），或模型极小但数据极多（容量不够用）。<strong>因为</strong>两者都会浪费算力，<strong>所以</strong>必然存在一个最优分配点——Chinchilla 用 400+ 次实验把它找了出来。</p><p>可以把这<strong>类比</strong>成给一个固定大小的厨房配厨师和食材：厨师太多（参数大）但食材不够，厨师闲着；厨师太少（参数小）但食材堆积，做不完。最优配比是两者同步增长。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 Chinchilla 规则：从实验到 20:1</div>
+        <div class="step"><div class="step-title">Step 1：Kaplan 与 Chinchilla 的分歧</div>
+          <table><tr><th>结论</th><th>N<sub>opt</sub> 的指数</th><th>D<sub>opt</sub> 的指数</th><th>含义</th></tr><tr><td>Kaplan et al. (2020)</td><td>C<sup>0.73</sup></td><td>C<sup>0.27</sup></td><td>算力主要用来放大模型</td></tr><tr><td>Chinchilla (2022)</td><td>C<sup>0.50</sup></td><td>C<sup>0.50</sup></td><td>模型与数据<strong>等比例</strong>增长</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">分歧的根因有三条（Porian et al., 2024, arXiv:2406.19146）：① <strong>算力 / 参数口径</strong>——Kaplan 统计 non-embedding 参数、且未计入最后一层等算力项；② <strong>学习率与 warmup</strong>——各 run 用同一套固定调度，短训练被系统性低估，Chinchilla 把调度对齐到每个 run 的实际长度；③ <strong>实验规模</strong>——Kaplan 主要靠小模型外推。三条一并修正后，结论就与 Chinchilla 一致了。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：20:1 是怎么算出来的</div>
+          <table><tr><th>项目</th><th>计算</th><th>结果</th></tr><tr><td>算力公式</td><td>C ≈ 6 × N × D</td><td>——</td></tr><tr><td>代入 D = 20N</td><td>C ≈ 6 × N × 20N = 120 N²</td><td>——</td></tr><tr><td>反解 N</td><td>N<sub>opt</sub> ≈ √(C / 120)</td><td>给定预算即可算最优参数量</td></tr><tr><td>Chinchilla 验证</td><td>N = 70B → D = 20 × 70B</td><td>= 1.4T token（与论文一致）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">所以"20 token / 参数"不是拍脑袋的经验值，而是从 N ∝ C<sup>0.5</sup>、D ∝ C<sup>0.5</sup> 与 C ≈ 6ND 联立解出来的。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：Gopher vs Chinchilla——同算力下的对照实验</div>
+          <table><tr><th>模型</th><th>参数量</th><th>训练 token</th><th>token/参数</th><th>MMLU 平均（Chinchilla 论文口径，可核验）</th></tr><tr><td>Gopher</td><td>280B</td><td>300B</td><td>≈1.1</td><td>60.0%</td></tr><tr><td>GPT-3</td><td>175B</td><td>300B</td><td>≈1.7</td><td>43.9%</td></tr><tr><td><strong>Chinchilla</strong></td><td><strong>70B</strong></td><td><strong>1.4T</strong></td><td><strong>20</strong></td><td><strong>67.5%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">Chinchilla 参数只有 Gopher 的 1/4，MMLU 平均却从 60.0% 提到 67.5%（同一论文口径），且用几乎同样的算力——这直接证明了"当时的模型普遍训练不足"。（表中为 MMLU 平均，非全基准平均；早期曾引用"75.1/73.9/77.7"的写法查无一手来源，已改用可核验口径。）</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>Chinchilla 的结论可以一句话概括：<strong>在固定算力下，模型大小和数据量应该同步增长，而不是一味放大模型</strong>。这条规则把"该造多大"从直觉变成了可计算的问题——给定预算 C，最优参数量就是 √(C/120)。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','7-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','7-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-7-2" class="llm-section"><button class="llm-btn" onclick="startChat('7-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="7-2"><div class="chat-toolbar"><button onclick="copyChat('7-2')">📋 复制对话</button><button onclick="clearChat('7-2')">🗑 清空</button><button onclick="stopLLM('7-2')" id="stop-btn-7-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('7-2')" id="regen-btn-7-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="7-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 Chinchilla 规则有疑问？比如"为什么 Kaplan 会算错？""20:1 是普适常数吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="7-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('7-2')}" rows="1" placeholder="例如：如果预算翻 4 倍，最优参数量会变成多少？"></textarea><button onclick="sendLLM('7-2')">发送</button></div></div></div>
+      <div id="tab-qna-7-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('7-2')">🔄 换一批</button></div><div class="qna-list" data-qna="7-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="7-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">既然 20:1 最省算力，为什么现代模型要故意"过训练"？</div><div class="card-q-hint">提示：算力只在训练时花一次，但模型上线后要被调用几亿次。想清楚"训练省"和"推理省"是不是同一件事。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>过训练（Overtraining）</strong>：故意用远超 Chinchilla 最优比例的数据量去训一个更小的模型。原因是<strong>推理成本正比于参数量</strong>——模型训一次、服务几十亿次，把参数压小、数据喂多，长期总成本更低。实测比例：Llama 2 70B 约 28 token/参数，Llama 3 8B 约 1875 token/参数（Chinchilla 建议约 160B token，实际用了 15T）。</div>
+      <div class="content-section"><p>上一张卡片我们得到 20:1 这个"训练最省"的点。但现实是：<strong>Llama 3 8B 用了约 1875:1</strong>——是 Chinchilla 建议的近 100 倍。为什么？</p><p><strong>因为</strong>算力只在训练时花一次，而推理成本要跟着模型服务一辈子，<strong>所以</strong>"训练最省"不等于"总成本最低"。可以把这<strong>类比</strong>成买车：买车时多花点钱买省油的车，长期油费省得更多。<strong>反过来说，死守 20:1 也不划算</strong>：8B 模型按 20:1 只需喂约 160B token，训练端暂且省了，可上线之后推理要按每次调用重复付出——省的是「训练一次」，亏的是「推理一辈子」。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 过训练账：训练多花 vs 推理省下</div>
+        <div class="step"><div class="step-title">Step 1：两种方案的训练成本对比</div>
+          <table><tr><th>方案</th><th>参数量 N</th><th>token D</th><th>token/参数</th><th>训练算力 6ND</th></tr><tr><td>Chinchilla 最优</td><td>70B</td><td>1.4T</td><td>20:1</td><td>6 × 70e9 × 1.4e12 = 5.9 × 10²³</td></tr><tr><td>过训练（示意）</td><td>20B</td><td>4T</td><td>200:1</td><td>6 × 20e9 × 4e12 = 4.8 × 10²³</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">过训练方案把模型压到 20B、数据加到 4T（200:1），训练算力 4.8e23 比 Chinchilla 最优的 5.9e23 <strong>低约 19%</strong>——即"用低一档的训练算力，换一个更小、但喂得更饱的模型"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：推理成本才是大头</div>
+          <table><tr><th>项目</th><th>70B 模型</th><th>20B 模型</th><th>倍数</th></tr><tr><td>单次推理 FLOPs（每 token）</td><td>2 × 70e9 = 1.4e11</td><td>2 × 20e9 = 4.0e10</td><td>3.5×</td></tr><tr><td>权重显存（fp16）</td><td>140 GB</td><td>40 GB</td><td>3.5×</td></tr><tr><td>假设服务 10¹² 个 token</td><td>1.4e23 FLOPs</td><td>4.0e22 FLOPs</td><td>3.5×</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">推理算力 = 2 × N × 生成 token 数（只有前向，系数 2）。注意：这里只算权重项，未计入注意力随序列长度平方增长的部分——长上下文推理时该项会显著上升（与 7-1 追问 4 的口径一致）。服务量越大，参数量带来的差距越致命。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：盈亏平衡点在哪</div>
+          <table><tr><th>项目</th><th>计算</th><th>结果</th></tr><tr><td>训练算力差</td><td>5.9e23 − 4.8e23</td><td>1.1 × 10²³ FLOPs（70B 多花）</td></tr><tr><td>每 token 推理算力差</td><td>1.4e11 − 4.0e10</td><td>1.0 × 10¹¹ FLOPs</td></tr><tr><td>平衡服务量</td><td>1.1e23 ÷ 1.0e11</td><td>≈ 1.1 × 10¹² token</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">只要模型累计服务超过约 <strong>1.1 万亿 token</strong>，过训练方案的总算力就更省。对一个日活百万的产品，这个量级几周就能达到——所以过训练几乎总是划算的。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>Chinchilla 回答的是"<strong>训练</strong>最省"，而工业界要的是"<strong>总成本</strong>最省"。<strong>因为推理成本正比于参数量、且要乘以服务次数，所以把模型压小、把数据喂多（过训练）几乎总是更优</strong>——这就是为什么现代开源模型普遍在 100:1 到 2000:1 之间，而不是 20:1。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','7-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','7-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-7-3" class="llm-section"><button class="llm-btn" onclick="startChat('7-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="7-3"><div class="chat-toolbar"><button onclick="copyChat('7-3')">📋 复制对话</button><button onclick="clearChat('7-3')">🗑 清空</button><button onclick="stopLLM('7-3')" id="stop-btn-7-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('7-3')" id="regen-btn-7-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="7-3"><div class="chat-role-label">AI 助教</div><div class="msg-content">👋 对过训练有疑问？比如"过训练有没有上限？""为什么不能无限过训练？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="7-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('7-3')}" rows="1" placeholder="例如：如果服务量很小，过训练还划算吗？"></textarea><button onclick="sendLLM('7-3')">发送</button></div></div></div>
+      <div id="tab-qna-7-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('7-3')">🔄 换一批</button></div><div class="qna-list" data-qna="7-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="7-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">过训练需要海量数据，可用的高质量文本到底还剩多少？</div><div class="card-q-hint">提示：先估一下互联网上高质量公开文本的总量，再算一个万亿参数模型按 Chinchilla 规则需要多少 token。两个数一对比，问题就出来了。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>数据墙（Data Wall）</strong>：Epoch AI 估算互联网上高质量、可公开获取的人类文本总量约 <strong>300 万亿 token</strong>（估算值，不同机构定义差异大），并预测这一存量将在 <strong>2026~2032 年间</strong>（80% 置信区间）被完全用尽。而按 Chinchilla 规则，一个 10 万亿参数模型需要约 200 万亿 token。同时，MIT 牵头的 Data Provenance Initiative 发现：一年内 <strong>28% 的最活跃维护的关键来源</strong>被施加了访问限制（改服务条款或技术封锁），C4 数据集中已有 <strong>45%</strong> 受限。</div>
+      <div class="content-section"><p>上一张卡片我们看到过训练需要海量数据。那问题来了：<strong>数据够吗？</strong></p><p><strong>因为</strong>高质量公开文本的总量是有限的，而模型规模还在指数增长，<strong>所以</strong>必然存在一个"撞墙"的时刻。可以把这<strong>类比</strong>成粮仓：粮食总量固定，但吃饭的人越来越多、饭量越来越大。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 数据墙账：需求 vs 存量</div>
+        <div class="step"><div class="step-title">Step 1：需求侧——不同规模模型要多少 token</div>
+          <table><tr><th>模型规模</th><th>Chinchilla 最优 token（20:1）</th><th>过训练 100:1</th></tr><tr><td>7B</td><td>140B</td><td>700B</td></tr><tr><td>70B</td><td>1.4T</td><td>7T</td></tr><tr><td>405B</td><td>8.1T</td><td>40.5T</td></tr><tr><td>1T</td><td>20T</td><td>100T</td></tr><tr><td>10T</td><td>200T</td><td>1000T</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">注意：过训练把需求又放大了 5 倍。10T 参数模型按 100:1 需要 1000 万亿 token——远超存量估算。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：供给侧——存量与"被锁住"的部分</div>
+          <table><tr><th>项目</th><th>数值</th><th>说明</th></tr><tr><td>高质量公开文本存量</td><td>≈300 万亿 token</td><td>Epoch AI 估算（口径差异大）</td></tr><tr><td>被施加访问限制</td><td>约 25%~28% 的最活跃关键来源（二手来源口径不一）</td><td>Data Provenance Initiative 报告；"C4 中 45% 受限"未见一手原句，需人工核实</td></tr><tr><td>实际可用（保守估计）</td><td>≈216 万亿 token 量级（按"关键来源 28%"近似套用于 token 存量，粗估）</td><td>300 × (1 − 28%)</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">被锁住的恰恰是<strong>最活跃维护、质量最高的那部分</strong>（新闻、论坛、代码托管），不是边角料。注意口径：28% 指"关键来源"的占比，不是"全部 token"的占比（后者约 5%）——若严格按 token 级受限比例（约 5%）算，可用存量约 285 万亿；两种口径结果不同（216T vs 285T），此处取保守的 216T，数值需人工核实。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：缺口有多大</div>
+          <table><tr><th>对比项</th><th>需求</th><th>可用存量</th><th>缺口</th></tr><tr><td>1T 参数模型（20:1）</td><td>20T</td><td>216T</td><td>无缺口</td></tr><tr><td>10T 参数模型（20:1）</td><td>200T</td><td>216T</td><td>接近耗尽</td></tr><tr><td>10T 参数模型（100:1）</td><td>1000T</td><td>216T</td><td><strong>缺 4.6 倍</strong>（按 285T 口径则约 3.5 倍）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">结论：<strong>在 Chinchilla 规则下，10T 参数模型已经接近耗尽全部高质量文本；若再叠加过训练，缺口达数倍</strong>。这就是"数据墙"的量化含义。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>数据墙不是"没有数据"，而是"<strong>能直接下锅的数据不够</strong>"：存量有限（约 300 万亿 token，估算）、最活跃的关键来源还在被锁（28%）、而过训练又把需求放大了 5 倍。<strong>这三者叠加，使得"继续靠堆数据提升能力"这条路在 2026~2032 年间逐步失效。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','7-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','7-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-7-4" class="llm-section"><button class="llm-btn" onclick="startChat('7-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="7-4"><div class="chat-toolbar"><button onclick="copyChat('7-4')">📋 复制对话</button><button onclick="clearChat('7-4')">🗑 清空</button><button onclick="stopLLM('7-4')" id="stop-btn-7-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('7-4')" id="regen-btn-7-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="7-4"><div class="chat-role-label">AI 助教</div><div class="msg-content">👋 对数据墙有疑问？比如"300 万亿 token 这个数怎么估的？""数据不够了怎么办？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="7-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('7-4')}" rows="1" placeholder="例如：如果只用 20:1 不过训练，数据墙会推迟多久？"></textarea><button onclick="sendLLM('7-4')">发送</button></div></div></div>
+      <div id="tab-qna-7-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('7-4')">🔄 换一批</button></div><div class="qna-list" data-qna="7-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="7-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">数据不够了，MoE 能解决问题吗？</div><div class="card-q-hint">提示：先想 MoE 省的是什么——是显存还是算力？再想"每个专家要看到多少 token 才能学好"，这个需求是按总参数算还是按激活参数算？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>MoE 与数据需求</strong>：稀疏 MoE 模型比 dense 模型<strong>更容易过拟合</strong>（Fedus et al., 2022；Zoph et al., 2022）。原因是每个专家在均衡路由下只看到约 K/E 的训练 token（K 为每 token 激活的专家数、E 为专家总数；本例 8/256 = 1/32），重复数据对它的伤害更大。因此 MoE 的数据需求按<strong>总参数</strong>而非激活参数增长——这让数据墙更严重，而不是更轻。</div>
+      <div class="content-section"><p>上一张卡片我们看到数据墙。一个自然的想法是：<strong>用 MoE 不就能绕过去吗？</strong>——毕竟 MoE 每 token 只激活一小部分参数，看起来"更省"。</p><p><strong>但</strong>这个直觉是错的。<strong>因为</strong> MoE 省的是<strong>算力</strong>不是<strong>显存</strong>，而数据需求恰恰跟着总参数走，<strong>所以</strong> MoE 让数据墙更严重。可以把这<strong>类比</strong>成一家有 256 位专科医生的大医院：挂号只叫 8 位进诊室（省算力），但每位医生都得积累足够病例才能成为专家（数据需求按 256 人算）。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 MoE 的数据账：为什么它让数据墙更严重</div>
+        <div class="step"><div class="step-title">Step 1：MoE 省的是算力，不是显存</div>
+          <table><tr><th>资源</th><th>看哪个参数</th><th>以 671B/37B 为例</th></tr><tr><td>显存占用</td><td><strong>总参数</strong></td><td>671B（4-bit 约 404GB）</td></tr><tr><td>每 token 算力</td><td><strong>激活参数</strong></td><td>37B（约为总参数的 5.5%）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">所以 MoE 让"推理更便宜"，但没让"模型更小"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：每个专家看到多少 token</div>
+          <table><tr><th>项目</th><th>计算</th><th>结果</th></tr><tr><td>路由专家数 E</td><td>——</td><td>256（DeepSeek-V3 口径，另有 1 个共享专家）</td></tr><tr><td>每 token 激活的专家数 K</td><td>——</td><td>8（top-8 路由）</td></tr><tr><td>每专家实际见到的 token</td><td>D × K ÷ E</td><td>D × 8 / 256 = D / 32</td></tr><tr><td>若 D = 15T</td><td>15e12 × 8 ÷ 256</td><td>≈ 4.7 × 10¹¹（4700 亿）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">注意口径：因为每 token 会被 8 个专家同时看到，所以每专家见到的 token 是 D×8/E 而非 D/E。即便如此，4700 亿 token 相对 671B 的总参数仍然偏少——专家"吃不饱"，所以需要<strong>更多</strong>数据。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：数据需求按总参数还是激活参数</div>
+          <table><tr><th>口径</th><th>数据需求（20:1）</th><th>是否现实</th></tr><tr><td>按激活参数 37B</td><td>740B token</td><td>看起来很容易满足</td></tr><tr><td>按总参数 671B</td><td><strong>13.4T token</strong></td><td>接近 Llama 3 的 15.6T 量级</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">实测经验支持后者：MoE 模型的数据需求按<strong>总参数</strong>增长。所以 671B 的 MoE 需要万亿级 token——和 405B dense 模型是同一量级。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>MoE 是一个<strong>算力-数据交换</strong>：用"更多参数、更少激活"换取推理便宜，代价是<strong>数据需求按总参数增长</strong>。所以在数据墙的背景下，MoE 不是解药——它把问题从"算力不够"换成了"数据更不够"。<strong>真正的出路是合成数据、数据复用与推理时计算（test-time compute）。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','7-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','7-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-7-5" class="llm-section"><button class="llm-btn" onclick="startChat('7-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="7-5"><div class="chat-toolbar"><button onclick="copyChat('7-5')">📋 复制对话</button><button onclick="clearChat('7-5')">🗑 清空</button><button onclick="stopLLM('7-5')" id="stop-btn-7-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('7-5')" id="regen-btn-7-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="7-5"><div class="chat-role-label">AI 助教</div><div class="msg-content">👋 对 MoE 与数据的关系有疑问？比如"专家数越多越好吗？""共享专家起什么作用？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="7-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('7-5')}" rows="1" placeholder="例如：如果专家数从 256 降到 64，数据需求会变吗？"></textarea><button onclick="sendLLM('7-5')">发送</button></div></div></div>
+      <div id="tab-qna-7-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('7-5')">🔄 换一批</button></div><div class="qna-list" data-qna="7-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="7-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">拿到一笔预算，怎么一步步定出模型大小和数据量？</div><div class="card-q-hint">提示：把前面五步串起来——先用 C ≈ 6ND 和 20:1 反解参数量，再按过训练倍数定 token 数，最后检查数据够不够。每一步都有公式。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>把 Scaling Laws 用于工程决策的标准流程：① 用 <strong>C ≈ 6ND</strong> 把预算换算成算力；② 用 <strong>N<sub>opt</sub> ≈ √(C/120)</strong> 定模型大小（Chinchilla 20:1）；③ 按<strong>过训练倍数</strong>（通常 100:1~2000:1）定实际 token 数；④ 检查<strong>数据存量</strong>是否够；⑤ 不够则考虑 MoE、合成数据或推理时计算。这套流程是审阅任何训练配方的通用框架。</div>
+      <div class="content-section"><p>前面五张卡片分别讲了算力公式、Chinchilla 规则、过训练、数据墙、MoE。现在把它们串成一个<strong>可操作的决策流程</strong>。</p><p><strong>因为</strong>每一步都有明确公式，<strong>所以</strong>这套流程可以当"审配方"的检查表用——拿到任何一份训练方案，都能逐步验算它是否合理。可以把这<strong>类比</strong>成装修前的预算表：先算总面积（算力），再定房间数（模型大小），最后核对材料够不够（数据存量）——每一步都能提前验算，而不是装到一半才发现钱不够。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 决策流程：给定预算 C，五步定方案</div>
+        <div class="step"><div class="step-title">Step 1：把预算换算成算力</div>
+          <table><tr><th>输入</th><th>换算</th><th>示例</th></tr><tr><td>GPU 数量 × 卡时</td><td>× 单卡有效算力</td><td>16384 卡 × 54 天</td></tr><tr><td>单卡有效算力</td><td>BF16 dense 峰值 × 利用率</td><td>989 TFLOPS × 50% ≈ 4.9e14 FLOP/s（50% 为假设的 MFU，估算）</td></tr><tr><td>总算力 C</td><td>16384 × 4.9e14 × 54×86400</td><td>≈ 3.8 × 10²⁵ FLOPs</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：用 Chinchilla 反解模型大小</div>
+          <table><tr><th>步骤</th><th>公式</th><th>代入 C = 3.8e25</th></tr><tr><td>Chinchilla 关系</td><td>C ≈ 120 N²</td><td>——</td></tr><tr><td>反解 N</td><td>N ≈ √(C / 120)</td><td>√(3.8e25 / 120) ≈ 5.6 × 10¹¹</td></tr><tr><td>结果</td><td>——</td><td>≈ 560B 参数（Chinchilla 最优）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">注意：这是"训练最省"的点。实际 Llama 3 405B 比它小——因为选择了过训练。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：按过训练倍数定 token 数，并检查数据</div>
+          <table><tr><th>方案</th><th>参数量</th><th>token 数</th><th>数据是否够</th></tr><tr><td>Chinchilla 最优</td><td>560B</td><td>11.2T（20:1）</td><td>够（存量 216T）</td></tr><tr><td>过训练约 38:1</td><td>405B</td><td>15.6T</td><td>够（Llama 3 实际选择）</td></tr><tr><td>过训练 100:1</td><td>405B</td><td>40.5T</td><td>够，但需大量重复</td></tr><tr><td>过训练 100:1</td><td>1T</td><td>100T</td><td>接近存量上限</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">Llama 3 405B 实际用了 15.6T token（约 38:1），介于 Chinchilla 最优与激进过训练之间——这是"训练成本"与"推理成本"的折中。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>这套流程的价值在于：<strong>它把"造模型"从"烧钱试错"变成了"先算后做"</strong>。给定预算，你能提前算出模型该多大、数据要多少、会不会撞数据墙——而不是训完才发现配方不对。<strong>这也是为什么第二部分后续每一课（数据、预训练、微调、对齐）都要建立在这张算力账上。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','7-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','7-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-7-6" class="llm-section"><button class="llm-btn" onclick="startChat('7-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="7-6"><div class="chat-toolbar"><button onclick="copyChat('7-6')">📋 复制对话</button><button onclick="clearChat('7-6')">🗑 清空</button><button onclick="stopLLM('7-6')" id="stop-btn-7-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('7-6')" id="regen-btn-7-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="7-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对决策流程有疑问？比如"怎么判断一份训练配方是否合理？""预算翻倍该怎么调整？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="7-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('7-6')}" rows="1" placeholder="例如：如果预算只有 1/10，模型该造多大？"></textarea><button onclick="sendLLM('7-6')">发送</button></div></div></div>
+      <div id="tab-qna-7-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('7-6')">🔄 换一批</button></div><div class="qna-list" data-qna="7-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 7 课完成 · 下一课：第 8 课「数据工程」</p>
+    <a href="#" onclick="switchLesson(8);return false;">进入第 8 课：数据工程 →</a>　·　<a href="#" onclick="switchLesson(6);return false;">← 上一课：从 Transformer 到 LLM 全景图</a>
+  </div></div>

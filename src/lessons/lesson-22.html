@@ -1,0 +1,204 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 22 课：工具调用</h2>
+    <p class="subtitle">上一课我们确认了 Agent 循环里最关键的一件东西是<strong>工具</strong>——它是模型唯一能改变世界的接口。但模型只会输出文本，它到底是怎么「调用」一个函数的？这一课从最底层的机制讲起：schema → JSON → 执行 → 回填；再看 Function Calling 的硬约束、参数出错与「工具幻觉」怎么兜；接着回答两个规模化的问题：桌面上摆了 20 个工具时模型凭什么挑对、一次要调 5 个工具时结果会不会把 <b>context</b> 撑爆；最后落到一个好工具到底长什么样。<strong>上一课里和「接入生态」有关的那部分（MCP）已经移到下一课单独讲</strong>——本课只讲一次调用的机制与设计。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清一次工具调用的四步往返，并算出「工具定义占多少 token、一次调用其实是几次模型往返」（20 个工具 × 200 token = 4,000 token/轮，10 轮累计 40,000 token）<br>② 用 JSON Schema 与 strict 约束把参数错误率压下去，并用 1−(1−p)^(k+1) 算重试收益（单次 0.9 时，1 次重试即到 0.99）<br>③ 解释工具变多为什么更难选（可见工具 25 → 150 个，选择正确率掉约 10 个百分点），并算出 5 个工具各回填 2,000 token = 10,000 token 的上下文账、以及怎么压缩到 250 token</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步逻辑递进：单次调用 → 参数与错误 → 选择与回填 → 工具设计）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">既然「工具是模型唯一能改变世界的接口」，这就要求把它接到模型只会输出文本这件事上——模型吐出结构化参数、宿主去执行、再把结果拼回 <b>token</b> 流，一个来回要走四步。<b class="rn-key">调用是四步往返</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然「<b>调用是四步往返</b>」，所以吐出来的参数必须有一个契约——这就要求用 JSON Schema 把类型、必填、枚举写进模型的 <b>context</b>，并用 strict 模式保证结构与它一致。<b class="rn-key">参数要有 schema 兜底</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然「<b>参数要有 schema 兜底</b>」，就需要处理兜不住的那部分——参数语义错、工具名编造、接口失败；所以把错误信息拼回 <b>context</b> 让模型重试，并给重试配上上限与幂等。<b class="rn-key">错了要能改，但不能重复下单</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">既然「<b>错了要能改，但不能重复下单</b>」，兜错这条路就走通了；于是瓶颈前移到「挑哪一个」——工具一多，候选空间随之放大，这就要求每个工具的 description 有足够区分度，否则 <b>context</b> 里全是近义工具、互相干扰。<b class="rn-key">候选越多越容易选错</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>候选越多越容易选错</b>」，挑对之后还有一道坎：一次要调好几个工具、结果一起回填——这就要求并行调用必须配上「收口」：截断、摘要、把长结果放外部存储只回传引用，否则几万 <b>token</b> 的结果会把 <b>context</b> 撑爆。<b class="rn-key">结果回填要压住长度</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>结果回填要压住长度</b>」，链路就通了；所以最后回到最影响成功率的一环——工具本身怎么设计：描述即文档、参数最小化、防呆、错误可读、幂等、最小权限，而且工具越多 <b>token</b> 越贵、越容易误选。<b class="rn-key">工具设计决定成功率</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">Function Calling</span><span class="meta-tag">JSON Schema</span><span class="meta-tag">strict 模式</span><span class="meta-tag">校验与重试</span><span class="meta-tag">工具选择</span><span class="meta-tag">工具设计</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="22-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">模型只会输出文本，它凭什么能「调用」一个函数？</div><div class="card-q-hint">提示：模型只会产出文本——那真正「执行」这个动作的，是模型本身吗？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>上一课确认了循环里最关键的一件是<strong>工具</strong>：它是模型唯一能改变世界的接口。但模型本身只会产生文本——所以「工具调用」在工程上从来不是模型直接执行代码，而是一次<strong>协议往返</strong>：宿主把工具的<strong>定义</strong>（名字 + 说明 + JSON Schema）随请求发给模型，模型返回「我想调用哪个工具、参数是什么」的结构化结果，<strong>宿主代码</strong>去真正执行，再把执行结果拼回上下文。OpenAI 早在 2023 年 6 月就为 API 引入了函数调用（Function Calling），把这条四步往返固化成协议；2024-08-06 又引入结构化输出与 strict 模式（官方公告《Introducing Structured Outputs in the API》），为参数补上结构约束——注意这是两个不同时间点，前者立协议、后者加约束。</div>
+      <div class="content-section"><p>上一课的结论是「工具是唯一能改变世界的接口」。这一张先回答最底层的问题：<strong>模型究竟怎么「调用」它</strong>。</p><p><strong>因为</strong>模型只会输出文本、也不会执行任何东西，所谓「调用」只能拆成四步：<strong>① 宿主把工具定义送进请求 → ② 模型输出结构化的调用意图 → ③ 宿主代码执行 → ④ 结果回填给模型</strong>。<strong>就像</strong>你让助理去办事：你先告诉他「有哪些部门可以找、各自负责什么」，他回你一张「我要找财务、需要这些材料」的单子，是<strong>你去</strong>跑腿，跑完再把结果告诉他。<strong>所以</strong>下面用一笔 token 账，把「四步往返」的代价算出来。</p><p>更自然的做法是「让模型直接生成一段代码字符串，宿主拿去执行」。但自由文本没有固定结构，宿主只能靠字符串匹配去猜「哪个是工具名、哪些是参数」；模型只要换个说法（例如把调用写成一句自然语言，而不是「get_order(id=1)」），解析就失败。所以协议要把「调用意图」限定成结构化字段——这一步换来的是宿主能无条件解析。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：一次工具调用的四步与它的代价</div>
+        <div class="step"><div class="step-title">Step 1：工具定义每次请求都要带上</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>单个工具定义（名字 + 说明 + JSON Schema）</td><td>≈ <strong>200 token</strong>（示意）</td></tr><tr><td>发送时机</td><td><strong>每一次</strong>模型请求都要带</td></tr><tr><td>20 个工具的定义</td><td>20 × 200 = <strong>4,000 token</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：工具定义不是「配置一次就好」——它必须随<strong>每一次</strong>请求送给模型，模型才知道有哪些工具可用。20 个工具就固定占掉 <strong>4,000 token</strong> 的输入，而且这个量会叠加在对话历史上（见上一课的平方增长）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：10 轮里工具定义被重复发送 10 次</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>每轮工具的固定开销</td><td><strong>4,000 token</strong>（20 个工具）</td></tr><tr><td>轮数</td><td><strong>10</strong></td></tr><tr><td>仅工具定义的累计输入</td><td>4,000 × 10 = <strong>40,000 token</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：10 轮就为「工具定义」付出 <strong>40,000 token</strong>——这还没算对话历史与工具返回结果本身。<strong>所以「少而精」的工具集不只是设计建议，直接是成本。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：一次工具调用其实是两次模型往返</div>
+          <table><tr><th>工具调用次数</th><th>模型往返次数</th><th>说明</th></tr><tr><td>1</td><td><strong>2</strong></td><td>第 1 次决定调用，第 2 次读结果继续</td></tr><tr><td>3</td><td><strong>6</strong></td><td>每次调用都多一次往返</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：调用 3 次工具，模型至少要跑 <strong>6 次</strong>往返（2 × 3）。<strong>这就是「调用」的真实成本结构：模型输出参数是一次，读到结果再继续是另一次</strong>，延迟与 token 都按这个倍数放大。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>工具调用<strong>不是模型在跑代码</strong>，而是一条四步协议：<strong>定义 → 意图 → 执行 → 回填</strong>。理解这一点，后面所有工程问题都会变清楚：为什么要 schema（约束「意图」的格式）、为什么要重试（「执行」会失败）、为什么要挑工具与压结果（后两张卡片）、以及为什么接入方式需要一套统一协议（这正是下一课要单独讲的 MCP）。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','22-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','22-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-22-1" class="llm-section"><button class="llm-btn" onclick="startChat('22-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="22-1"><div class="chat-toolbar"><button onclick="copyChat('22-1')">📋 复制对话</button><button onclick="clearChat('22-1')">🗑 清空</button><button onclick="stopLLM('22-1')" id="stop-btn-22-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('22-1')" id="regenerate-btn-22-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="22-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对「模型怎么调用函数」有疑问？比如「工具定义占多少 token」「为什么一次调用要两次往返」？<br><br>说一下你的工具数量与轮数，我帮你估这部分成本。</div></div><div class="chat-input-row"><textarea data-input="22-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('22-1')}" rows="1" placeholder="例如：20 个工具的开销有多大？"></textarea><button onclick="sendLLM('22-1')">发送</button></div></div></div>
+      <div id="tab-qna-22-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('22-1')">🔄 换一批</button></div><div class="qna-list" data-qna="22-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="22-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">模型吐出来的参数凭什么能直接用？Function Calling 的硬约束是什么？</div><div class="card-q-hint">提示：模型输出的是一段文本，程序却要直接拿它当参数用——先想想，中间缺了什么，程序才敢这么用？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>函数调用的硬约束是<strong>JSON Schema</strong>：你用 schema 声明每个参数的类型、是否必填、可选枚举值、是否允许额外字段；宿主把它随请求发给模型，模型<strong>约束自己</strong>只产出符合这个结构的内容。OpenAI 的 <strong>strict 模式</strong>（2024-08 随结构化输出推出）进一步要求 schema 使用「受支持的 JSON Schema 子集」并满足严格模式；<strong>不合规的 schema，请求会被直接拒绝并返回错误</strong>。别把 strict 和另一套机制混了：OpenAI API 的 <strong>JSON object 模式</strong>另有一条硬性前提——请求里必须出现 `json` 字样，否则会被拒；它与 strict / 结构化输出是两套不同的东西。</div>
+      <div class="content-section"><p>上一张卡片把调用拆成了「定义 → 意图 → 执行 → 回填」。这一张盯住第二步：<strong>模型吐出来的那段「意图」，凭什么能直接被程序当参数用</strong>。</p><p><strong>因为</strong>模型的原生输出是自由文本，程序没办法拿它去调用接口——所以要先用 schema 把「参数长什么样」写进模型的 <b>context</b>，让它按结构生成。<strong>就像</strong>填表：先规定好「姓名必填、金额只能是数字、状态只能从三个词里挑」，填的人才有章可循、机器才敢直接入库。<strong>所以</strong>下面用一笔账，看约束能把「全对率」抬多少。</p><p>更笨的做法是「让模型随便吐一段 JSON，宿主自己容错解析」。但自由 JSON 的字段名、类型、嵌套都不受约束，设单个参数正确的概率 0.95，10 个参数一次全对的概率只有 0.95¹⁰ ≈ 0.599；用 schema 把单参数正确率抬到 0.99，10 个参数全对就升到 0.99¹⁰ ≈ 0.904。schema 买的不是「模型更聪明」，而是「错的机会更少」。（口径提示：下面把「一次调用」也视作一个「参数位」——无论按参数计还是按调用计，连乘公式都不变。）</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：schema 与 strict 到底约束了什么</div>
+        <div class="step"><div class="step-title">Step 1：一张 schema 规定了四件事</div>
+          <table><tr><th>约束</th><th>作用</th><th>不加会怎样</th></tr><tr><td>类型</td><td>金额必须是数字</td><td>模型可能给「三百元」</td></tr><tr><td>必填</td><td>关键字段不能缺</td><td>调用时少参数、直接报错</td></tr><tr><td>枚举</td><td>状态只能取固定几个值</td><td>出现不存在的取值</td></tr><tr><td>禁额外字段</td><td>不许自创参数</td><td>多传字段被接口拒绝</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：schema 的作用是把「参数合不合法」从<strong>运行时的运气</strong>提前到<strong>生成时的约束</strong>。strict 模式再进一步：它要求 schema 落在受支持的子集内，否则<strong>请求直接被拒</strong>——宁可不让模型乱来，也不给它输出非法结构的机会。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：约束把 20 次调用的「全对率」抬多少</div>
+          <table><tr><th>单次参数正确率</th><th>20 次全对 = p²⁰</th><th>至少错一次</th></tr><tr><td>0.95（无 strict，示意）</td><td><strong>0.359</strong></td><td>约 <strong>64%</strong></td></tr><tr><td>0.99（有 strict，示意）</td><td><strong>0.818</strong></td><td>约 <strong>18%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：承上一课的连乘口径——单次 0.95、20 次全对只剩 <strong>0.359</strong>（至少错一次的概率约 64%）；把单次抬到 0.99，20 次全对升到 <strong>0.818</strong>（至少错一次降到约 18%）。<strong>schema + strict 的价值，就是把这条曲线整体往上抬。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：schema 管得了形状，管不了语义</div>
+          <table><tr><th>错误类型</th><th>schema 能拦吗</th><th>例子</th></tr><tr><td>类型/必填/枚举违例</td><td><strong>能</strong></td><td>金额传了字符串</td></tr><tr><td>语义错误</td><td><strong>不能</strong></td><td>金额类型对，但把 1000 填成 10000</td></tr><tr><td>工具选择错</td><td><strong>不能</strong></td><td>该查订单却调了查库存</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一句提醒：schema 保证的是「<strong>结构合法</strong>」，不是「<strong>业务正确</strong>」。类型对、枚举对，参数完全可能填错值、或调错工具——前者是下一张卡片要处理的部分，后者是第 4 张卡片的主题。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>Function Calling 的硬约束有两层：<strong>① 结构层</strong>——JSON Schema + strict，保证参数符合声明（不合规的 schema 直接被拒）；<strong>② 语义层</strong>——schema 管不到，只能靠校验、重试与幂等。把这两层分清楚，你就不会误以为「加了 strict 就万事大吉」。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','22-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','22-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-22-2" class="llm-section"><button class="llm-btn" onclick="startChat('22-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="22-2"><div class="chat-toolbar"><button onclick="copyChat('22-2')">📋 复制对话</button><button onclick="clearChat('22-2')">🗑 清空</button><button onclick="stopLLM('22-2')" id="stop-btn-22-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('22-2')" id="regenerate-btn-22-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="22-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 schema 与 strict 有疑问？比如「strict 到底限制了什么」「OpenAI API 的 JSON 模式为什么要求出现 json 字样」？<br><br>贴出你的工具 schema，我帮你检查有没有踩到不支持的子集。</div></div><div class="chat-input-row"><textarea data-input="22-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('22-2')}" rows="1" placeholder="例如：strict 模式对 schema 有什么要求？"></textarea><button onclick="sendLLM('22-2')">发送</button></div></div></div>
+      <div id="tab-qna-22-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('22-2')">🔄 换一批</button></div><div class="qna-list" data-qna="22-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="22-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">参数填错、甚至调了一个不存在的工具，这时候该怎么办？</div><div class="card-q-hint">提示：先想「错在哪一层」——是结构不合法，还是结构合法但业务不对？两类错该用不同的兜法。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>工具调用有三类失败：<strong>① 结构违例</strong>（类型/必填/枚举不符，strict 模式能拦一部分）；<strong>② 语义错误</strong>（结构合法但值不对，schema 拦不住）；<strong>③ 工具幻觉</strong>（模型调用一个不存在的工具名）。工程上的兜法是<strong>把错误信息当观察回填进上下文，让模型带错重试</strong>——这与上一课 ReAct（推理与行动交错，边做边拿外部结果纠错）的 Observation 是同一个机制。但重试有代价，也可能造成<strong>重复副作用</strong>（重复下单），所以必须配上重试上限与幂等。</div>
+      <div class="content-section"><p>上一张卡片给参数套上了 schema。这一张处理它<strong>兜不住</strong>的那部分：出错之后怎么办。</p><p><strong>因为</strong>失败是常态，关键在于「错了能不能被纠正」。做法是把校验器/接口返回的错误信息，当作一次观察拼回 <b>context</b>，让模型看到「刚才错在哪」再重试——<strong>就像</strong>填表被打回：窗口把「金额栏你填了文字」写清楚，你才知道改哪一格，而不是重填整张表。<strong>所以</strong>下面算一笔重试的账，同时看看它的代价。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：重试能把成功率抬多高、又要付什么代价</div>
+        <div class="step"><div class="step-title">Step 1：三类失败与对应的兜法</div>
+          <table><tr><th>失败类型</th><th>典型表现</th><th>兜法</th></tr><tr><td>结构违例</td><td>类型错、缺必填、枚举外取值</td><td>校验器报错 → 回填重试</td></tr><tr><td>语义错误</td><td>值合法但业务不对</td><td>业务校验 / 二次确认</td></tr><tr><td>工具幻觉</td><td>调不存在的工具名</td><td>白名单校验 → 返回可选列表</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：三类都要「<strong>先校验、再回填、后重试</strong>」。校验器是唯一能在执行前拦住错误的地方——它把「参数合不合法」变成一个<strong>布尔判断</strong>，而不是等接口报错。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：允许 k 次重试能把成功率抬到多少</div>
+          <table><tr><th>重试次数 k</th><th>总尝试次数 k+1</th><th>至少成功一次 = 1−(1−p)^(k+1)，p=0.9</th></tr><tr><td>0</td><td>1</td><td>0.90</td></tr><tr><td>1</td><td>2</td><td><strong>0.99</strong></td></tr><tr><td>2</td><td>3</td><td><strong>0.999</strong></td></tr><tr><td>3</td><td>4</td><td><strong>0.9999</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：单次成功率 0.9 时，允许 1 次重试就把「至少成功一次」抬到 <strong>0.99</strong>、2 次到 <strong>0.999</strong>——重试对成功率的边际收益非常快。公式是 1−(1−p)^(k+1)（等价于「连续 k+1 次都失败」的补集）。<strong>口径说明</strong>：这里的 p 指「单次工具调用成功率」（示例取 0.9），与第 2 张卡片里指「参数正确率」的 p 是两个不同口径，此处仅用于演示公式。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：但重试不是免费的，还可能「重复下单」</div>
+          <table><tr><th>代价</th><th>数值/影响</th></tr><tr><td>额外模型往返</td><td>k=3 → 最多 4 次调用、4 份 token 与延迟</td></tr><tr><td>重复副作用</td><td>下单失败重试 → 可能<b>下两单</b></td></tr><tr><td>兜法</td><td>幂等键（同一请求只生效一次）+ 重试上限</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：k=3 意味着最坏 <strong>4 次</strong>调用（4 份成本）。更危险的是副作用：一次「下单」超时后重试，可能真的<strong>下两单</strong>。<strong>所以重试必须配幂等键</strong>——让同一个业务请求无论重试几次都只生效一次，这也是「能改变世界的工具」必须付出的纪律。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>工具出错的兜法是一条三步链：<strong>校验（能否执行）→ 回填错误（让模型知道错在哪）→ 重试（带上限与幂等）</strong>。关键认知是：<strong>只读工具重试只是浪费；会写数据的工具，重试必须有幂等保护</strong>——否则「更稳的重试」会变成「更多的重复下单」。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','22-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','22-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-22-3" class="llm-section"><button class="llm-btn" onclick="startChat('22-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="22-3"><div class="chat-toolbar"><button onclick="copyChat('22-3')">📋 复制对话</button><button onclick="clearChat('22-3')">🗑 清空</button><button onclick="stopLLM('22-3')" id="stop-btn-22-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('22-3')" id="regenerate-btn-22-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="22-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对「工具出错」有疑问？比如「重试几次合适」「幂等键怎么设计」？<br><br>说清你的工具是只读还是写数据，我帮你定重试与幂等策略。</div></div><div class="chat-input-row"><textarea data-input="22-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('22-3')}" rows="1" placeholder="例如：写数据的工具重试要注意什么？"></textarea><button onclick="sendLLM('22-3')">发送</button></div></div></div>
+      <div id="tab-qna-22-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('22-3')">🔄 换一批</button></div><div class="qna-list" data-qna="22-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="22-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">桌面上摆着 20 个工具，模型怎么知道该用哪一个？——它什么时候会选错？</div><div class="card-q-hint">提示：模型看不到你的代码，它只能读到每个工具的名字、描述和参数表。先想：候选从 3 个变成 20 个，它靠什么区分？哪两个最容易混？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>工具选择的机制是：宿主把每个工具的 <strong>name / description / JSON Schema</strong> 一起塞进请求的 <b>context</b>，模型基于当前对话判断「该不该调用、调用哪一个」，再吐出结构化的调用意图。Anthropic 的官方工具指南把这个排序讲得很直白：<strong>description（描述）是影响工具性能最重要的一个因素</strong>，建议把 description 写得足够详细（讲清用途、何时用、何时不用），不要只写一句话；OpenAI / Azure 的文档也说明模型是「根据提示的上下文」决定调用哪个函数。所以「模型怎么选」这个问题，答案几乎全落在你给它的那几行文字上。</div>
+      <div class="content-section"><p>上一张卡片解决了「错了怎么兜」——校验、回填、重试、幂等。这一张换一个更靠前的问题：<strong>工具不止一个时，模型到底怎么挑</strong>。</p><p><strong>因为</strong>模型看不到工具的源码，它做选择时唯一能看到的只有名字、描述和参数表，所以选择质量几乎完全由这几行文字决定。<strong>就像</strong>一排长得差不多的电灯开关：只有 3 个时闭着眼也能摸对，变成 20 个、标签又都写着「灯光」，就得一个个辨认——标签越像，按错的概率越高。<strong>所以</strong>下面用公开评测的数字，看「工具变多」到底让正确率掉了多少。</p><p>更省事的做法是「给每个工具起个名字、配一句话描述就完事」。但模型看不到代码，做选择时只能读到这几行文字：可见工具 25 个时选择正确率 86.7%，涨到 150 个时掉到 76.7%——掉的这 10.0 个百分点，正是「描述区分度不够」在规模上的放大。工具越多，写描述的成本越低，选错的代价越高。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：工具越多，模型越容易选错</div>
+        <div class="step"><div class="step-title">Step 1：模型做选择时能看到的只有三样东西</div>
+          <table><tr><th>模型能看到的信息</th><th>作用</th><th>缺了会怎样</th></tr><tr><td>name（工具名）</td><td>第一层线索，供粗筛</td><td>名字含糊 → 选到错误的域</td></tr><tr><td>description（描述）</td><td>决定「何时用、何时不用」的最重要因素</td><td>描述太短 → 模型只能靠猜</td></tr><tr><td>JSON Schema（参数表）</td><td>决定参数怎么填</td><td>描述与 schema 不一致 → 填错</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：一个工具的定义 ≈ 3 段文字 + 1 张参数表，按 200 token 估（示意），20 个工具就固定占掉 20 × 200 = <strong>4,000 token</strong> 的 context。也就是说，模型每做一次「挑哪个」的决定，都要先读完这 4,000 token。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：工具数从 25 涨到 150，正确率掉 10 个百分点</div>
+          <table><tr><th>可见工具数</th><th>选择正确率（示意：单模型 Grok 4.1 Fast，60 条 prompt）</th><th>相对 25 个</th></tr><tr><td>25</td><td>86.7%</td><td>基准</td></tr><tr><td>50</td><td>83.3%</td><td>−3.4</td></tr><tr><td>75</td><td>80.0%</td><td>−6.7</td></tr><tr><td>100</td><td>83.3%</td><td>−3.4</td></tr><tr><td>150</td><td><strong>76.7%</strong></td><td><strong>−10.0</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：从 25 个到 150 个，正确率 86.7% → 76.7%，掉了 86.7% − 76.7% = <strong>10.0 个百分点</strong>（相对下降约 11.5%）。这组数字取自公开评测（60 条 prompt，含直接与模糊问法，<strong>属示意、非权威基准</strong>），但趋势很明确：候选越多，越接近「标签很像、只能猜」的区间；中间会有抖动，因为每次抽样的工具集不同。工具规模再往上，正确率会继续下降，但目前公开评测多在 150 工具以内，尚无可靠的一手数据（此趋势属示意，需人工核实）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：最危险的是「跨服务误选」——近义工具互相干扰</div>
+          <table><tr><th>最常被混淆的服务对</th><th>典型模糊问法</th></tr><tr><td>Datadog vs Grafana</td><td>「查一下监控告警」</td></tr><tr><td>Notion vs Confluence</td><td>「搜一下文档」</td></tr><tr><td>Linear vs Jira</td><td>「给这个 issue 加条评论」</td></tr><tr><td>GitHub vs GitLab</td><td>「看看有哪些 open issue」</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：跨服务误选（选了完全错误的服务）会随工具数上升——据第三方评测（sixdegree.ai，100 个工具、60 条 prompt，示意）：单一模型在 100 个工具时的跨服务误选为 1–4 次，其中 Grok 4.1 Fast 与 Claude Haiku 4.5 各 2 次。这类错的代价最高：不是「参数没填对」，而是「调了另一个系统」。所以命名与描述的区分度是关键：给工具名加统一前缀（如 github_ / gitlab_）、在 description 里写清「何时不用」，都比多塞工具更有效。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>模型做选择的唯一依据，就是每个工具的 name / description / schema。有区分度 → 它能在 20 个里挑对；没有区分度 → 近义工具互相干扰，工具越多越像在猜。由此得到两条工程纪律：<strong>① 大工具集不平铺</strong>——按业务域分组、统一命名前缀，必要时先「检索出候选集」再让模型选；<strong>② 与其堆工具，不如把每个 description 写清楚</strong>——这一步的投入产出比，通常高于调提示词。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','22-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','22-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-22-4" class="llm-section"><button class="llm-btn" onclick="startChat('22-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="22-4"><div class="chat-toolbar"><button onclick="copyChat('22-4')">📋 复制对话</button><button onclick="clearChat('22-4')">🗑 清空</button><button onclick="stopLLM('22-4')" id="stop-btn-22-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('22-4')" id="regenerate-btn-22-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="22-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对「工具选择」有疑问？比如「工具多了怎么分组」「近义工具怎么区分」？<br><br>贴出你的工具名与描述，我帮你找哪些最容易混。</div></div><div class="chat-input-row"><textarea data-input="22-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('22-4')}" rows="1" placeholder="例如：20 个工具怎么让模型不选错？"></textarea><button onclick="sendLLM('22-4')">发送</button></div></div></div>
+      <div id="tab-qna-22-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('22-4')">🔄 换一批</button></div><div class="qna-list" data-qna="22-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="22-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">模型一口气要调 5 个工具，返回的结果把上下文撑爆了怎么办？</div><div class="card-q-hint">提示：先分清两件事——模型一次能不能同时要多个工具？这些工具的结果又要占多少上下文？结果太大时，有没有只回传「摘要」的办法？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>并行的工具调用</strong>（parallel tool calls）指模型在<strong>一次响应里</strong>同时返回多个工具调用请求。Anthropic 的官方文档明确：Claude <strong>默认</strong>就可能一次返回多个 tool_use 块，可在 tool_choice 里用 disable_parallel_tool_use 关掉（效果随 tool_choice 类型而变）；Azure 的文档说明并行函数调用自 API 版本 2023-12-01-preview 起支持，OpenAI 侧则自 2023-11-06 DevDay 发布，允许「多个函数调用一起执行、一起取回结果」。并行省下的是延迟，却把另一个问题推到台前：<strong>多份结果要一次性回填进 context，占用被放大</strong>。</div>
+      <div class="content-section"><p>上一张卡片让模型在 20 个工具里挑对了。这一张处理挑对之后的下一件事：<strong>一次要调好几个工具，它们的返回结果塞回来会不会把上下文撑爆</strong>。</p><p><strong>因为</strong>模型可以在一轮里同时要 5 个工具（并行调用），执行端也能并发跑，所以这 5 份结果会<strong>几乎同时</strong>回填进 <b>context</b>。<strong>就像</strong>一次叫了 5 个外卖骑手：配送确实更快了，但门口一下堆 5 大箱，放不下就得出事。<strong>所以</strong>下面先算并行省了多少往返，再算回填这笔长度账。</p><p>更自然的做法是「把工具返回的原始 JSON 原样塞回上下文」，因为这样最完整。但一次并行 5 个工具、每个回 2,000 token，就是 10,000 token，占 128K 窗口的约 7.8%；这些结果还会留在历史里，10 轮累计到 100,000 token。把「完整」换成「够用」——截断、摘要、只回引用——同一批结果能从 10,000 token 压到 250。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：并行省下的往返，与回填压出的长度</div>
+        <div class="step"><div class="step-title">Step 1：并行调用把 5 个工具从 10 次往返压到 2 次</div>
+          <table><tr><th>调用方式</th><th>模型往返次数</th><th>说明</th></tr><tr><td>串行 5 个工具</td><td><strong>10</strong></td><td>每个工具各 1 次「决定」+ 1 次「读结果」，5 × 2</td></tr><tr><td>并行 1 批 5 个工具</td><td><strong>2</strong></td><td>1 次「决定」（一次返回 5 个调用）+ 1 次「读全部结果」</td></tr><tr><td>省下</td><td><strong>8</strong></td><td>10 − 2</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：5 个互不依赖的工具，串行要 5 × 2 = <strong>10</strong> 次模型往返；并行只要 1 批 = <strong>2</strong> 次，省下 10 − 2 = <strong>8</strong> 次。代价是——这 5 份结果会在同一刻一起回填。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：回填结果的长度账——5 个工具吃掉多少窗口</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>单个工具返回结果</td><td><strong>2,000 token</strong>（示意：一页 JSON 或一段日志）</td></tr><tr><td>5 个工具一起回填</td><td>5 × 2,000 = <strong>10,000 token</strong></td></tr><tr><td>占 128K 上下文窗口</td><td>10,000 ÷ 128,000 ≈ <strong>7.8%</strong></td></tr><tr><td>若连续 10 轮都带着这些结果</td><td>10,000 × 10 = <strong>100,000 token</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：5 × 2,000 = <strong>10,000 token</strong>；10,000 ÷ 128,000 ≈ <strong>7.8%</strong>，一次并行就占掉近 8% 的窗口；这些结果还会留在对话历史里，10 轮就累计到 <strong>100,000 token</strong>（示意）。工具返回值是「每次调用都新产生」的内容，比静态的工具定义更容易失控。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：三种收口策略，把 10,000 token 压到 250</div>
+          <table><tr><th>策略</th><th>5 个工具回填合计</th><th>相对原始</th></tr><tr><td>原样回填</td><td>5 × 2,000 = <strong>10,000</strong></td><td>1×</td></tr><tr><td>截断（每个保留前 500 token）</td><td>5 × 500 = <strong>2,500</strong></td><td>1/4</td></tr><tr><td>摘要（每个压到 200 token）</td><td>5 × 200 = <strong>1,000</strong></td><td>1/10</td></tr><tr><td>外部存储 + 只回引用（每个 50 token）</td><td>5 × 50 = <strong>250</strong></td><td>1/40</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：同一批 5 个工具，原样回填 10,000 token、截断到 2,500、摘要到 1,000、只回引用到 250——从 10,000 压到 250 是 10,000 ÷ 250 = <strong>40 倍</strong>。工程上常组合使用：小结果原样回传；大结果截断成「前 N 行 + 总行数」；超大结果落外部存储，只把引用标识和摘要塞回 context，模型需要时再按引用去取。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>并行调用把 5 个工具从 10 次往返压到 2 次，代价是 5 份结果同时涌入 context。所以「并行」必须和「收口」一起用：<strong>截断、摘要、外部存储回引用</strong>，把回填长度从 10,000 token 量级压到 250–1,000。记住一条口径：<strong>上下文里要放的是「模型下一步要用的信息」，而不是「工具返回的全部内容」</strong>。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','22-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','22-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-22-5" class="llm-section"><button class="llm-btn" onclick="startChat('22-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="22-5"><div class="chat-toolbar"><button onclick="copyChat('22-5')">📋 复制对话</button><button onclick="clearChat('22-5')">🗑 清空</button><button onclick="stopLLM('22-5')" id="stop-btn-22-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('22-5')" id="regenerate-btn-22-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="22-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对「并行调用与结果回填」有疑问？比如「什么时候该并行」「结果太大怎么压」？<br><br>说清你的工具返回量级，我帮你估上下文占用与收口策略。</div></div><div class="chat-input-row"><textarea data-input="22-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('22-5')}" rows="1" placeholder="例如：5 个工具的结果会占多少 token？"></textarea><button onclick="sendLLM('22-5')">发送</button></div></div></div>
+      <div id="tab-qna-22-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('22-5')">🔄 换一批</button></div><div class="qna-list" data-qna="22-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="22-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">同一个功能，为什么有的工具模型一用就对、有的怎么调都错？</div><div class="card-q-hint">提示：模型看不到你的代码，它只看到工具的名字、说明和参数表。从「它能看到什么」出发想，哪些设计会让它选错。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>模型看不到工具的源码，它<strong>只能看到 name / description / JSON Schema</strong>——所以「描述即文档」。各家官方工具指南都强调：<strong>在工具接口上花的时间，往往比调提示词更值</strong>；Anthropic 的指南建议把每个工具的 description 和说明写清楚（用途、何时用、何时不用），不要只写一句话。安全上还有一条共同前提：工具的<strong>描述不可全信</strong>（除非来自可信服务器），宿主在调用前应取得用户同意——因为工具代表的是<strong>任意代码执行</strong>与数据访问。</div>
+      <div class="content-section"><p>前面五张卡片解决了「怎么调、怎么兜错、怎么选、怎么回填」。最后一张回到最影响成功率的一环：<strong>工具本身设计得对不对</strong>。</p><p><strong>因为</strong>模型能看到的只有名字、说明和参数表——写得含糊，它就选错、填错。<strong>就像</strong>给同事一张写着「处理一下」的便签：他要么问你三遍，要么直接办错；写清「把 X 单的金额从 A 改成 B」，他才一次做对。<strong>所以</strong>下面先算一笔「工具越多越难选」的账，再给一套可执行的设计原则。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：工具越多，成本与误选一起涨</div>
+        <div class="step"><div class="step-title">Step 1：工具数量直接决定 schema 的 token 占用</div>
+          <table><tr><th>工具数</th><th>schema 占用（200 token/个）</th></tr><tr><td>5</td><td><strong>1,000 token</strong></td></tr><tr><td>20</td><td><strong>4,000 token</strong></td></tr><tr><td>50</td><td><strong>10,000 token</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：按每个工具约 200 token 估（示意），5 个工具占 <strong>1,000 token</strong>、50 个占 <strong>10,000 token</strong>——而且是每次请求都带。工具不是「越多越强」，它同时是固定成本。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：候选越多，选错的机会也越多</div>
+          <table><tr><th>工具数</th><th>候选空间</th><th>对模型的要求</th></tr><tr><td>5</td><td>小</td><td>描述略模糊也能选对</td></tr><tr><td>50</td><td>放大 10 倍</td><td>必须靠<strong>精确描述</strong>区分近义工具</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：工具数从 5 到 50，候选空间放大 <strong>10 倍</strong>。平台期之前靠「多给工具」能涨能力，之后就变成「近义工具互相干扰」——<strong>所以大工具集必须做分组、命名与描述的区分度设计</strong>（具体误选率随任务而异，属示意）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：好工具的六条原则</div>
+          <table><tr><th>#</th><th>原则</th><th>为什么</th></tr><tr><td>1</td><td>描述即文档</td><td>模型只看得到 name/description/schema</td></tr><tr><td>2</td><td>参数最小化</td><td>参数越少越不易填错</td></tr><tr><td>3</td><td>防呆（poka-yoke）</td><td>让「用错」在设计上就很难发生</td></tr><tr><td>4</td><td>错误可读可行动</td><td>错误信息本身就是给模型的观察</td></tr><tr><td>5</td><td>幂等、可重放</td><td>配合重试不产生重复副作用</td></tr><tr><td>6</td><td>最小权限 + 用户同意</td><td>工具即任意代码执行</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条总纲：把这六条当<strong>评审清单</strong>用。前 5 条提升「用得对」的概率，第 6 条决定「出事了有多大」——官方工具指南明确指出工具描述不可全信、调用前应取得用户同意。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>本课收口：工具是<strong>模型与真实世界的唯一接口</strong>，所以它的设计质量直接决定 Agent 的成功率。四步往返（定义→意图→执行→回填）决定成本结构，schema 与 strict 决定结构正确性，校验/重试/幂等决定出错后的鲁棒性，工具选择与结果回填决定规模化后的成功率，而<strong>工具设计决定「模型第一遍能不能做对」</strong>。至于「接入生态」那个更大的问题——每个宿主都要为每个工具重写一套适配——下一课用 MCP 单独讲：它怎么把 M×N 压成 M+N。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','22-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','22-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-22-6" class="llm-section"><button class="llm-btn" onclick="startChat('22-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="22-6"><div class="chat-toolbar"><button onclick="copyChat('22-6')">📋 复制对话</button><button onclick="clearChat('22-6')">🗑 清空</button><button onclick="stopLLM('22-6')" id="stop-btn-22-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('22-6')" id="regenerate-btn-22-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="22-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对工具设计有疑问？比如「描述该怎么写」「工具太多怎么分」？<br><br>贴出你的工具名与描述，我帮你按六条原则过一遍。</div></div><div class="chat-input-row"><textarea data-input="22-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('22-6')}" rows="1" placeholder="例如：怎么让模型不调错工具？"></textarea><button onclick="sendLLM('22-6')">发送</button></div></div></div>
+      <div id="tab-qna-22-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('22-6')">🔄 换一批</button></div><div class="qna-list" data-qna="22-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 22 课完成 · 下一课：第 23 课「MCP 协议」</p>
+    <a href="#" onclick="switchLesson(23);return false;">进入第 23 课：MCP 协议 →</a>　·　<a href="#" onclick="switchLesson(21);return false;">← 上一课：从 Prompt 到 Agent</a>
+  </div></div>

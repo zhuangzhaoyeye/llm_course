@@ -1,0 +1,313 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 2 课：Transformer 模型结构全景</h2>
+    <p class="subtitle">第 1 课搞清楚了"为什么要 Transformer"，这一课把 Transformer 的骨架拆开——Encoder 塔怎么理解输入、Decoder 塔怎么生成输出、两者之间怎么传递信息。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 画出原始 Transformer 的 Encoder-Decoder 双塔结构图<br>② 说清 Encoder 的 Self-Attention 和 Decoder 的 Masked Self-Attention 为什么不一样<br>③ 理解 Cross-Attention 怎么把 Encoder 的输出"喂"给 Decoder</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本课路线（1 个任务 · 4 组约束 · 6 个部件；约束之间是并列支链，不是单向递进）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text"><strong>任务：把「I love you」翻成「我爱你」</strong> — 必须先读完整个输入（理解），再逐词写出（生成），这就要求结构分成 <b class="rn-key">Encoder 与 Decoder 两座塔</b></span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text"><strong>约束一 · 输入侧：词与词要互相参照</strong> — 两座塔里的第一座 Encoder 要让每个词都看全句，这就要求把 <b class="rn-key">Self-Attention 与 FFN</b> 各配一个残差子层、叠成一层，再堆 N 层</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text"><strong>约束二 · 生成侧：既要看已写的，又要回看输入</strong> — Decoder 于是在自己的 Self-Attention 之外多接一个 <b class="rn-key">Cross-Attention</b>，且自身注意力必须加 mask 防止偷看未来</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text"><strong>约束三 · 深度：堆到 6 层要训得起来</strong> — 层数一深，梯度与尺度都会失控，因此每个子层之后都要接 <b class="rn-key">残差连接与 LayerNorm</b></span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text"><strong>约束四 · 顺序：并行不能丢词序</strong> — Self-Attention 对所有位置一视同仁、本身没有顺序信息，这就要求额外注入 <b class="rn-key">位置编码</b>（sin/cos 多频率）</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text"><strong>拼起来：一句话走完两座塔</strong> — 于是把上述部件按 Encoder / Decoder 各堆 6 层，「I love you → 我爱你」的每一步都能追到上面哪一条约束</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">Encoder-Decoder</span><span class="meta-tag">Self-Attention</span><span class="meta-tag">Cross-Attention</span><span class="meta-tag">Residual</span><span class="meta-tag">LayerNorm</span><span class="meta-tag">Sinusoidal</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="2-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">要同时做到"读懂整句"和"逐词写出"，为什么结构必须分成 Encoder 与 Decoder 两座塔？</div><div class="card-q-hint">提示：先看这两种动作各自需要什么信息</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Transformer</strong> 出自 "Attention Is All You Need"（Vaswani et al., Google, 2017）。原论文为机器翻译设计：Encoder 编码源语言（英语），Decoder 生成目标语言（法语）。架构由 N=6 层 Encoder 堆叠 + N=6 层 Decoder 堆叠组成。后来 BERT 只用 Encoder，GPT 只用 Decoder，但原始结构是 Encoder-Decoder 双塔——这是理解 Transformer 全貌的起点。</div>
+      <div class="content-section">
+        <p>先看<strong>任务本身</strong>：把「I love you」翻成「我爱你」，目标端要<strong>逐词产出</strong>。而"我"和"爱"这两个位置对输入的要求<strong>方向相反</strong>——一个要求"整句都已读过"，一个要求"绝不能提前看到后面"。<strong>这就要求</strong>结构把这两种可见范围分开，也就是分成 <strong>Encoder 与 Decoder 两座塔</strong>。</p>
+        <p>就像同声传译岗位的分工：一个人先把整段话听完记牢，另一个人再逐句往外说——前者在论文里叫 <strong>Encoder</strong>，后者叫 <strong>Decoder</strong>。</p>
+      </div>
+      <div class="calc-block">
+        <div class="label">🧮 从任务约束推出两座塔（源句 3 个词）</div>
+        <div class="step"><div class="step-title">Step 1：任务对"可见范围"提出两个相反要求</div>
+          <table><tr><th>要产出的词</th><th>必须看见</th><th>绝不能看见</th></tr>
+          <tr><td>"我"（第 1 个）</td><td>I / love / you —— 整句 3 个源词</td><td>—</td></tr>
+          <tr><td>"爱"（第 2 个）</td><td>I / love / you</td><td>"你"（自己还没生成）</td></tr>
+          <tr><td>"你"（第 3 个）</td><td>I / love / you</td><td>—（已是最后一个）</td></tr></table>
+          <div class="step-desc">源句侧要"全可见"，目标侧要"绝不看未来"——<strong>同一组注意力权重做不到两者兼顾</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：硬用一座塔，会坏在哪</div>
+          <table><tr><th>阶段</th><th>若允许看未来</th><th>若禁止看未来</th></tr>
+          <tr><td>训练</td><td>学到 P(我 | I love you 全句)</td><td>学到 P(我 | 只有前缀)</td></tr>
+          <tr><td>推理</td><td>只能拿到前缀（未来词尚不存在）</td><td>与训练一致</td></tr>
+          <tr><td>结果</td><td><strong>训练与推理输入分布不一致 → 输出崩坏</strong></td><td>一致</td></tr></table>
+          <div class="step-desc">一座塔既要读全句、又不能看未来，两者直接冲突——所以必须按可见范围<strong>分成两座塔</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：两座塔各自的职责，来自上面两条要求</div>
+          <table><tr><th>塔</th><th>可见范围</th><th>因为要满足</th><th>运行次数</th></tr>
+          <tr><td><strong>Encoder</strong></td><td>双向，每个词看全部词</td><td>源句侧"全可见"</td><td>1 次</td></tr>
+          <tr><td><strong>Decoder</strong></td><td>单向，Masked（只看左边）</td><td>目标侧"绝不看未来"</td><td>逐词，3 次</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 4：代价——两座塔要花多少层计算</div>
+          <table><tr><th>塔</th><th>前向次数</th><th>层数</th><th>层计算次数</th></tr>
+          <tr><td>Encoder</td><td>1</td><td>6</td><td>1 × 6 = <strong>6</strong></td></tr>
+          <tr><td>Decoder</td><td>3（3 个词）</td><td>6</td><td>3 × 6 = <strong>18</strong></td></tr>
+          <tr><td>合计</td><td>—</td><td>—</td><td>18 ÷ 6 = <strong>3 倍</strong></td></tr></table>
+          <div class="step-desc">源句越长，这个差距越大；这也是后续用 <strong>KV Cache</strong>（把已算过的键和值存下来复用）把 Decoder 的重复计算压下去的原因。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 两座塔在参数上差多少</div>
+        <p>Decoder 每层比 Encoder 多一个 <strong>Cross-Attention</strong>（4 个 512×512 投影矩阵）：单层从 3.15M 增到 4.20M，6 层共多 <strong>6.3M</strong> 参数。而 <strong>FFN 始终占每层参数的大头（67%）</strong>——Self-Attention 并不是参数最多的部件。</p>
+        </div>
+      <div class="calc-block"><div class="label">🧮 参数账（原始 Transformer base 配置）</div>
+        <table><tr><th>组件</th><th>参数量</th><th>占 Encoder 一层比例</th></tr>
+        <tr><td>Multi-Head Self-Attention（4 个投影矩阵）</td><td>4 × 512² ≈ 1.05M</td><td>33%</td></tr>
+        <tr><td>FFN（两个线性层）</td><td>2 × 512 × 2048 ≈ 2.10M</td><td>67%</td></tr>
+        <tr><td>LayerNorm（2 个，各 512 缩放 + 偏置）</td><td>2 × 1024 ≈ 2K</td><td>可忽略</td></tr>
+        <tr><td><strong>Encoder 一层合计</strong></td><td><strong>≈ 3.15M</strong></td><td>100%</td></tr>
+        <tr><td>Decoder 一层（多 Cross-Attention）</td><td>额外 4 × 512² ≈ 1.05M</td><td>—</td></tr>
+        <tr><td><strong>Decoder 一层合计</strong></td><td><strong>≈ 4.20M</strong></td><td>—</td></tr>
+        <tr><td><strong>6 层 Encoder + 6 层 Decoder</strong></td><td><strong>6 × 3.15M + 6 × 4.20M ≈ 44.1M</strong></td><td>—</td></tr>
+        <tr><td>+ Embedding（与输出层共享权重）+ 位置编码（正弦函数，无参数）</td><td>V × 512 = 18.94M</td><td>—</td></tr>
+        <tr><td><strong>总计（V = 37000 BPE）</strong></td><td><strong>≈ 44.1M + 18.9M ≈ 63M</strong></td><td>嵌入层与输出层<strong>共享权重</strong>，只计一份</td></tr></table>
+        <div class="step-desc" style="margin-top:6px;">此处按 V=37000 逐项相加得 ≈63M；原论文报告的 base 总参数约 65M，差额（约 2M）来自词表取整、LayerNorm 与各线性层偏置，本表未逐项计入。</div>
+      </div>
+
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','2-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','2-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-2-1" class="llm-section"><button class="llm-btn" onclick="startChat('2-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="2-1"><div class="chat-toolbar"><button onclick="copyChat('2-1')">📋 复制对话</button><button onclick="clearChat('2-1')">🗑 清空</button><button onclick="stopLLM('2-1')" id="stop-btn-2-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('2-1')" id="regen-btn-2-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="2-1"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对这张卡片有疑问？我会用具体数字和计算例子来回答。</div></div></div><div class="chat-input-row"><textarea data-input="2-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('2-1')}" rows="1" placeholder="例如：帮我用具体数字走一遍…"></textarea><button onclick="sendLLM('2-1')">发送</button></div></div></div>
+      <div id="tab-qna-2-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('2-1')">🔄 换一批</button></div><div class="qna-list" data-qna="2-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="2-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">为什么 Encoder 一层非要按「Self-Attention → Add&Norm → FFN → Add&Norm」这个顺序来堆？</div><div class="card-q-hint">提示：先看这一层里两个子层各自"处理"了什么，再看每个子层处理前后多做了哪一步。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>Encoder 每一层由两个子层组成。第一个是 Multi-Head Self-Attention（多头自注意力），第二个是 Position-wise FFN（逐位置前馈网络）。每个子层后面紧跟 Add（残差连接）+ LayerNorm。"Position-wise"意思是 FFN 对序列中每个位置的向量独立应用相同的变换——同一层内所有位置共享 FFN 参数，但不同位置独立计算、互不影响。</div>
+      <div class="content-section">
+        <p>上一张卡片看了双塔结构。现在拆开看 Encoder 一层内部：两个子层，每个子层都是"处理 → 加回 → 归一化"的三部曲：</p>
+        <p>就像一条流水线：所有工位先互相通气一遍（Self-Attention 做信息融合），每个工位再各自加工（FFN 做非线性变换）——论文里就是 <strong>Self-Attention → Add & Norm → FFN → Add & Norm</strong> 这个顺序。</p><p>为什么要"加回"再"归一化"？<strong>因为</strong>网络越深，数值尺度越会逐层放大、梯度也越会逐层衰减——这两步就是为深网络准备的稳定器。</p>
+        <p><strong>子层 1：Self-Attention</strong><br>输入 x → Multi-Head Self-Attention(x) → 残差加法 x + Attention(x)。最后再过一层 LayerNorm。</p>
+        <p><strong>子层 2：FFN</strong><br>LayerNorm 输出 → FFN（两个线性层 + ReLU） → 残差加法 → LayerNorm。</p>
+      </div>
+      <div class="calc-block">
+        <div class="label">🧮 以句子 "我 爱 你"（3 个词，示例维度 d_model=4）走查 Encoder 一层——原论文真实配置是 d_model=512，这里为便于手算压到 4 维</div>
+        <div class="step"><div class="step-title">Step 1：输入 Embedding + 位置编码 → x（形状 [3, 4]）</div>
+          <table><tr><th>位置</th><th>词</th><th>向量（d_model=4）</th></tr>
+          <tr><td>pos1</td><td>我</td><td>[1.0, 0.5, 0.2, 0.8]</td></tr>
+          <tr><td>pos2</td><td>爱</td><td>[0.3, 1.2, 0.7, 0.1]</td></tr>
+          <tr><td>pos3</td><td>你</td><td>[0.6, 0.4, 1.1, 0.9]</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：子层 1 — Self-Attention（双向，每个词看全部词）</div>
+          <div class="step-desc">"爱"的 Q 和所有 K 做点积（包括"我""爱""你"三个词的 K），得到注意力分数 → 加权求和 V → 输出 attention_out，形状仍是 [3, 4]。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：Add & Norm — 残差 + LayerNorm</div>
+          <div class="step-desc">x' = LayerNorm(x + attention_out)。残差保证了即使 Attention 层学到的东西很少（接近零），信息也不会丢失——x 本身会直接穿过去。</div>
+          <table><tr><th>位置</th><th>x（原始）</th><th>+ attention_out</th><th>= 求和</th><th>→ LayerNorm → 输出</th></tr>
+          <tr><td>pos1</td><td>[1.0, 0.5, 0.2, 0.8]</td><td>[0.3, 0.1, 0.2, 0.4]</td><td>[1.3, 0.6, 0.4, 1.2]</td><td>[1.109, -0.718, -1.239, 0.848]</td></tr>
+          <tr><td>pos2</td><td>[0.3, 1.2, 0.7, 0.1]</td><td>[0.5, 0.3, 0.4, 0.2]</td><td>[0.8, 1.5, 1.1, 0.3]</td><td>[-0.285, 1.313, 0.4, -1.427]</td></tr>
+          <tr><td>pos3</td><td>[0.6, 0.4, 1.1, 0.9]</td><td>[0.2, 0.1, 0.3, 0.5]</td><td>[0.8, 0.5, 1.4, 1.4]</td><td>[-0.577, -1.347, 0.962, 0.962]</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 4：子层 2 — FFN（两个线性层，对每个位置独立计算）</div>
+          <div class="step-desc">W1: [4, 8]（升维），b1: [8]，ReLU；W2: [8, 4]（降维），b2: [4]（本例为便于手算把 d_ff 取到 2×d_model=8；原论文配置是 d_ff=4×d_model=2048）。<strong>注：W1/W2/b1/b2 的具体数值未列出，本行中间值与 ffn_out 为<u>示意值</u>；而上面 Step 3 与下面 Step 5 的归一化结果均由公式真实复算，可自行验算。</strong></div>
+          <table><tr><th>位置</th><th>输入 x'</th><th>→ W1×x'+b1 → ReLU</th><th>→ W2×(...)+b2 = ffn_out</th></tr>
+          <tr><td>pos1</td><td>[1.109, -0.718, -1.239, 0.848]</td><td>[2.1, 0, 1.8, 0, 0.5, 3.2, 0, 1.1]</td><td>[0.4, 0.2, -0.1, 0.6]</td></tr>
+          <tr><td>pos2</td><td>[-0.285, 1.313, 0.4, -1.427]</td><td>[1.5, 0, 2.0, 0, 0.3, 2.8, 0, 0.9]</td><td>[0.3, 0.5, 0.1, 0.4]</td></tr>
+          <tr><td>pos3</td><td>[-0.577, -1.347, 0.962, 0.962]</td><td>[1.8, 0, 1.5, 0, 0.2, 2.5, 0, 0.8]</td><td>[0.2, 0.3, 0.0, 0.7]</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 5：再次 Add & Norm → Encoder 一层输出</div>
+          <div class="step-desc">output = LayerNorm(x' + ffn_out)，形状 [3, 4]。一层 Encoder 计算完毕。</div>
+          <table><tr><th>位置</th><th>x'（子层1输出）</th><th>+ ffn_out</th><th>→ LayerNorm → Encoder 输出</th></tr>
+          <tr><td>pos1</td><td>[1.109, -0.718, -1.239, 0.848]</td><td>+[0.4, 0.2, -0.1, 0.6]</td><td>[1.509, -0.518, -1.339, 1.448] → [0.997, -0.64, -1.304, 0.947]</td></tr>
+          <tr><td>pos2</td><td>[-0.285, 1.313, 0.4, -1.427]</td><td>+[0.3, 0.5, 0.1, 0.4]</td><td>[0.015, 1.813, 0.5, -1.027] → [-0.304, 1.457, 0.171, -1.325]</td></tr>
+          <tr><td>pos3</td><td>[-0.577, -1.347, 0.962, 0.962]</td><td>+[0.2, 0.3, 0.0, 0.7]</td><td>[-0.377, -1.047, 0.962, 1.662] → [-0.634, -1.261, 0.62, 1.275]</td></tr></table>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键洞察</div><p>Self-Attention 做的是"信息融合"——各位置的词互相交流；FFN 做的是"信息加工"——每个位置独立地对融合后的信息做非线性变换。两者配合：先融合、再加工、每一层加深理解。</p></div>
+
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','2-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','2-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-2-2" class="llm-section"><button class="llm-btn" onclick="startChat('2-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="2-2"><div class="chat-toolbar"><button onclick="copyChat('2-2')">📋 复制对话</button><button onclick="clearChat('2-2')">🗑 清空</button><button onclick="stopLLM('2-2')" id="stop-btn-2-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('2-2')" id="regen-btn-2-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="2-2"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对这张卡片有疑问？我会用具体数字和计算例子来回答。</div></div></div><div class="chat-input-row"><textarea data-input="2-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('2-2')}" rows="1" placeholder="例如：帮我用具体数字走一遍…"></textarea><button onclick="sendLLM('2-2')">发送</button></div></div></div>
+      <div id="tab-qna-2-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('2-2')">🔄 换一批</button></div><div class="qna-list" data-qna="2-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="2-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">Decoder 既要看自己已写的、又要回看输入——为什么这需要两个注意力子层，一个不够？</div><div class="card-q-hint">提示：先分清「问题（Q）从哪来」与「答案（K/V）从哪来」——这两者可以是不同来源。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>Decoder 和 Encoder 最大区别有两点。① 多了 <strong>Cross-Attention</strong>。它也叫 Encoder-Decoder Attention。② <strong>Self-Attention</strong> 加了 Mask（Causal Mask，第 1 课已讲过）。Cross-Attention 的 Q 来自 Decoder 当前层输入，K 和 V 来自 Encoder 的最后一层输出——这是 Encoder 和 Decoder 之间唯一的信息通道。6 层 Decoder 每一层都独立地从 Encoder 最后一层获取 K 和 V（不是级联）。</div>
+      <div class="content-section">
+        <p>上一张卡片拆解了 Encoder 的内部四步。Decoder 一层 = <strong>三个子层</strong>（比 Encoder 多一个），区别在哪？<strong>因为</strong>生成时它要同时干两件事：一边看自己已经写出的内容，一边去查已读完的输入，所以比 Encoder 多出一个 Cross-Attention。</p>
+        <p>就像做翻译时的两个动作：先回想自己已经译出的半句（Masked Self-Attention），再回头翻原文找对应说法（Cross-Attention）——这两个动作在论文里就是 Decoder 的 <strong>两个注意力子层</strong>。</p>
+        <p><strong>子层 1：Masked Self-Attention</strong> — 和 Encoder 类似，但加了下三角 Mask（只看已生成的词）。</p>
+        <p><strong>子层 2：Cross-Attention</strong> — Q 来自本层输入，K 和 V 来自 Encoder 输出。Decoder 用自己当前的表示去"查"Encoder 对整个输入句子的理解。</p>
+        <p><strong>子层 3：FFN</strong> — 和 Encoder 完全一样</p>
+        <p>省掉 Cross-Attention 行不行？不行：第 1 步生成时 Decoder 手里只有 [BOS] 一个符号，它从没见过「I love you」这 3 个源词，凭什么把首词定成「我」而不是「你」？所以必须保留一个专门回看源句的子层——这就是 Cross-Attention 存在的理由。</p>
+        <p>每个子层后面都跟着 Add & Norm。</p>
+      </div>
+      <div class="calc-block">
+        <div class="label">🧮 翻译 "I love you" → "我 爱 你" 时，Decoder 第 1 步的 Cross-Attention</div>
+        <div class="step"><div class="step-title">前提：Encoder 已处理完 "I love you"，输出 encoder_output [3, 4]。</div>
+          <table><tr><th>Encoder 位置</th><th>编码后的向量</th></tr>
+          <tr><td>I</td><td>[0.9, 0.5, 0.1, 1.1]</td></tr>
+          <tr><td>love</td><td>[0.5, 1.0, 0.6, 0.4]</td></tr>
+          <tr><td>you</td><td>[0.4, 0.4, 0.7, 1.2]</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Decoder 第 1 步：当前已生成 [BOS]（起始符），decoder_input = [0.2, 0.3, 0.6, 0.1]</div>
+          <div class="step-desc">子层 1 — Masked Self-Attention（只看 BOS） → 输出 [0.3, 0.4, 0.5, 0.2]。</div>
+          <div class="step-desc">Add & Norm：x + 子层输出 = [0.5, 0.7, 1.1, 0.3]，LayerNorm 后 → x' = [−0.51, 0.17, 1.52, −1.18]（由公式真实复算）</div>
+        </div>
+        <div class="step"><div class="step-title">子层 2 — Cross-Attention：x' 作为 Q，encoder_output 作为 K 和 V。</div>
+          <div class="step-desc">Q = x' × W_Q = [−0.51, 0.17, 1.52, −1.18] × W_Q（W_Q / W_K / W_V 投影与下方得分均为示意，仅展示 Cross-Attention 流程）</div>
+          <div class="step-desc">K = encoder_output × W_K，V = encoder_output × W_V</div>
+          <table><tr><th>Q·K 得分</th><th>Softmax</th><th>加权 V</th></tr>
+          <tr><td>Q·K_I = 0.42</td><td>exp(0.42)/Σ = 0.355</td><td>0.355 × V_I</td></tr>
+          <tr><td>Q·K_love = 0.35</td><td>exp(0.35)/Σ = 0.331</td><td>0.331 × V_love</td></tr>
+          <tr><td>Q·K_you = 0.30</td><td>exp(0.30)/Σ = 0.315</td><td>0.315 × V_you</td></tr></table>
+          <div class="step-desc" style="margin-top:6px;">Decoder 的 Q（"下一步该生成什么词？"）会更多关注 Encoder 中与当前生成最相关的源词。</div>
+          <div class="step-desc">Cross-Attention 输出 = 0.355×V_I + 0.331×V_love + 0.315×V_you → Add & Norm → FFN → Add & Norm</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 核心区别总结</div><p>Self-Attention 是"自己和自己聊天"——同一序列内部的信息融合。Cross-Attention 是"译者和原文对话"——Decoder 用自己的理解去原文中找相关线索。这是 Encoder-Decoder 架构的精髓：Encoder 负责把原文变成一个"信息库"（K 和 V），Decoder 用自己的"问题"（Q）去库中检索。</p></div>
+
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','2-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','2-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-2-3" class="llm-section"><button class="llm-btn" onclick="startChat('2-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="2-3"><div class="chat-toolbar"><button onclick="copyChat('2-3')">📋 复制对话</button><button onclick="clearChat('2-3')">🗑 清空</button><button onclick="stopLLM('2-3')" id="stop-btn-2-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('2-3')" id="regen-btn-2-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="2-3"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对这张卡片有疑问？我会用具体数字和计算例子来回答。</div></div></div><div class="chat-input-row"><textarea data-input="2-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('2-3')}" rows="1" placeholder="例如：帮我用具体数字走一遍…"></textarea><button onclick="sendLLM('2-3')">发送</button></div></div></div>
+      <div id="tab-qna-2-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('2-3')">🔄 换一批</button></div><div class="qna-list" data-qna="2-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="2-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">残差连接和 LayerNorm——每个子层后面都跟着"Add & Norm"，这俩到底解决了什么问题？</div><div class="card-q-hint">提示：想想"处理后的结果"和"原输入"相加这一步，对深层网络的数值尺度与梯度意味着什么。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>残差连接</strong>（Residual Connection）由 He et al.（2016）在 ResNet 中提出用于图像识别，Vaswani et al.（2017）引入 Transformer。公式：output = LayerNorm(x + Sublayer(x))。两个作用：① 梯度高速通道（恒等映射 I 保证梯度至少为 1），② 让每层只需学习"残差"（输入和输出的差）而非完整变换。<strong>LayerNorm</strong>（Ba et al., 2016）对每个样本的特征维度做归一化（减均值/除标准差），稳定训练。</div>
+      <div class="content-section">
+        <p>前面我们看了 Encoder 和 Decoder 各自的子层结构，每个子层后面都跟着"Add & Norm"。这俩到底为什么这么重要？<strong>残差连接</strong>：x + F(x)。如果这层学不到有用的东西（F(x)接近零），信息直接穿过。反向传播时（∂/∂x）至少为 1——不会指数衰减。</p>
+        <p><strong>LayerNorm</strong>：归一化每层的输出，让数值范围稳定。没有它，深层网络的激活值会越来越大或越来越小。</p>
+        <p>就像给水流修一条旁通管：主管道再窄，水也能从旁通管直接流到下游（<strong>残差连接</strong> 提供这条直通路），而阀门把水压稳在同一刻度（<strong>LayerNorm</strong> 负责这一步）。</p>
+      </div>
+      <div class="calc-block">
+        <div class="label">🧮 残差对梯度的数学影响</div>
+        <div class="step"><div class="step-title">无残差时：x_l = F_l(x_{l-1})，梯度 ∂loss/∂x_{l-1} = ∂loss/∂x_l × ∂F_l/∂x_{l-1}</div>
+          <table><tr><th>层数</th><th>假设每层梯度乘子=0.85</th><th>传到第1层的梯度</th></tr>
+          <tr><td>12</td><td>0.85¹²</td><td><strong>0.14</strong>（衰减 86%）</td></tr>
+          <tr><td>24</td><td>0.85²⁴</td><td><strong>0.02</strong>（衰减 98%）</td></tr>
+          <tr><td>48</td><td>0.85⁴⁸</td><td><strong>0.0004</strong>（几乎为零）</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">有残差时：x_l = x_{l-1} + F_l(x_{l-1})，梯度 ∂loss/∂x_{l-1} = ∂loss/∂x_l × (I + ∂F_l/∂x_{l-1})</div>
+          <table><tr><th>层数</th><th>I + 0.85×I = 1.85</th><th>传到第1层的梯度</th></tr>
+          <tr><td>12</td><td>1.85¹²</td><td><strong>1607</strong>（不会消失！但太大了——需要 Norm）</td></tr>
+          <tr><td>24</td><td>1.85²⁴</td><td><strong>2.6e6</strong>（爆炸了！）</td></tr></table>
+          <div class="step-desc" style="color:#ef4444;font-weight:600;margin-top:6px;">注：右表的放大是<strong>刻意构造的示意</strong>（假设每层乘子恒定且同向叠加）；真实残差主要缓解梯度消失、不会自动爆炸。这里想说明的是：残差让梯度尺度随深度累积，仍需 LayerNorm / 归一化把尺度压回合理范围。</div>
+        </div>
+        <div class="step"><div class="step-title">LayerNorm 两步：减均值 → 除标准差</div>
+          <table><tr><th>步骤</th><th>公式</th><th>示例（向量 [2, 6, 4, 8]）</th></tr>
+          <tr><td>减均值</td><td>x_i - μ</td><td>μ=(2+6+4+8)/4=5 → [-3, 1, -1, 3]</td></tr>
+          <tr><td>除标准差</td><td>(x_i-μ)/σ</td><td>σ=√((9+1+1+9)/4)=√5≈2.24 → [-1.34, 0.45, -0.45, 1.34]</td></tr>
+          <tr><td>缩放平移</td><td>γ×norm + β</td><td>γ 和 β 是可学习参数，恢复表达能力</td></tr></table>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 残差 + LayerNorm = 深度训练的基石</div><p>没有残差：24 层梯度衰减 98%，浅层几乎学不到。没有 LayerNorm：24 层梯度放大 2.6e6 倍，数值爆炸。两者配合让 6 层、24 层甚至 96 层都能稳定训练——这是 Transformer 从 6 层扩展到千亿参数的前提。</p></div>
+
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','2-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','2-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-2-4" class="llm-section"><button class="llm-btn" onclick="startChat('2-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="2-4"><div class="chat-toolbar"><button onclick="copyChat('2-4')">📋 复制对话</button><button onclick="clearChat('2-4')">🗑 清空</button><button onclick="stopLLM('2-4')" id="stop-btn-2-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('2-4')" id="regen-btn-2-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="2-4"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对这张卡片有疑问？我会用具体数字和计算例子来回答。</div></div></div><div class="chat-input-row"><textarea data-input="2-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('2-4')}" rows="1" placeholder="例如：帮我用具体数字走一遍…"></textarea><button onclick="sendLLM('2-4')">发送</button></div></div></div>
+      <div id="tab-qna-2-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('2-4')">🔄 换一批</button></div><div class="qna-list" data-qna="2-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="2-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">Self-Attention 本身没有位置概念——Transformer 怎么知道"我"在第 1 位、"你"在第 3 位？</div><div class="card-q-hint">提示：顺序信息必须能在不串行的前提下算出来，且不同位置的表示要互相区分得开。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Sinusoidal 位置编码</strong>出自 "Attention Is All You Need"（2017）。用不同频率的正弦/余弦函数为每个位置生成唯一编码：PE(pos, 2i) = sin(pos / 10000^(2i/d))，PE(pos, 2i+1) = cos(pos / 10000^(2i/d))。选择 sin/cos 的关键原因：PE(pos+k) 可以表示为 PE(pos) 的线性变换——这使得模型理论上能线性表示相对位置，但不保证超出训练长度仍可外推（实测仍会退化）。现代模型（Llama 等）已改用 RoPE（第 3 课详讲）。</div>
+      <div class="content-section">
+        <p>前面分析了残差和 LayerNorm 如何稳定深层训练。现在看另一个必须的组件——<strong>位置编码</strong>。在词向量加上位置编码后，同样一个"打"字，位置 2 和位置 5 拿到的向量就不一样了。</p>
+        <p>就像给同一句话里的每个词发一张带座位号的票：词本身（词向量）不变，加上座位号后，"打"坐在第二排和第五排就是两个不同的输入向量。</p>
+        <p>这张"座位号"就是论文里的 <strong>Positional Encoding（位置编码）</strong>。</p>
+      </div>
+      <div class="calc-block">
+        <div class="label">🧮 以 d_model=4 为例，计算前 3 个位置的编码</div>
+        <div class="step"><div class="step-title">频率计算：ω_i = 1 / 10000^(2i/d)</div>
+          <table><tr><th>维度 i</th><th>2i/d</th><th>ω_i = 1/10000^(2i/d)</th></tr>
+          <tr><td>0（偶数维，用 sin）</td><td>0/4 = 0</td><td>1/10000⁰ = <strong>1.0</strong></td></tr>
+          <tr><td>1（奇数维，用 cos）</td><td>0/4 = 0</td><td>1/10000⁰ = <strong>1.0</strong></td></tr>
+          <tr><td>2（偶数维，用 sin）</td><td>2/4 = 0.5</td><td>1/10000^0.5 = 1/100 = <strong>0.01</strong></td></tr>
+          <tr><td>3（奇数维，用 cos）</td><td>2/4 = 0.5</td><td>1/10000^0.5 = 1/100 = <strong>0.01</strong></td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">位置编码值 PE(pos, dim)</div>
+          <table><tr><th>位置</th><th>dim0 (sin(1.0×pos))</th><th>dim1 (cos(1.0×pos))</th><th>dim2 (sin(0.01×pos))</th><th>dim3 (cos(0.01×pos))</th></tr>
+          <tr><td>pos=1</td><td>sin(1)=<strong>0.84</strong></td><td>cos(1)=<strong>0.54</strong></td><td>sin(0.01)=<strong>0.01</strong></td><td>cos(0.01)=<strong>1.00</strong></td></tr>
+          <tr><td>pos=2</td><td>sin(2)=<strong>0.91</strong></td><td>cos(2)=<strong>-0.42</strong></td><td>sin(0.02)=<strong>0.02</strong></td><td>cos(0.02)=<strong>1.00</strong></td></tr>
+          <tr><td>pos=3</td><td>sin(3)=<strong>0.14</strong></td><td>cos(3)=<strong>-0.99</strong></td><td>sin(0.03)=<strong>0.03</strong></td><td>cos(0.03)=<strong>1.00</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:6px;">dim0-dim1 是高频（变化快，能区分相邻位置），dim2-dim3 是低频（变化慢，能覆盖长距离）。不同频率的组合让每个位置有唯一编码。</div>
+        </div>
+        <div class="step"><div class="step-title">加到词向量上："打"在位置 2 vs 位置 5</div>
+          <table><tr><th></th><th>"打"的词向量</th><th>+ 位置编码</th><th>= 最终输入</th></tr>
+          <tr><td>位置2</td><td>[0.2, 0.9, 0.4, 0.1]</td><td>+[0.91, -0.42, 0.02, 1.00]</td><td><strong>[1.11, 0.48, 0.42, 1.10]</strong></td></tr>
+          <tr><td>位置5</td><td>[0.2, 0.9, 0.4, 0.1]</td><td>+[sin(5), cos(5), sin(0.05), cos(0.05)]</td><td><strong>[不同的向量]</strong></td></tr></table>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 位置编码的本质</div><p>不是给位置"贴标签"，而是用多频率 sin/cos 生成向量。高频维度捕获局部差异（相邻位置），低频维度覆盖全局距离。这比可学习位置嵌入更灵活——理论上能用线性变换表示相对位置，但超出训练长度仍会退化（需位置插值等外推技巧），并非可任意外推。</p></div>
+
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','2-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','2-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-2-5" class="llm-section"><button class="llm-btn" onclick="startChat('2-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="2-5"><div class="chat-toolbar"><button onclick="copyChat('2-5')">📋 复制对话</button><button onclick="clearChat('2-5')">🗑 清空</button><button onclick="stopLLM('2-5')" id="stop-btn-2-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('2-5')" id="regen-btn-2-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="2-5"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对这张卡片有疑问？我会用具体数字和计算例子来回答。</div></div></div><div class="chat-input-row"><textarea data-input="2-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('2-5')}" rows="1" placeholder="例如：帮我用具体数字走一遍…"></textarea><button onclick="sendLLM('2-5')">发送</button></div></div></div>
+      <div id="tab-qna-2-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('2-5')">🔄 换一批</button></div><div class="qna-list" data-qna="2-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="2-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">输出端要把向量投影回整个词表，这张表能不能和输入端那张共用？</div><div class="card-q-hint">提示：数一数输出端要映射回多少个词、那张矩阵有多大，再看这两张表能不能合成一张。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Weight tying（权重共享）</strong> 出自 "Attention Is All You Need"（Vaswani et al., Google, 2017）第 3.4 节。原句是「we share the same weight matrix between the two embedding layers and the pre-softmax linear transformation」——意思是：输入端把词变成向量的那张表，和输出端把向量变回词的那张表，共用同一份权重；embedding 层还会把权重乘以 √d_model。当时词表有 37,000 个词、d_model=512（向量维度是 512），共用省下的正是这 37,000×512 个参数。</div>
+      <div class="content-section">
+        <p>上一张卡片给输入端的每个词都配好了位置编码，把它们送进了 <strong>Encoder</strong>。现在把视线移到链条的另一端——Decoder 算完最后一层，手里是一个 d_model 维的向量，接下来的问题是：怎么把它变回一个词？</p>
+        <p>答案是拿一个<strong>输出矩阵</strong>把向量投影到整个词表上，得到每个词的得分，再取概率最大的那个。<strong>整个词表</strong>是关键：词表有 37,000 个词，这个矩阵就得有 37,000 行——它和输入端那张「词→向量」的表，其实一样大。</p>
+        <p>这就像一本双向词典：查词（词→向量）和造句（向量→词）用的是同一套词条，只是翻的方向相反。</p>
+      </div>
+      <div class="calc-block">
+        <div class="label">🧮 一张矩阵要多大？共用了又省多少？</div>
+        <div class="step"><div class="step-title">Step 1：输出端要映射回整个词表，矩阵就有多大</div>
+          <table><tr><th>方向</th><th>操作</th><th>矩阵形状</th><th>参数个数</th></tr>
+          <tr><td>读（词→向量）</td><td>查表 embedding</td><td>37,000 × 512</td><td>37,000×512 = <strong>18.94M</strong></td></tr>
+          <tr><td>写（向量→词）</td><td>线性投影 + softmax</td><td>512 × 37,000</td><td>37,000×512 = <strong>18.94M</strong></td></tr></table>
+          <div class="step-desc">转置不影响参数个数：两张表各有 18.94M 个参数，形状正好互为转置。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：各学一遍 vs 共用一张——算原论文 base 的账</div>
+          <table><tr><th>方案</th><th>输入表</th><th>输出表</th><th>合计参数</th></tr>
+          <tr><td>各学一遍（不共享）</td><td>18.94M</td><td>18.94M</td><td>2 × 18.94M = <strong>37.89M</strong></td></tr>
+          <tr><td>共用一张（weight tying）</td><td>18.94M</td><td>同一份</td><td><strong>18.94M</strong></td></tr>
+          <tr><td>省下</td><td>—</td><td>—</td><td><strong>18.94M</strong></td></tr></table>
+          <div class="step-desc">原论文 base 约 65M 参数；若输入、输出各养一张表，模型会膨胀到约 84M——多出来的 18.94M 已达原来的近三成（18.94 ÷ 65 ≈ 29%）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：换成现代模型，同一张表又是多大</div>
+          <table><tr><th>模型</th><th>词表大小</th><th>向量维度</th><th>一张表的参数</th></tr>
+          <tr><td>原论文 base</td><td>37,000</td><td>512</td><td>37,000×512 = <strong>18.94M</strong></td></tr>
+          <tr><td>Llama 2 7B</td><td>32,000</td><td>4,096</td><td>32,000×4,096 = <strong>131M</strong></td></tr></table>
+          <div class="step-desc">以 d_model=4096 为例（Llama 2 7B 的真实配置）：一张表 131M，而它总参数约 6.74B，这张表只占 131M ÷ 6.74B ≈ 1.9%。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知：这是一张「读」和「写」共用的表</div><p>输入端问的是「这个词该用哪个向量表示」，输出端问的是「这个向量最像哪个词」——两个问题的答案，都写在同一个「词 ↔ 向量」的对应关系里。共用这张表（weight tying）既省参数（原论文省 18.94M，Llama 2 7B 口径是 131M），又让同一组权重同时收到「读」和「写」两端的梯度信号——原论文与 GPT-2 等都采用了它（注意：Llama 2 等一批模型并未使用 weight tying）。</p></div>
+
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','2-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','2-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-2-6" class="llm-section"><button class="llm-btn" onclick="startChat('2-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="2-6"><div class="chat-toolbar"><button onclick="copyChat('2-6')">📋 复制对话</button><button onclick="clearChat('2-6')">🗑 清空</button><button onclick="stopLLM('2-6')" id="stop-btn-2-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('2-6')" id="regen-btn-2-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="2-6"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对这张卡片有疑问？我会用具体数字和计算例子来回答。</div></div></div><div class="chat-input-row"><textarea data-input="2-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('2-6')}" rows="1" placeholder="例如：帮我用具体数字走一遍…"></textarea><button onclick="sendLLM('2-6')">发送</button></div></div></div>
+      <div id="tab-qna-2-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('2-6')">🔄 换一批</button></div><div class="qna-list" data-qna="2-6"><div class="qna-item"><div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">1.</span><span class="q-text">输入端和输出端的矩阵形状真的能对调吗？为什么可以共用一张？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('2-6-0', this)" title="标记已学透"><span class="q-arrow">▾</span></div><div class="qna-item-a"><p>能。输入端矩阵 E 的形状是「词表 × 维度」，输出端矩阵 W_out 的形状是「维度 × 词表」——正好互为转置，参数个数完全相同，所以能共用同一份权重。</p><table><tr><th>矩阵</th><th>形状</th><th>作用</th><th>参数个数</th></tr><tr><td>输入表 E</td><td>37,000 × 512</td><td>查表把词变成向量</td><td>18.94M</td></tr><tr><td>输出表 W_out</td><td>512 × 37,000</td><td>投影回词表算得分</td><td>18.94M</td></tr><tr><td>共用（E 的转置即 W_out）</td><td>37,000 × 512</td><td>两头都用它</td><td><strong>18.94M</strong></td></tr></table><p>参数个数一样只是前提；语义上「词 i 的向量」既回答「词 i 是什么意思」，也回答「多像词 i」，本来就是一回事，所以共用不会自相矛盾。</p><br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('2-6-0')">💡 咨询 AI</button><div class="qna-inline-chat" id="qna-chat-2-6-0" onclick="event.stopPropagation()"><div class="chat-toolbar"><button onclick="copyQnAChat('2-6-0')">📋 复制</button><button onclick="clearQnAChat('2-6-0')">🗑 清空</button><button onclick="stopQnAChat('2-6-0')" id="qna-stop-2-6-0" style="display:none">⏹ 停止</button><button onclick="regenerateQnA('2-6-0')" id="qna-regen-2-6-0" style="display:none">🔄 重新生成</button></div><div class="qna-chat-msgs" id="qna-msgs-2-6-0"></div><div class="chat-input-row"><textarea id="qna-input-2-6-0" placeholder="基于以上内容，继续提问…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQnAChat('2-6-0')}" rows="1"></textarea><button onclick="sendQnAChat('2-6-0')">发送</button></div></div></div></div><div class="qna-item"><div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">2.</span><span class="q-text">共享一张矩阵，梯度从两端一起更新它，会不会互相打架？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('2-6-1', this)" title="标记已学透"><span class="q-arrow">▾</span></div><div class="qna-item-a"><p>不会打架，反而信号更足。前向时同一份权重被用了两次（输入端一次、输出端一次），反向传播时它的梯度是两条路径之和。</p><table><tr><th>情形</th><th>这份权重收到的梯度</th><th>效果</th></tr><tr><td>不共享</td><td>各只有 1 条路径</td><td>每张表只学一半的信号</td></tr><tr><td>共享</td><td>输入端路径 + 输出端路径 = 2 条之和</td><td>同一组参数被两头同时约束</td></tr><tr><td>参数量</td><td>共享 18.94M</td><td>不共享 37.89M（多一倍）</td></tr></table><p>代价是这张表要同时满足「当输入表示最合适」和「当输出分类器最合适」两个目标，是一种折中约束——这也是一些模型选择不共享的原因。</p><br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('2-6-1')">💡 咨询 AI</button><div class="qna-inline-chat" id="qna-chat-2-6-1" onclick="event.stopPropagation()"><div class="chat-toolbar"><button onclick="copyQnAChat('2-6-1')">📋 复制</button><button onclick="clearQnAChat('2-6-1')">🗑 清空</button><button onclick="stopQnAChat('2-6-1')" id="qna-stop-2-6-1" style="display:none">⏹ 停止</button><button onclick="regenerateQnA('2-6-1')" id="qna-regen-2-6-1" style="display:none">🔄 重新生成</button></div><div class="qna-chat-msgs" id="qna-msgs-2-6-1"></div><div class="chat-input-row"><textarea id="qna-input-2-6-1" placeholder="基于以上内容，继续提问…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQnAChat('2-6-1')}" rows="1"></textarea><button onclick="sendQnAChat('2-6-1')">发送</button></div></div></div></div><div class="qna-item"><div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">3.</span><span class="q-text">原论文说 embedding 还要乘一个 √d_model，这是干什么用的？和共享是一回事吗？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('2-6-2', this)" title="标记已学透"><span class="q-arrow">▾</span></div><div class="qna-item-a"><p>不是一回事，是两件事：共享决定「用哪张表」，乘 √d_model 决定「把表里的数值放大多少」。</p><table><tr><th>项</th><th>数值（以 d_model=512 为例）</th><th>作用</th></tr><tr><td>√d_model</td><td>√512 ≈ <strong>22.63</strong></td><td>把 embedding 的尺度放大到与位置编码同量级</td></tr><tr><td>共享</td><td>省 18.94M 参数</td><td>两端用同一张表</td></tr></table><p>位置编码的值在 [-1, 1] 附近、量级约 1；如果 embedding 本身量级太小，两者相加后位置信息会盖过词义。乘 √d_model 把 embedding 拉到同一量级，和共享矩阵是两条独立的设计。</p><br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('2-6-2')">💡 咨询 AI</button><div class="qna-inline-chat" id="qna-chat-2-6-2" onclick="event.stopPropagation()"><div class="chat-toolbar"><button onclick="copyQnAChat('2-6-2')">📋 复制</button><button onclick="clearQnAChat('2-6-2')">🗑 清空</button><button onclick="stopQnAChat('2-6-2')" id="qna-stop-2-6-2" style="display:none">⏹ 停止</button><button onclick="regenerateQnA('2-6-2')" id="qna-regen-2-6-2" style="display:none">🔄 重新生成</button></div><div class="qna-chat-msgs" id="qna-msgs-2-6-2"></div><div class="chat-input-row"><textarea id="qna-input-2-6-2" placeholder="基于以上内容，继续提问…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQnAChat('2-6-2')}" rows="1"></textarea><button onclick="sendQnAChat('2-6-2')">发送</button></div></div></div></div><div class="qna-item"><div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">4.</span><span class="q-text">省下的 18.94M 参数，在原论文里占多大比例？这点参数真的值得省吗？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('2-6-3', this)" title="标记已学透"><span class="q-arrow">▾</span></div><div class="qna-item-a"><p>对原论文 base 来说不少。base 总参数约 65M，若输入、输出各养一张表，相当于再多出 18.94M——接近原模型的 29%。</p><table><tr><th>口径</th><th>参数</th><th>说明</th></tr><tr><td>base 共享后的总参数</td><td>约 65M</td><td>论文报告的 base 规模</td></tr><tr><td>多养一张输出表</td><td>+18.94M</td><td>37,000 × 512</td></tr><tr><td>不共享的总参数</td><td>约 84M</td><td>65M + 18.94M</td></tr><tr><td>增幅</td><td><strong>18.94 ÷ 65 ≈ 29%</strong></td><td>换来的是「同一个词表学两遍」</td></tr></table><p>在只有 65M 的模型上多花近三成参数只为学第二遍，明显不划算，所以共享在当年是划算的；到 Llama 2 7B 这种 6.74B 的规模，131M 只占约 1.9%，省不省更多是设计取舍。</p><br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('2-6-3')">💡 咨询 AI</button><div class="qna-inline-chat" id="qna-chat-2-6-3" onclick="event.stopPropagation()"><div class="chat-toolbar"><button onclick="copyQnAChat('2-6-3')">📋 复制</button><button onclick="clearQnAChat('2-6-3')">🗑 清空</button><button onclick="stopQnAChat('2-6-3')" id="qna-stop-2-6-3" style="display:none">⏹ 停止</button><button onclick="regenerateQnA('2-6-3')" id="qna-regen-2-6-3" style="display:none">🔄 重新生成</button></div><div class="qna-chat-msgs" id="qna-msgs-2-6-3"></div><div class="chat-input-row"><textarea id="qna-input-2-6-3" placeholder="基于以上内容，继续提问…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQnAChat('2-6-3')}" rows="1"></textarea><button onclick="sendQnAChat('2-6-3')">发送</button></div></div></div></div><div class="qna-item"><div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">5.</span><span class="q-text">Llama 2 7B 这么大，它的一张输出矩阵有多大？占它总参数多少？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('2-6-4', this)" title="标记已学透"><span class="q-arrow">▾</span></div><div class="qna-item-a"><p>Llama 2 7B 的词表是 32,000，向量维度是 4,096，所以一张表的参数是：</p><table><tr><th>模型</th><th>词表大小</th><th>向量维度</th><th>一张表参数</th><th>占总参数</th></tr><tr><td>原论文 base</td><td>37,000</td><td>512</td><td>18.94M</td><td>加成约 29%</td></tr><tr><td>Llama 2 7B</td><td>32,000</td><td>4,096</td><td>32,000 × 4,096 = <strong>131M</strong></td><td>131 ÷ 6,740 ≈ <strong>1.9%</strong></td></tr></table><p>同样一张表，规模从 18.94M 涨到 131M（约 6.9 倍），但在整个模型里的占比反而从约 29% 掉到约 1.9%——模型越大，词表矩阵的相对负担越轻，共享带来的收益也越有限，所以大模型是否共享更自由。</p><br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('2-6-4')">💡 咨询 AI</button><div class="qna-inline-chat" id="qna-chat-2-6-4" onclick="event.stopPropagation()"><div class="chat-toolbar"><button onclick="copyQnAChat('2-6-4')">📋 复制</button><button onclick="clearQnAChat('2-6-4')">🗑 清空</button><button onclick="stopQnAChat('2-6-4')" id="qna-stop-2-6-4" style="display:none">⏹ 停止</button><button onclick="regenerateQnA('2-6-4')" id="qna-regen-2-6-4" style="display:none">🔄 重新生成</button></div><div class="qna-chat-msgs" id="qna-msgs-2-6-4"></div><div class="chat-input-row"><textarea id="qna-input-2-6-4" placeholder="基于以上内容，继续提问…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQnAChat('2-6-4')}" rows="1"></textarea><button onclick="sendQnAChat('2-6-4')">发送</button></div></div></div></div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 2 课完成 · 下一课：第 3 课「现代 Transformer 的五大改造」</p>
+    <a href="#" onclick="switchLesson(3);return false;">进入第 3 课：现代 Transformer 的五大改造 →</a>　·　<a href="#" onclick="switchLesson(1);return false;">← 上一课：Transformer 回顾</a>
+  </div></div>

@@ -1,0 +1,16 @@
+{
+  "name": "llm-course",
+  "version": "1.0.0",
+  "private": true,
+  "description": "从推荐算法到 AI Agent — 课程工具链（构建 / 内容验证 / 渲染验证）",
+  "scripts": {
+    "build": "python3 scripts/build.py",
+    "build:check": "python3 scripts/build.py --check",
+    "verify:content": "node tools/content_verify.js",
+    "verify:ui": "node tools/verify.js",
+    "verify": "python3 scripts/build.py --check && node tools/content_verify.js && node tools/verify.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}

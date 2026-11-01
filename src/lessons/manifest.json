@@ -1,0 +1,210 @@
+{
+  "_comment": "课程映射表。2026-10-04 起 id 与 display **恒等**（都等于学员看到的课号）——历史上 id 是引擎内部句柄、与课号分叉，两套编号曾导致错位与取不到数据。id 对应 data-lesson / switchLesson(n) / data-card 前缀 / tab-ai-id；title 一律用「领域短名」（不带副题），本课主线问题写在课内 .subtitle。",
+  "course": "从推荐算法到 AI Agent",
+  "lessons": [
+    {
+      "id": 1,
+      "display": 1,
+      "title": "Transformer 回顾",
+      "file": "lesson-1.html"
+    },
+    {
+      "id": 2,
+      "display": 2,
+      "title": "Transformer 模型结构全景",
+      "file": "lesson-2.html"
+    },
+    {
+      "id": 3,
+      "display": 3,
+      "title": "现代 Transformer 的五大改造",
+      "file": "lesson-3.html"
+    },
+    {
+      "id": 4,
+      "display": 4,
+      "title": "Tokenization 机制",
+      "file": "lesson-4.html"
+    },
+    {
+      "id": 5,
+      "display": 5,
+      "title": "逐层解剖一个模型",
+      "file": "lesson-5.html"
+    },
+    {
+      "id": 6,
+      "display": 6,
+      "title": "从 Transformer 到 LLM 全景图",
+      "file": "lesson-6.html"
+    },
+    {
+      "id": 7,
+      "display": 7,
+      "title": "Scaling Laws 与算力预算",
+      "file": "lesson-7.html"
+    },
+    {
+      "id": 8,
+      "display": 8,
+      "title": "数据工程",
+      "file": "lesson-8.html"
+    },
+    {
+      "id": 9,
+      "display": 9,
+      "title": "预训练全流程",
+      "file": "lesson-9.html"
+    },
+    {
+      "id": 10,
+      "display": 10,
+      "title": "SFT 微调",
+      "file": "lesson-10.html"
+    },
+    {
+      "id": 11,
+      "display": 11,
+      "title": "对齐",
+      "file": "lesson-11.html"
+    },
+    {
+      "id": 12,
+      "display": 12,
+      "title": "推理模型与 RLVR",
+      "file": "lesson-12.html"
+    },
+    {
+      "id": 13,
+      "display": 13,
+      "title": "分布式训练",
+      "file": "lesson-13.html"
+    },
+    {
+      "id": 14,
+      "display": 14,
+      "title": "显存账本与混合精度",
+      "file": "lesson-14.html"
+    },
+    {
+      "id": 15,
+      "display": 15,
+      "title": "KV Cache 与推理内存",
+      "file": "lesson-15.html"
+    },
+    {
+      "id": 16,
+      "display": 16,
+      "title": "量化与压缩",
+      "file": "lesson-16.html"
+    },
+    {
+      "id": 17,
+      "display": 17,
+      "title": "微调工程",
+      "file": "lesson-17.html"
+    },
+    {
+      "id": 18,
+      "display": 18,
+      "title": "推理引擎",
+      "file": "lesson-18.html"
+    },
+    {
+      "id": 19,
+      "display": 19,
+      "title": "大模型评测",
+      "file": "lesson-19.html"
+    },
+    {
+      "id": 20,
+      "display": 20,
+      "title": "提示工程",
+      "file": "lesson-20.html"
+    },
+    {
+      "id": 21,
+      "display": 21,
+      "title": "从 Prompt 到 Agent",
+      "file": "lesson-21.html"
+    },
+    {
+      "id": 22,
+      "display": 22,
+      "title": "工具调用",
+      "file": "lesson-22.html"
+    },
+    {
+      "id": 23,
+      "display": 23,
+      "title": "MCP 协议",
+      "file": "lesson-23.html"
+    },
+    {
+      "id": 24,
+      "display": 24,
+      "title": "记忆与 RAG 工程化",
+      "file": "lesson-24.html"
+    },
+    {
+      "id": 25,
+      "display": 25,
+      "title": "规划与反思",
+      "file": "lesson-25.html"
+    },
+    {
+      "id": 26,
+      "display": 26,
+      "title": "多智能体与协议",
+      "file": "lesson-26.html"
+    },
+    {
+      "id": 27,
+      "display": 27,
+      "title": "Agent 训练",
+      "file": "lesson-27.html"
+    },
+    {
+      "id": 28,
+      "display": 28,
+      "title": "Agent 评测与生产化",
+      "file": "lesson-28.html"
+    },
+    {
+      "id": 29,
+      "display": 29,
+      "title": "自主研究全景与自主度分级",
+      "file": "lesson-29.html"
+    },
+    {
+      "id": 30,
+      "display": 30,
+      "title": "文献锚定与选题",
+      "file": "lesson-30.html"
+    },
+    {
+      "id": 31,
+      "display": 31,
+      "title": "假设、规划与搜索",
+      "file": "lesson-31.html"
+    },
+    {
+      "id": 32,
+      "display": 32,
+      "title": "长时程执行与状态",
+      "file": "lesson-32.html"
+    },
+    {
+      "id": 33,
+      "display": 33,
+      "title": "验证、复现与评审",
+      "file": "lesson-33.html"
+    },
+    {
+      "id": 34,
+      "display": 34,
+      "title": "报告、成本与责任",
+      "file": "lesson-34.html"
+    }
+  ]
+}

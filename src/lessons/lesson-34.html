@@ -1,0 +1,204 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 34 课：报告、成本与责任</h2>
+    <p class="subtitle">上一课我们让结论通过了验证与评审。这一课回答最后三个问题：<strong>自动写出的报告到底成色如何？这条流水线要花多少钱？出了事谁来负责？</strong>我们不看宣传，只看一份真实产出——45 页、105 篇文献、6 天交付、99% 由 Agent 执笔的综述；把它拆成 token 账、人机分工与责任链，最后给出一条从"可测、可回滚"环节切入的落地路线。这也是全课程「从推荐算法到 AI Agent」的收口。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 用真实产出数据判断"报告能不能全自动写"，并算清其中的 token 账<br>② 说清快与准怎么分工——人只该出现在哪几个判断点<br>③ 说出 L5 的三个瓶颈，并为"出错谁负责"给出署名与免责的落地做法</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步逻辑递进：从"报告能不能自动写"到"从哪一步开始用"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要把第五部分收口到"可交付"，<strong>这就要求</strong>先看一份真实产出：45 页论文、105 篇文献、6 天交付、累计约 64.8 万 <b>tokens</b>、99% 由 Agent 执笔——报告确实能被自动产出。<b class="rn-key">报告可自动产出</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然「<b>报告可自动产出</b>」，<strong>因此</strong>要算清它的<strong>成本与人工占比</strong>：64.8 万 <b>tokens</b> 花在哪一步、6 天里人究竟动了哪几处。<b class="rn-key">成本与人工占比</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然要算清「<b>成本与人工占比</b>」，<strong>所以</strong>下一步是定人的位置——机器在 <b>context</b> 里生成，人只在它之外定目标与验收：<strong>人只在判断点介入</strong>。<b class="rn-key">人只在判断点介入</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">既然「<b>人只在判断点介入</b>」，<strong>这就要求</strong>再问一层：连这些判断点能不能也交出去？量一量离完全自主（L5）还有多远——长效知识沉淀、可靠自评、可扩展架构三件事没解决，一窗 <b>context</b> 之外的经验还留不下来。<b class="rn-key">L5 短期到不了</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>L5 短期到不了</b>」，<strong>这就要求</strong>在自评可信之前，最后一道判断必须由人来做——把署名与责任写清楚：模型只在 <b>context</b> 里生成、无法担责，谁签字放行、出了错谁负责。<b class="rn-key">责任要能落到人</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>责任要能落到人</b>」，<strong>这就要求</strong>务实落子：从能评测、能回滚的环节起步，先把 <b>tokens</b> 账与验收线立起来，再谈放量。<b class="rn-key">从可测环节起步</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">自主研究报告</span><span class="meta-tag">人机分工</span><span class="meta-tag">token 成本</span><span class="meta-tag">L5 瓶颈</span><span class="meta-tag">署名与责任</span><span class="meta-tag">落地路线</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="34-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">一份 45 页的论文，真的能由 Agent 全自动写出来吗？</div><div class="card-q-hint">提示：别只看"能不能写"——先看一份真实产出的读数：多少页、多少篇文献、花了几天、其中人占了多少。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>2026 年 5 月，DeepSeek 资深研究员陈德里公开了一篇与 CodeAgent 合写的 45 页综述《从 Copilots 到同事：自主科研智能体综述》（"From Copilots to Colleagues: A Survey of Autonomous Research Agents"）。据披露：论文迭代 6 次、耗时 6 天，初稿 76 分钟完成；智能体累计运行约 108 轮、消耗约 64.8 万 <b>tokens</b>（token = 模型读写的最小文本单位，也是这里的计价单位）、LaTeX 共 2234 行，全文约 99% 由 Agent 执笔。论文梳理机器学习、软件工程、科学发现三大领域共 105 篇文献。</div>
+      <div class="content-section"><p>第五部分走到最后一步：报告本身能不能被自动写出来？<strong>先看一份真实产出，不看宣传。</strong></p><p><strong>因为</strong>"能写"这件事最容易被 demo 夸大，而一份公开的产出数据会把成色摊开：多少页、烧了多少 <b>tokens</b>、人到底做了多少。<b>token</b> 指模型读写的最小文本单位，也是这里所有账单的计价单位。<strong>就像</strong>看一家餐厅不看菜品照片，看它一晚上出多少桌、翻台几次。<strong>所以</strong>先把这份产出拆成读数。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：一份真实产出的读数</div>
+        <div class="step"><div class="step-title">Step 1：成品与过程的全部读数</div>
+          <table><tr><th>指标</th><th>数值</th></tr><tr><td>成品页数</td><td>45 页</td></tr><tr><td>引用文献</td><td>105 篇</td></tr><tr><td>迭代次数</td><td>6 次</td></tr><tr><td>交付耗时</td><td>6 天</td></tr><tr><td>初稿耗时</td><td>76 分钟</td></tr><tr><td>智能体运行轮数</td><td>约 108 轮</td></tr><tr><td>消耗 tokens</td><td>约 64.8 万</td></tr><tr><td>LaTeX 代码行数</td><td>2234 行</td></tr><tr><td>Agent 执笔占比</td><td>约 99%</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条盘点：这些读数的来源是公开披露（B 级，需人工核实原文），它们共同回答"能写出来吗"——<strong>能，且是 45 页、带 105 篇文献的成品。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：初稿只占整段交付的多长时间</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>交付耗时换算</td><td>6 天 = 6 × 1440 = 8640 分钟</td></tr><tr><td>初稿占比</td><td>76 ÷ 8640 = <strong>0.88%</strong></td></tr><tr><td>含义</td><td>初稿极快，但交付不等于初稿</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：初稿 76 分钟只有 6 天（8640 分钟）的 <strong>0.88%</strong>。<strong>"写得快"和"交付完"之间，隔着 99% 的时间。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：平均每一轮烧多少 token</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>总 tokens</td><td>64.8 万 = 648000</td></tr><tr><td>总轮数</td><td>108 轮</td></tr><tr><td>单轮平均</td><td>648000 ÷ 108 ≈ <strong>6000 token/轮</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：648000 ÷ 108 = 6000，即每轮平均约 <strong>6000 token</strong>。单轮看不多，但它乘以 108 轮才凑出这份报告——账要按轮数放大。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>有真实产出数据 → 报告确实能被自动产出（45 页、105 篇文献、99% 由 Agent 执笔、单轮约 6000 token）；没有它 → 我们只能拿 demo 当证据。<strong>提醒：写只是最后一环，真正的成本与责任在后几张卡。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','34-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','34-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-34-1" class="llm-section"><button class="llm-btn" onclick="startChat('34-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="34-1"><div class="chat-toolbar"><button onclick="copyChat('34-1')">📋 复制对话</button><button onclick="clearChat('34-1')">🗑 清空</button><button onclick="stopLLM('34-1')" id="stop-btn-34-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('34-1')" id="regenerate-btn-34-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="34-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"报告能不能全自动写"有疑问？比如「45 页到底算不算多」「99% 执笔怎么算的」？<br><br>说清你关心的读数，我帮你拆开看。</div></div><div class="chat-input-row"><textarea data-input="34-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('34-1')}" rows="1" placeholder="例如：单轮 6000 token 算多吗？"></textarea><button onclick="sendLLM('34-1')">发送</button></div></div></div>
+      <div id="tab-qna-34-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('34-1')">🔄 换一批</button></div><div class="qna-list" data-qna="34-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="34-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">初稿 76 分钟就能出来，为什么还要人盯 6 天？</div><div class="card-q-hint">提示：把这 6 天里人做的事列出来——他改的是"字"，还是"判断"？这两者的量级差多少？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>自动产出里，"快"与"准"是两件事：机器负责生成与迭代，人只出现在三类<strong>判断点</strong>——定题、验收、署名。这篇综述经 6 次迭代，说明"一次生成"之后仍有大量"判断—返工"。一个反面对照是 Sakana AI 的 The AI Scientist（arXiv:2408.06292）：它同样能端到端写论文并可跑自动评审，但论文成本压到每篇低于 15 美元的同时，最终接受与否仍需人来兜底判断。</div>
+      <div class="content-section"><p>上一张卡片的读数里，初稿 76 分钟、交付却用了 6 天——<strong>这个差额去哪儿了？</strong></p><p><strong>因为</strong>那 6 天里，机器烧的是 <b>tokens</b>、人做的是判断：要不要换方向、这一段结论站不站得住、署谁的名。人一旦去逐字改稿，就从"判断者"退化成了"第二台生成器"，既慢又贵。<strong>就像</strong>导演不自己演每个角色，只决定"这条过不过"。<strong>所以</strong>要把人的动作数清楚。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：快与准的分工</div>
+        <div class="step"><div class="step-title">Step 1：三类判断点分别判什么</div>
+          <table><tr><th>环节</th><th>谁做</th><th>判据</th></tr><tr><td>定题</td><td>人</td><td>这个问题值不值得做</td></tr><tr><td>迭代验收</td><td>人</td><td>这一版够不够格进下一轮</td></tr><tr><td>署名与免责</td><td>人</td><td>出错了由谁担责</td></tr><tr><td>生成与返工</td><td>Agent</td><td>按迭代目标产出</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条分工：<strong>人管"过不过"，Agent 管"写什么"</strong>——判断点是稀缺资源，不该被逐字修改占用。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：把判断点真的数出来</div>
+          <table><tr><th>判断点</th><th>次数</th></tr><tr><td>定题</td><td>1</td></tr><tr><td>迭代验收</td><td>6（按迭代次数推断）</td></tr><tr><td>署名</td><td>1</td></tr><tr><td>合计</td><td>1 + 6 + 1 = <strong>8 个</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：1 + 6 + 1 = <strong>8</strong> 个判断点。6 天的"人盯"，本质上就是在这 8 个点上做决策，而不是 6 × 24 小时都在改稿。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：人与机器同口径的介入占比</div>
+          <table><tr><th>介入（人判断 / Agent 执行各计一次）</th><th>次数</th><th>占比</th></tr><tr><td>人做出判断</td><td>8</td><td>8 ÷ 116 = <strong>6.9%</strong></td></tr><tr><td>Agent 执行</td><td>108</td><td>108 ÷ 116 = <strong>93.1%</strong></td></tr><tr><td>合计（同为"次介入"）</td><td>116</td><td>100%</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（口径统一为"次介入"）：把人的 8 个判断点与 Agent 的 108 轮执行都按"一次介入"计，8 + 108 = 116 次；8 ÷ 116 ≈ 6.9%、108 ÷ 116 ≈ 93.1%。<strong>量纲统一后，人只占不到 7% 的介入次数，却决定了全部结论的方向与责任。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>有分工 → 人只花在 8 个判断点（约 6.9%），产出快且责任清晰；没有分工、让人逐字改 → 人退化成第二台生成器，又慢又贵，还丢掉了"人对结论负责"的锚点。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','34-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','34-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-34-2" class="llm-section"><button class="llm-btn" onclick="startChat('34-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="34-2"><div class="chat-toolbar"><button onclick="copyChat('34-2')">📋 复制对话</button><button onclick="clearChat('34-2')">🗑 清空</button><button onclick="stopLLM('34-2')" id="stop-btn-34-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('34-2')" id="regenerate-btn-34-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="34-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对人机分工有疑问？比如「哪些必须人来判」「怎么防止人越界改稿」？<br><br>说清你的流程，我帮你把判断点划出来。</div></div><div class="chat-input-row"><textarea data-input="34-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('34-2')}" rows="1" placeholder="例如：哪些判断点不能被自动化？"></textarea><button onclick="sendLLM('34-2')">发送</button></div></div></div>
+      <div id="tab-qna-34-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('34-2')">🔄 换一批</button></div><div class="qna-list" data-qna="34-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="34-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">一份自动写出的报告，钱到底花在哪一步？</div><div class="card-q-hint">提示：总 token 除以运行轮数得到单轮消耗；再把它和第 26 课的多智能体口径对一对。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>成本要拆到"每一步"，否则"几十页报告"只是一个模糊数字。这篇综述披露总量约 64.8 万 <b>tokens</b>、108 轮，可反推单轮消耗；再对照第 26 课的 Anthropic 口径（arXiv 之外的一手来源：Anthropic《How we built our multi-agent research system》，2025）：单 Agent 约 4× 普通对话、多智能体约 15×（<strong>第 26 课口径</strong>）。注意：倍数来自 Anthropic，单价换算只是<strong>示意，需人工核实</strong>。</div>
+      <div class="content-section"><p>上一张卡片把人压缩到 8 个判断点——省下的人力，其实是被 <b>tokens</b> 买了单。<strong>这笔账怎么拆？</strong></p><p><strong>因为</strong>总价会骗人：一次生成看着便宜，但每轮都要重发一遍 <b>context</b>（模型这一次能看到的全部输入），量就按轮数滚起来。<strong>就像</strong>打车费要看里程不是一个起步价。所以先把总量拆到单轮，再拿第 26 课的口径校准。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：把 token 拆到每一步</div>
+        <div class="step"><div class="step-title">Step 1：总量拆到单轮</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>总 tokens</td><td>648000</td></tr><tr><td>总轮数</td><td>108</td></tr><tr><td>单轮</td><td>648000 ÷ 108 = <strong>6000</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：648000 ÷ 108 = 6000 token/轮。因为这 108 轮里每一步都要重发 <b>context</b>，单轮消耗 × 轮数才是总账。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：放进第 26 课的多智能体口径</div>
+          <table><tr><th>口径（第 26 课）</th><th>倍数（相对普通对话）</th><th>本例单轮折算</th></tr><tr><td>普通对话</td><td>1×</td><td>6000 ÷ 15 = 400</td></tr><tr><td>单 Agent</td><td>约 4×</td><td>6000 ÷ 4 = 1500</td></tr><tr><td>多智能体</td><td>约 15×</td><td>6000（锚点）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（口径引用第 26 课）：若把 6000 token/轮当作多智能体口径，则等效普通对话约 6000 ÷ 15 = <strong>400 token/轮</strong>、等效单 Agent 约 6000 ÷ 4 = 1500。倍数来自 Anthropic，折算为示意。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：换算成钱（示意，需人工核实）</div>
+          <table><tr><th>单价假设（示意）</th><th>64.8 万 tokens 的费用</th></tr><tr><td>$3 / 百万 token</td><td>0.648 × 3 = <strong>$1.94</strong></td></tr><tr><td>$15 / 百万 token</td><td>0.648 × 15 = <strong>$9.72</strong></td></tr><tr><td>口径说明</td><td>单价为示意，需人工核实；不同模型差数倍</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：64.8 万 = 0.648 百万；0.648 × 3 = $1.94、0.648 × 15 = $9.72。<strong>量级才是结论——一份 45 页报告的成本，主要取决于你用哪个模型，而不是页数。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>有这笔账 → 你能说"一份 45 页报告 ≈ 64.8 万 tokens、单轮约 6000"；没有账 → 只能说"好像不贵"。<strong>单价是示意，成本结构才是可迁移的结论：token 随轮数放大，选型决定单价。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','34-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','34-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-34-3" class="llm-section"><button class="llm-btn" onclick="startChat('34-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="34-3"><div class="chat-toolbar"><button onclick="copyChat('34-3')">📋 复制对话</button><button onclick="clearChat('34-3')">🗑 清空</button><button onclick="stopLLM('34-3')" id="stop-btn-34-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('34-3')" id="regenerate-btn-34-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="34-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 token 账有疑问？比如「怎么估自己场景的成本」「15× 从哪来」？<br><br>说清你的轮数与模型，我帮你套这笔账。</div></div><div class="chat-input-row"><textarea data-input="34-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('34-3')}" rows="1" placeholder="例如：多智能体为什么是 15×？"></textarea><button onclick="sendLLM('34-3')">发送</button></div></div></div>
+      <div id="tab-qna-34-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('34-3')">🔄 换一批</button></div><div class="qna-list" data-qna="34-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="34-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">既然报告都能自动写，为什么说 L5 自主还只是构想？</div><div class="card-q-hint">提示：瓶颈可能不在模型本身——想想"经验怎么留下来""它怎么知道自己做得好不好""架构能撑多大"。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>同一篇综述提出五级自主能力分级体系 <strong>L1–L5</strong>（L 是 Level，即等级；L1 是代码补全，L5 是完全自主制定研究规划），基于两个维度：能独立决定什么、能无人工审核自主运行多久。它以六维特征矩阵分析了 17 款主流系统（该 17 款口径为 B 级来源，需人工核实原文），结论是前沿系统普遍处于 <strong>L4</strong>（限定领域内多步骤自主），<strong>L5 仍停留在目标构想阶段</strong>。论文指出 L5 的核心瓶颈并非模型基础性能，而是三件事：长效知识沉淀、可靠的自我评估能力、具备理论支撑的架构规模化方案。</div>
+      <div class="content-section"><p>上一张卡片算清了成本——就算付得起这笔 <b>tokens</b>，<strong>为什么 L5 依然是一个"构想"而不是"下个版本"？</strong></p><p><strong>因为</strong>卡住的不是模型跑分，而是三件结构性的事：经验留不下来、它判断不了自己好不好、架构撑不大。<strong>就像</strong>一支每天重新招人、从不记笔记的团队——人再聪明也攒不出积累。第一件尤其关键——一窗 <b>context</b> 之外的经验如果留不住，它就永远在"从零开始"做研究。<strong>所以</strong>先把 L1–L5 摆出来，再看卡在哪。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：L5 卡在哪</div>
+        <div class="step"><div class="step-title">Step 1：L1–L5 两个维度</div>
+          <table><tr><th>级别</th><th>能独立决定什么</th><th>可自主运行多久</th></tr><tr><td>L1</td><td>补全一行</td><td>单个 token</td></tr><tr><td>L2</td><td>拆解已定义任务</td><td>每步需审批</td></tr><tr><td>L3</td><td>自选文件、自修测试</td><td>10–100 个连续动作</td></tr><tr><td>L4</td><td>生成思路、跑实验</td><td>限定领域多步骤</td></tr><tr><td>L5</td><td>自主制定研究规划</td><td>完全自主（构想）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条分级：两个维度就是两把尺子——"决定什么"和"跑多久"。<strong>越靠上，人越只做高杠杆的判断；到 L5 人几乎不介入。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：17 款系统里到达 L5 的有几款</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>分析的系统总数</td><td>17 款</td></tr><tr><td>达到 L5 的</td><td>0 款</td></tr><tr><td>比例</td><td>0 ÷ 17 = <strong>0%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：0 ÷ 17 = 0%。个别系统已显露 L5 的<strong>部分特征</strong>，但没有系统达到<strong>完整 L5</strong>（综述口径：前沿系统处于 L4，L5 仍是愿景）——"到 L5 的样本为零"正是"构想"二字的量化含义。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：三个瓶颈，解决了几个</div>
+          <table><tr><th>瓶颈</th><th>卡在哪</th><th>现状</th></tr><tr><td>长效知识沉淀</td><td>经验超出一窗 context 就丢</td><td>未解决</td></tr><tr><td>可靠自评</td><td>它判不准自己做得对不对</td><td>未解决</td></tr><tr><td>可扩展架构</td><td>缺有理论支撑的规模化方案</td><td>未解决</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：三件事解决 0 件 → 0 ÷ 3 = 0%。<strong>结论：模型再强也补不上这三块；L5 是等待被解决的问题清单，不是等待发布的版本号。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>有这把尺子 → 你能一眼看出某系统在 L3 还是 L4、差在哪；没有它 → "自主研究"变成一个谁都能自称的标签。<strong>L5 的门槛不是模型分数，而是长效知识沉淀、可靠自评、可扩展架构这三块地基。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','34-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','34-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-34-4" class="llm-section"><button class="llm-btn" onclick="startChat('34-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="34-4"><div class="chat-toolbar"><button onclick="copyChat('34-4')">📋 复制对话</button><button onclick="clearChat('34-4')">🗑 清空</button><button onclick="stopLLM('34-4')" id="stop-btn-34-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('34-4')" id="regenerate-btn-34-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="34-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 L5 瓶颈有疑问？比如「长效知识沉淀具体指什么」「可靠自评难在哪」？<br><br>说清你关心的瓶颈，我帮你展开。</div></div><div class="chat-input-row"><textarea data-input="34-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('34-4')}" rows="1" placeholder="例如：可靠自评为什么难？"></textarea><button onclick="sendLLM('34-4')">发送</button></div></div></div>
+      <div id="tab-qna-34-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('34-4')">🔄 换一批</button></div><div class="qna-list" data-qna="34-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="34-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">一份 99% 由模型写出的报告，出错时责任落在谁身上？</div><div class="card-q-hint">提示：看它的署名里写了谁、免责声明放在什么位置——署名不是礼节，是责任链。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>这篇综述的署名是"陈德里、DeepSeek-V4-Pro、GPT-Image2"——模型被列为共同署名者；同时作者附上明确的免责声明：它并非严谨学术论文、不代表任何公司或组织观点、只是出于兴趣与对自建系统的测试。署名与免责是<strong>技术问题</strong>而非公关问题：只有让责任链在出错时可回溯，自动产出才谈得上被采用。</div>
+      <div class="content-section"><p>上一张卡片说 L5 到不了，因为"可靠自评"没解决——<strong>那当它真的出错时，责任该落到谁头上？</strong></p><p><strong>因为</strong>模型只在 <b>context</b> 里生成、无法承担任何法律或伦理责任，所以一旦出错，责任只能落回那个"按了开始键、又签了名"的人。署名把"谁负责"写在纸面上，免责声明则把"负责的边界"讲清楚。<strong>就像</strong>药品说明书：既写厂家，也写"请遵医嘱"。<strong>所以</strong>要把责任链拆开数一数。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：责任链拆解</div>
+        <div class="step"><div class="step-title">Step 1：署名里有几个主体</div>
+          <table><tr><th>署名主体</th><th>类型</th></tr><tr><td>陈德里</td><td>人</td></tr><tr><td>DeepSeek-V4-Pro</td><td>模型</td></tr><tr><td>GPT-Image2</td><td>模型</td></tr><tr><td>合计</td><td>1 + 2 = <strong>3 个</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：1 个人 + 2 个模型 = <strong>3 个署名主体</strong>。把模型写上署名是一种诚实的披露：它确实参与了产出。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：能担责的只剩一个</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>署名主体</td><td>3</td></tr><tr><td>可承担责任的（人）</td><td>1</td></tr><tr><td>需靠免责声明界定的（模型）</td><td>3 − 1 = <strong>2</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：3 − 1 = 2。<strong>两个模型署名无法担责，必须用免责声明覆盖</strong>——否则责任链在它们这里就断了。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：免责声明要覆盖哪几项</div>
+          <table><tr><th>覆盖对象</th><th>声明内容</th></tr><tr><td>严谨性</td><td>并非严谨学术论文</td></tr><tr><td>组织立场</td><td>不代表任何公司或组织观点</td></tr><tr><td>产出性质</td><td>出于兴趣与系统测试</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条收口：免责声明覆盖 <strong>3 项</strong>（严谨性 / 组织立场 / 产出性质），不可担责主体 <strong>2 个</strong>（两个模型）——两组数字分列，不合成一个算式。<strong>清单化：署名写清主体、免责写清边界、更新写清版本——责任才落得下。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>有责任链 → 出错时能追到"谁定题、谁验收、谁署名"；没有它 → 99% 由模型执笔就成了"没人负责"的挡箭牌。<strong>做法：署名列全主体、免责写清边界，让责任落在人身上。免责声明结构可对照该综述原文的免责段落。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','34-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','34-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-34-5" class="llm-section"><button class="llm-btn" onclick="startChat('34-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="34-5"><div class="chat-toolbar"><button onclick="copyChat('34-5')">📋 复制对话</button><button onclick="clearChat('34-5')">🗑 清空</button><button onclick="stopLLM('34-5')" id="stop-btn-34-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('34-5')" id="regenerate-btn-34-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="34-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对署名与责任有疑问？比如「模型能当作者吗」「免责声明怎么写」？<br><br>说清你的产出场景，我帮你搭责任链。</div></div><div class="chat-input-row"><textarea data-input="34-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('34-5')}" rows="1" placeholder="例如：AI 产出的报告谁来署名？"></textarea><button onclick="sendLLM('34-5')">发送</button></div></div></div>
+      <div id="tab-qna-34-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('34-5')">🔄 换一批</button></div><div class="qna-list" data-qna="34-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="34-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">要在业务里用这条流水线，第一步该挑哪类环节、按什么标准挑？</div><div class="card-q-hint">提示：给每个环节打两个分——能不能评测、能不能回滚；只有两项都过的那一档才适合先上。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>落地不是"买一个大而全的系统"，而是按<strong>可测 × 可回滚</strong>选环节切入。第 33 课把"接受一个结论"拆成五维评估（novelty / validity / impact / reliability / provenance）；其中 <strong>validity</strong>（有效性，结论站不站得住）与 <strong>reliability</strong>（可靠性，重复跑还灵不灵）正是起步环节要过的第一道验收线。第 26 课的 <b>tokens</b> 口径则提醒：先小步验证，再放量花钱。</div>
+      <div class="content-section"><p>上一张卡片把责任落到了人。最后一个实务问题：<strong>如果你想在自己的业务里用这条流水线，从哪一步开始？</strong></p><p><strong>因为</strong>一上来就让它"全自动做研究"，出错了既测不出、也退不回——风险和收益完全不对等。<strong>就像</strong>新药先做小样本安全性试验，再谈大规模上市。所以按"可测 × 可回滚"给环节排序，从最稳的那一格切入。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：给起步环节打分</div>
+        <div class="step"><div class="step-title">Step 1：三类环节的两项打分</div>
+          <table><tr><th>环节</th><th>可测</th><th>可回滚</th><th>适合起步</th></tr><tr><td>文献检索与综述</td><td>是</td><td>是</td><td><strong>首选</strong></td></tr><tr><td>实验执行</td><td>是</td><td>弱</td><td>谨慎</td></tr><tr><td>选题与结论</td><td>否</td><td>否</td><td>不建议</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条排序：<strong>先做"读了能查、错了能退"的环节</strong>（检索与综述），把选题与结论留给人。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：起步分怎么算</div>
+          <table><tr><th>环节</th><th>可测(0/1)</th><th>可回滚(0/1)</th><th>起步分 = 可测 × 可回滚</th></tr><tr><td>文献检索与综述</td><td>1</td><td>1</td><td><strong>1</strong></td></tr><tr><td>实验执行</td><td>1</td><td>0</td><td>0</td></tr><tr><td>选题与结论</td><td>0</td><td>0</td><td>0</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：起步分 = 可测 × 可回滚，只有两项都为 1 才得 1 分。本例三档里只有<strong>文献检索与综述</strong>得 1 分——它就是起点。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：验收线取自第 33 课五维</div>
+          <table><tr><th>维度</th><th>起步阶段是否先过关</th></tr><tr><td>validity 有效性</td><td>是</td></tr><tr><td>reliability 可靠性</td><td>是</td></tr><tr><td>novelty / impact / provenance</td><td>后置</td></tr><tr><td>先过关数</td><td>2 ÷ 5 维</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（口径引用第 33 课）：五维里先卡 <strong>validity 与 reliability</strong>，即 2 ÷ 5 = 40% 的维度先过线，其余三维随规模再补。<strong>先证明"它做的对且稳"，再谈"它做的新"。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>全课程收口：从 Transformer 到自主研究，主线始终是同一件事——<strong>把"看起来行"变成"可验证地行"</strong>。落地的第一站就是选一个可测、可回滚的环节，用第 33 课的 validity 与 reliability 当验收线，先评测后生成——这也是「从推荐算法到 AI Agent」34 课给你的最后一条可执行建议。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','34-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','34-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-34-6" class="llm-section"><button class="llm-btn" onclick="startChat('34-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="34-6"><div class="chat-toolbar"><button onclick="copyChat('34-6')">📋 复制对话</button><button onclick="clearChat('34-6')">🗑 清空</button><button onclick="stopLLM('34-6')" id="stop-btn-34-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('34-6')" id="regenerate-btn-34-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="34-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对落地路线有疑问？比如「怎么给环节打分」「验收线怎么定」？<br><br>说清你的业务环节，我帮你排序。</div></div><div class="chat-input-row"><textarea data-input="34-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('34-6')}" rows="1" placeholder="例如：我该先自动化哪一步？"></textarea><button onclick="sendLLM('34-6')">发送</button></div></div></div>
+      <div id="tab-qna-34-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('34-6')">🔄 换一批</button></div><div class="qna-list" data-qna="34-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 34 课完成 · 全课程结束，恭喜你走完「从推荐算法到 AI Agent」34 课</p>
+    <a href="#" onclick="switchLesson(1);return false;">回到第 1 课 ↺</a>　·　<a href="#" onclick="switchLesson(33);return false;">← 上一课：验证、复现与评审</a>
+  </div></div>

@@ -1,0 +1,204 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 18 课：推理引擎</h2>
+    <p class="subtitle">前面几课我们把模型"调好"了——切分、省显存、量化、微调。这一课换个视角：<strong>把它发出去服务几百个并发用户</strong>。一个请求要分两段跑（prefill 与 decode），两段的瓶颈完全不同；把请求一条条串起来处理会把 GPU 饿死，于是有了批量、连续批处理、分页 KV。这一课把吞吐翻倍背后的四件机制算清，最后回答一个工程问题：vLLM（即用分页 KV 与块级前缀缓存做高吞吐的通用推理引擎）/ SGLang（即用 token 级前缀树复用共享前缀的推理引擎）/ TensorRT-LLM 到底怎么选。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 用算术强度说清 prefill 与 decode 为什么卡在不同的硬件资源上<br>② 算出批量、连续批处理、分页 KV 各自把吞吐抬高了多少，并说清代价<br>③ 按负载特征（共享前缀 / 模型是否固定 / 延迟还是吞吐）选对推理引擎</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步逻辑递进：从"请求两段"到"选型决策"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要让一张 GPU 扛住几百个并发请求，<strong>必须</strong>先看清一个请求在引擎里被拆成两段——<strong>这就要求</strong>知道 prefill 一次算完整段输入、decode 每次只算 1 个 <b>token</b>，两者的算术强度差三个数量级。<b class="rn-key">两段瓶颈不同</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然「<b>两段瓶颈不同</b>」，<strong>所以</strong>decode 每步只算 1 个 token、却要把整份权重读一遍，算力在干等数据——<strong>于是</strong>要把多条请求凑成一批，用同一份权重顺带算很多个 <b>token</b>，把带宽的固定成本摊薄。<b class="rn-key">靠批量填满算力</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然「<b>靠批量填满算力</b>」，<strong>所以</strong>批怎么组就成了关键——静态批要等最长的那条、把短请求拖成陪跑；<strong>这就要求</strong>改成按 iteration 组批：每一步谁吐完 <b>token</b> 谁就让位、新请求立刻补上。<b class="rn-key">批要动态进出</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">既然「<b>批要动态进出</b>」，<strong>这就要求</strong>显存里同时塞下很多条的 <b>cache</b>（KV）——而它又大又是动态增长的，按最大长度预留会浪费一大半；<strong>于是</strong>把 KV 切成固定大小的块、按需分配（分页即 PagedAttention，就是把 KV 按固定块管理）。<b class="rn-key">KV 要按块分页</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>KV 要按块分页</b>」，<strong>所以</strong>调度器就有了一个统一目标——<strong>不浪费</strong>：显存不够时在「换出（swap）」与「重算（recompute）」之间取舍，重复计算时用<b>前缀缓存</b>复用共享的 <b>cache</b>。<b class="rn-key">调度要在不浪费上取舍</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>调度要在不浪费上取舍</b>」，而"省哪种浪费"正是各引擎的侧重所在，<strong>这就要求</strong>先弄清自己的负载"浪费在哪"——重复前缀多就该选 token 级 <b>cache</b> 树（SGLang），模型固定且只用 NVIDIA 该选编译优化（TensorRT-LLM），多模型多硬件才选通用 vLLM；长 prefill 打断 decode 时再考虑 prefill/decode 分离。<b class="rn-key">按负载选引擎</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">prefill / decode</span><span class="meta-tag">算术强度</span><span class="meta-tag">连续批处理</span><span class="meta-tag">PagedAttention</span><span class="meta-tag">前缀缓存</span><span class="meta-tag">引擎选型</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="18-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">同一张 GPU 上，为什么一个请求"算完输入"和"逐字往外吐"的瓶颈完全不是一回事？</div><div class="card-q-hint">提示：把两段各自的 FLOPs 和要读的字节数分别算出来，比一比它们的比值（算术强度）。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>一次自回归推理被切成两段：<strong>prefill</strong>（把整段输入 prompt 一次并行算完、产出第一个 token，决定 TTFT 首字延迟）与 <strong>decode</strong>（此后每次只算 1 个新 token、逐字生成，决定 TPOT 每字延迟）。这条切分是 vLLM（Kwon 等，arXiv:2309.06180，SOSP 2023）与 Sarathi（Agrawal 等，arXiv:2308.16369）共同的工作基础。判断一段计算卡在算力还是带宽，用一个量：<strong>算术强度 = FLOPs ÷ 访问字节数</strong>；超过 roofline 拐点（拐点 = 峰值算力 ÷ 显存带宽）就是 compute-bound（算力受限），低于就是 memory-bound（显存带宽受限）。</div>
+      <div class="content-section"><p>上一课我们把模型"调"成了自己的；从这一课开始，我们把它<strong>发出去服务</strong>。一个请求进推理引擎，会依次过：分词 → 排队调度 → prefill → decode → 反分词 → 流式返回。要扛住并发，第一件事是看清这条路里<strong>哪一段在吃 GPU 的什么资源</strong>。</p><p><strong>因为</strong>prefill 一次吃下整段 prompt（一大块矩阵-矩阵乘），decode 每次只吃 1 个 token（退化成矩阵-向量乘）——两者对 GPU 的压力完全不是一回事。可以把它类比成搬运：prefill 是一次装满一整卡车货（算力吃紧），decode 是一次只搬一个箱子、却要把整个仓库的目录重读一遍（带宽吃紧）。混在一起"加算力"，对 decode 几乎没用。</p><p>下面把两段的算术强度各自算出来，就会看到那条分界线。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：两段的算术强度差多少</div>
+        <div class="step"><div class="step-title">Step 1：decode 每 token 要读多少、算多少</div>
+          <table><tr><th>项</th><th>数值</th><th>说明</th></tr><tr><td>7B fp16 权重</td><td><strong>14 GB</strong></td><td>每个 decode 步都要整份读一遍</td></tr><tr><td>每 token 的 FLOPs</td><td>2 × 7e9 = <strong>1.4e10</strong></td><td>约 2 × 参数量</td></tr><tr><td>算术强度</td><td>1.4e10 ÷ 1.4e10 = <strong>1</strong></td><td>单位：FLOP/Byte</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：decode 每次只处理 1 个 token，FLOPs ≈ 2 × N = <strong>14 GFLOPs</strong>，却要读 <strong>14 GB</strong> 权重 → 算术强度只有 <strong>1 FLOP/Byte</strong>，远低于显卡的 roofline 拐点（按 A100 40GB/80GB 的 BF16（16 位浮点格式）峰值与带宽折算，约 150–200 FLOP/Byte）——<strong>decode 是纯带宽受限</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：prefill 一次要读多少、算多少</div>
+          <table><tr><th>项</th><th>数值</th><th>说明</th></tr><tr><td>prompt 长度 s</td><td><strong>1024</strong> token</td><td>一次并行算完</td></tr><tr><td>FLOPs（约 2×N×s）</td><td>2 × 7e9 × 1024 ≈ <strong>1.4e13</strong></td><td>约 14 TFLOPs</td></tr><tr><td>仍只读一份权重</td><td><strong>14 GB</strong></td><td>输入侧几乎不占带宽</td></tr><tr><td>算术强度</td><td>1.4e13 ÷ 1.4e10 ≈ <strong>1000</strong></td><td>单位：FLOP/Byte</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：prompt 有 1024 个 token，一次性并行计算 → FLOPs ≈ 2 × 7e9 × 1024 = <strong>1.4e13</strong>（14 TFLOPs），而权重仍只读一遍 14 GB → 算术强度跃到约 <strong>1000 FLOP/Byte</strong>，远高于拐点——<strong>prefill 是算力受限</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：把两段落在一张图上看</div>
+          <table><tr><th>阶段</th><th>每次处理 token 数</th><th>算术强度</th><th>瓶颈</th></tr><tr><td><strong>prefill</strong></td><td>整段（1024）</td><td><strong>≈1000</strong></td><td><strong>算力</strong></td></tr><tr><td><strong>decode</strong></td><td>1</td><td><strong>1</strong></td><td><strong>显存带宽</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：两段的<strong>算术强度</strong>差 = 1000 ÷ 1 ≈ <strong>1000 倍</strong>——prefill 一次喂进 1024 个 token（大矩阵-矩阵乘、吃算力），decode 一次只喂 1 个 token（矩阵-向量乘、吃带宽）。所以同一个模型、同一张卡，prefill 卡在算力、decode 卡在带宽——这是整课所有优化手段的出发点。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>把 prefill 与 decode 混为一谈，会做出错误的优化决策：给 decode 堆算力（没用，它等的是数据），或给 prefill 堆带宽（也没用，它等的是计算）。<strong>"先分清一段计算卡在哪个资源上"</strong>，是推理引擎里所有取舍（批量、调度、分离）的前置判断。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','18-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','18-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-18-1" class="llm-section"><button class="llm-btn" onclick="startChat('18-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="18-1"><div class="chat-toolbar"><button onclick="copyChat('18-1')">📋 复制对话</button><button onclick="clearChat('18-1')">🗑 清空</button><button onclick="stopLLM('18-1')" id="stop-btn-18-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('18-1')" id="regen-btn-18-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="18-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 prefill / decode 的差异有疑问？比如「为什么 decode 是带宽受限」「TTFT 和 TPOT 分别被谁决定」？<br><br>报模型规模和卡型，我帮你把两段的算术强度算出来。</div></div><div class="chat-input-row"><textarea data-input="18-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('18-1')}" rows="1" placeholder="例如：为什么 decode 阶段加算力没用？"></textarea><button onclick="sendLLM('18-1')">发送</button></div></div></div>
+      <div id="tab-qna-18-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('18-1')">🔄 换一批</button></div><div class="qna-list" data-qna="18-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="18-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">同样一张 GPU，为什么把请求一条条串起来处理就快不起来？</div><div class="card-q-hint">提示：把"每步要读多少字节"和"每步只产出几个 token"放在一起看，瓶颈会自己冒出来。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>上一张卡片已经说明 <strong>decode 是显存带宽受限</strong>。提高利用率的标准手段是<strong>批处理</strong>（batch）——Databricks 的《LLM Inference Performance Engineering》把"连续批处理"列为高吞吐服务的首要优化，并报告它比早期的动态批处理高 10-20 倍吞吐。理解批量的第一步，是看清<strong>单条 decode 的固定成本</strong>：读一遍权重的时间，与批里有多少条请求无关。</div>
+      <div class="content-section"><p>上一张卡片看清了 prefill 与 decode 卡在不同资源上。这一张从 decode 的"固定成本"入手，说明<strong>为什么逐条处理会把算力白白闲置</strong>。</p><p><strong>因为</strong>decode 每生成 1 个 token 都要把整份模型权重从显存读进计算单元——这段读取时间对批里是 1 条还是 64 条几乎一样。把多条请求凑成一批，<strong>就像</strong>让这趟"读权重的车"顺路多捎几个 token。<strong>所以</strong>批越大，单位时间内吐出的 token 越多，而每条请求的延迟几乎不变。反过来，一条条串行处理（更自然的做法是让一条请求从头跑到尾、再接下一条），等于每读一次 14 GB 只换来 1 个 token——单卡吞吐只有约 143 token/s，而同一张卡批 64 时可达约 9,143 token/s（第 2 步算例），64 倍差距里大部分算力都在等数据。</p><p>下面把"批大小"对吞吐的放大效应算出来，同时看清静态批的隐藏浪费。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：批量把固定成本摊薄了多少</div>
+        <div class="step"><div class="step-title">Step 1：单条 decode 的时间下限</div>
+          <table><tr><th>项</th><th>数值</th><th>说明</th></tr><tr><td>要读的权重</td><td><strong>14 GB</strong></td><td>7B fp16</td></tr><tr><td>显存带宽</td><td><strong>2 TB/s</strong></td><td>A100 级（估算）</td></tr><tr><td>单步时间下限</td><td>14 ÷ 2000 ≈ <strong>7 ms</strong></td><td>带宽受限</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：14 GB ÷ 2 TB/s ≈ <strong>7 ms</strong>——这是"读一遍权重"的<strong>理想下限</strong>（假设瞬时打满带宽），与请求数无关。批 1 时这 7 ms 只产出 1 个 token → <strong>约 143 token/s</strong>；真实值因带宽利用率（MBU，即实际带宽 ÷ 峰值带宽）达不到 100% 会更低。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：批大小把吞吐抬高多少</div>
+          <table><tr><th>批大小</th><th>单步时间（只算权重）</th><th>吞吐（理想）</th></tr><tr><td>1</td><td>≈7 ms</td><td>1 ÷ 0.007 ≈ <strong>143 token/s</strong></td></tr><tr><td><strong>64</strong></td><td>≈7 ms</td><td>64 ÷ 0.007 ≈ <strong>9,143 token/s</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：读一次 14 GB 的 7 ms 没变，但产出的 token 从 1 个变成 64 个 → 吞吐 ≈ <strong>9,143 token/s</strong>，放大约 <strong>64 倍</strong>。这是<strong>只算权重</strong>的理想上限：批 64 还要额外读各自的 KV（64 × 1024 token × <strong>0.524 MB/token</strong> ≈ <strong>34.3 GB</strong>），权重 + KV ≈ <strong>48.3 GB</strong>，实际单步约 48.3 ÷ 2 TB/s ≈ <strong>24 ms</strong>、吞吐约 <strong>2,650 token/s</strong> 量级。注意：大 batch 下 KV 读取（≈34 GB）已经超过权重（14 GB），decode 的带宽主项从权重变成了 KV——这正是要压 KV、要前缀缓存的原因。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：但"静态批"会用最长的那条绑架整批</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>一批 8 条，最长输出</td><td><strong>512</strong> token</td></tr><tr><td>其余 7 条输出</td><td>各 <strong>8</strong> token</td></tr><tr><td>整批实际步数</td><td>512</td></tr><tr><td>有效输出</td><td>512 + 7×8 = <strong>568</strong></td></tr><tr><td>槽位利用率</td><td>568 ÷ (512×8) ≈ <strong>13.9%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：整批必须一起跑到第 512 步，短请求早就吐完、却还在陪跑 → 8 个槽位里大部分时间只有 1 个在干活，利用率只有 <strong>13.9%</strong>，其余 <strong>86%</strong> 的算力（与槽位）被浪费。静态批的浪费，正是下一张卡片要解决的问题。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>批量靠"摊薄读权重的固定成本"把吞吐抬高一个数量级。但<strong>批量本身有代价</strong>：一旦按"一批"为单位调度，批里最长的那条就成了整批的枷锁。所以真正的解法不是"批得更大"，而是"批得更聪明"——让请求按步进出，而不是按批被钉死。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','18-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','18-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-18-2" class="llm-section"><button class="llm-btn" onclick="startChat('18-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="18-2"><div class="chat-toolbar"><button onclick="copyChat('18-2')">📋 复制对话</button><button onclick="clearChat('18-2')">🗑 清空</button><button onclick="stopLLM('18-2')" id="stop-btn-18-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('18-2')" id="regen-btn-18-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="18-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对批量与利用率有疑问？比如「批越大越快吗」「为什么短请求会被拖慢」？<br><br>报批大小和请求长度分布，我帮你算吞吐与槽位利用率。</div></div><div class="chat-input-row"><textarea data-input="18-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('18-2')}" rows="1" placeholder="例如：批大小从 1 加到 64，吞吐能涨多少？"></textarea><button onclick="sendLLM('18-2')">发送</button></div></div></div>
+      <div id="tab-qna-18-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('18-2')">🔄 换一批</button></div><div class="qna-list" data-qna="18-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="18-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">为什么同样的负载，换个组批方式吞吐就差好几倍？</div><div class="card-q-hint">提示：想一想静态批里，短请求吐完之后那段空着的位置在干什么——能不能让它别浪费？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>连续批处理（continuous batching / iteration-level scheduling）由 <strong>Orca</strong>（Yu 等，2022）提出，核心是"请求可以在单个 iteration 的粒度上进出一个批次"。vLLM（arXiv:2309.06180）把它与 PagedAttention 结合，成为当前主流的服务范式。Databricks 的工程指南报告：连续批处理相比静态/动态批处理可高 <strong>10-20 倍</strong>吞吐。</div>
+      <div class="content-section"><p>上一张卡片看到静态批被最长序列绑架。这一张回答解法：<strong>把批次从"一批"降级到"一步"来管</strong>。</p><p><strong>因为</strong>自回归生成天然是"一步一个 token"的循环，调度器完全可以在<strong>每一步结束时</strong>重新决定：哪些序列已经吐完（遇到停止符或到长度上限）就立刻让位，排队里的新请求立刻补进空槽。<strong>所以</strong>短请求不再陪跑——它一吐完就腾位置给下一个，8 个槽位几乎每步都满。<strong>就像</strong>流水线上的工位：谁手里的活做完就下、新任务立刻补上空位。这就是"连续"的含义：批次是流动的，不是固定的。</p><p>更自然的做法是静态批：凑齐 8 条一起跑、等最长的那条跑完再收工——但上一张卡片的算例里，8 个槽位只有 13.9% 的时间在干活，剩下 86% 全浪费在陪跑上。连续批处理要解决的，正是这 86%。</p><p>下面用同一个负载，把静态批与连续批的吞吐摆在一起。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：同一负载下两种批法差多少</div>
+        <div class="step"><div class="step-title">Step 1：静态批的吞吐（承上卡算例）</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>槽位</td><td><strong>8</strong></td></tr><tr><td>整批步数</td><td><strong>512</strong></td></tr><tr><td>有效输出</td><td>568 token</td></tr><tr><td>吞吐</td><td>568 ÷ 512 ≈ <strong>1.11 token/步</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：静态批把 8 个槽位绑在一起跑 512 步，平均每步只产出 <strong>1.11 个 token</strong>——因为大部分步里只有 1 条还在生成。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：连续批处理的吞吐</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>槽位</td><td><strong>8</strong></td></tr><tr><td>每步在跑</td><td><strong>8</strong> 条（吐完即补位）</td></tr><tr><td>吞吐</td><td><strong>8 token/步</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：连续批处理让每个槽位吐完就换新请求，8 个槽位每步都在产出 → <strong>8 token/步</strong>。同样是在"读一次权重"的 7 ms 内，它填满了 8 个槽位。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：两者之比</div>
+          <table><tr><th>批法</th><th>吞吐</th><th>相对</th></tr><tr><td>静态批</td><td>1.11 token/步</td><td>1.0×</td></tr><tr><td><strong>连续批处理</strong></td><td><strong>8 token/步</strong></td><td><strong>≈7.2×</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：8 ÷ 1.11 ≈ <strong>7.2 倍</strong>（这个 7.2× 只对卡片这条人造长度分布成立）。请求长度越参差，这个倍数越大——Databricks 报告在真实混合负载上可达 <strong>10-20 倍</strong>（口径不同，属外部读数）。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>连续批处理没有让单条请求变快（它仍是带宽受限），它改变的是<strong>槽位利用率</strong>——把"陪跑浪费掉的时间"还给真正在生成的请求。它也是后面分页 KV、前缀缓存能生效的前提：只有批能动态进出，才需要"按需分配与回收显存"。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','18-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','18-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-18-3" class="llm-section"><button class="llm-btn" onclick="startChat('18-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="18-3"><div class="chat-toolbar"><button onclick="copyChat('18-3')">📋 复制对话</button><button onclick="clearChat('18-3')">🗑 清空</button><button onclick="stopLLM('18-3')" id="stop-btn-18-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('18-3')" id="regen-btn-18-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="18-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对连续批处理有疑问？比如「它和动态批的区别」「为什么短请求能先返回」？<br><br>给我一个请求长度分布，我帮你对比两种批法的吞吐。</div></div><div class="chat-input-row"><textarea data-input="18-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('18-3')}" rows="1" placeholder="例如：连续批处理为什么能到 10 倍以上？"></textarea><button onclick="sendLLM('18-3')">发送</button></div></div></div>
+      <div id="tab-qna-18-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('18-3')">🔄 换一批</button></div><div class="qna-list" data-qna="18-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="18-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">分页 KV 到底解决了哪个看不见的工程问题？</div><div class="card-q-hint">提示：KV cache 又大又是动态增长的——如果按"最大长度"给每条预留空间，预留出来却没用上的那部分，算不算浪费？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>vLLM 的 <strong>PagedAttention</strong>（Kwon 等，arXiv:2309.06180，SOSP 2023）把 KV cache 切成固定大小的块（block），用块表把连续的逻辑块映射到<strong>非连续</strong>的物理块——<strong>就像</strong>操作系统用页表管理内存。vLLM 官方博客给出的对照读数：<strong>既有系统因碎片与过度预留浪费 60%-80% 显存，PagedAttention 把浪费压到 4% 以下</strong>，并能跨请求共享块（并行采样等场景内存再降最多 55%）。</div>
+      <div class="content-section"><p>上一张卡片让批次能动态进出，前提是显存里同时装得下很多条请求。这一张回答：<strong>KV cache 到底占了多少、又被浪费了多少</strong>。</p><p><strong>因为</strong>KV cache 的大小随序列长度增长，而每条要生成多长事先并不知道。朴素做法是"给每条按最大长度 max_len 预留一块连续显存"——结果实际只用了其中一部分，剩下的空着（内部碎片）；不同长度的请求交错分配，又会留下零散的、装不下新请求的空洞（外部碎片）。PagedAttention 的做法是：不再要求连续，把 KV 切成固定大小的块，<strong>用到哪块分配哪块</strong>，用一张"块表"把逻辑位置映射到任意物理块。</p><p>朴素做法正是按最大长度预留：一条序列最多可能生成 2048 token，就一次性给它留足 2048 个位置；可它实际可能只生成 512——剩下的 1536 个位置一直空着，白占 75%。不改掉这套「一次连续预留」的做法，显存就永远装不下更多请求。</p><p>下面把"预留浪费"与"分页浪费"各算一遍。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：KV cache 有多大、浪费在哪</div>
+        <div class="step"><div class="step-title">Step 1：一条序列的 KV cache 有多大</div>
+          <table><tr><th>项</th><th>数值</th><th>说明</th></tr><tr><td>层数 × 头数 × 头维</td><td>40 × 40 × 128</td><td>LLaMA-13B</td></tr><tr><td>每 token 的 KV 字节</td><td>2 × 40 × 40 × 128 × 2 B = <strong>819,200 B</strong></td><td>2 = K 与 V 两份</td></tr><tr><td>约合每 token</td><td><strong>0.82 MB</strong></td><td></td></tr><tr><td>2048 token 全长</td><td><strong>1.68 GB</strong></td><td>vLLM 报约 1.7 GB</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：2（K、V）× 40 层 × 40 头 × 128 维 × 2 B（fp16）= <strong>819,200 B/token ≈ 0.82 MB</strong>；乘 2048 token 得 <strong>1.68 GB</strong>——单条序列的 KV 就可能超过某些整模型的权重。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：按最大长度预留浪费多少</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>预留 max_len</td><td><strong>2048</strong> token</td></tr><tr><td>实际生成</td><td><strong>512</strong> token</td></tr><tr><td>浪费比例</td><td>(2048 − 512) ÷ 2048 = <strong>75%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：预留了 2048 的位置、只用了 512 → 白占 <strong>75%</strong>。这正是 vLLM 论文里"既有系统浪费 60%-80%"的来源之一。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：分页把浪费压到多少</div>
+          <table><tr><th>方案</th><th>块大小</th><th>浪费</th></tr><tr><td>按 max_len 预留</td><td>—</td><td><strong>最高 ~75%</strong></td></tr><tr><td><strong>PagedAttention</strong></td><td><strong>16</strong> token/块</td><td><strong>&lt;4%</strong>（仅末块可能不满）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：分页后只有每条序列的<strong>最后一个块</strong>可能填不满，平均浪费 <strong>&lt;4%</strong>（vLLM 实测口径）。而且块能跨请求共享（并行采样、共享前缀），内存再降最多 <strong>55%</strong>。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>PagedAttention 解决的<strong>不是"算得快"，而是"装得下"</strong>：显存一省，批就能更大，吞吐自然上去（vLLM 报告 2-4× 相对 FasterTransformer / Orca）。把 KV 从"一整块连续数组"改成"按块拼装"，是这一课里最关键的一次抽象转换——后面调度、前缀共享全部建立在它之上。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','18-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','18-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-18-4" class="llm-section"><button class="llm-btn" onclick="startChat('18-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="18-4"><div class="chat-toolbar"><button onclick="copyChat('18-4')">📋 复制对话</button><button onclick="clearChat('18-4')">🗑 清空</button><button onclick="stopLLM('18-4')" id="stop-btn-18-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('18-4')" id="regen-btn-18-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="18-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对分页 KV 有疑问？比如「为什么非连续反而更快」「块大小怎么定」？<br><br>报模型配置与序列长度，我帮你算 KV 大小与浪费比例。</div></div><div class="chat-input-row"><textarea data-input="18-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('18-4')}" rows="1" placeholder="例如：为什么预留会浪费 75% 显存？"></textarea><button onclick="sendLLM('18-4')">发送</button></div></div></div>
+      <div id="tab-qna-18-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('18-4')">🔄 换一批</button></div><div class="qna-list" data-qna="18-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="18-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">显存不够时，调度器凭什么决定抢占谁、缓存谁？</div><div class="card-q-hint">提示：抢占只有两条路——把 KV 换出到内存（swap）或直接丢掉重算（recompute）；两条路的代价要用带宽和算力分别算。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>vLLM 的调度器在显存不足时会<strong>抢占</strong>（preempt）某些请求，方式有两种：<strong>swap</strong>（把该请求的 KV 块换出到 CPU 内存，之后再换回）或 <strong>recompute</strong>（直接丢弃 KV，等它重新被调度时把 prefill 再算一遍）。另一条线是<strong>前缀缓存</strong>：vLLM 的块级自动前缀缓存、SGLang 的 <strong>RadixAttention</strong>（arXiv:2312.07104，用基数树做 token 级前缀复用、LRU 淘汰，报告前缀密集负载最多 6.4× 吞吐）。</div>
+      <div class="content-section"><p>上一张卡片解决了"装得下"。这一张处理<strong>真的装不下时</strong>——调度器要在两条代价路线上做取舍，顺便把"重复计算"也省掉。</p><p><strong>因为</strong>显存是硬的：当新请求要进来而 KV 池已满，调度器必须腾地方。腾地方有两条路（<strong>就像</strong>仓库满了：先把最不常用的箱子搬到隔壁房间，或者干脆扔掉、需要时再重新组装）：把某条请求的 KV <strong>换出</strong>到 CPU 内存（swap，付出带宽代价），或者干脆<strong>丢掉</strong>它的 KV、等它再次被调度时重算一遍 prefill（recompute，付出算力代价）。选哪条，取决于此刻带宽和算力谁的性价比更高。另一头是前缀缓存：很多请求共享同一段 system prompt / 工具说明，把它们算过的 KV cache 缓存起来复用，就能省掉大量重复 prefill——这就是 SGLang RadixAttention 的主场。</p><p>不缓存就只剩更笨的一条路——每条请求各算各的：一段 2000 token 的 system prompt 被 100 条并发请求共享时，不做前缀复用就要重复 prefill 100 × 2000 = 200,000 token，其中 99% 是纯重复。前缀缓存要省掉的正是这 99%。</p><p>下面把 swap、recompute、前缀缓存的账各算一次。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：swap、recompute 与前缀缓存的代价</div>
+        <div class="step"><div class="step-title">Step 1：swap 一条请求要多久</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>一条序列的 KV（13B，2048 token）</td><td><strong>1.7 GB</strong></td></tr><tr><td>PCIe 带宽</td><td><strong>32 GB/s</strong>（估算）</td></tr><tr><td>换出一次</td><td>1.7 ÷ 32 ≈ <strong>53 ms</strong></td></tr><tr><td>换出 + 换回</td><td>≈ <strong>106 ms</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：以一条 13B、2048 token 的序列为例，其 KV 约 1.7 GB；经 PCIe（约 32 GB/s）换出再换回 ≈ <strong>106 ms</strong>。这段时间该请求不产出任何 token，纯是延迟损耗。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：recompute 一条请求要多久</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>重算的 prefill 长度（同一条 13B 序列）</td><td><strong>2048</strong> token</td></tr><tr><td>FLOPs（2×13e9×2048）</td><td>≈ <strong>5.33e13</strong>（53.3 TFLOPs）</td></tr><tr><td>A100 有效算力</td><td>≈ <strong>150 TFLOPs</strong>（估算，含利用率折损）</td></tr><tr><td>重算耗时</td><td>53.3 ÷ 150 ≈ <strong>355 ms</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：同一条 13B 序列（2048 token）重算 prefill ≈ 53.3 TFLOPs，按有效算力 150 TFLOPs 估 → <strong>约 355 ms</strong>。在这个算例里 swap（106 ms）比重算（355 ms）便宜约 <strong>3.4 倍</strong>；但序列越短、重算越便宜，调度器要按当下带宽与算力谁更空闲来动态选——这正是它真正在做的事。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：前缀缓存能省掉多少重复计算</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>共享 system prompt</td><td><strong>2000</strong> token</td></tr><tr><td>并发请求数</td><td><strong>100</strong></td></tr><tr><td>不缓存要算的 prefill</td><td>100 × 2000 = <strong>200,000</strong> token</td></tr><tr><td>缓存后</td><td>只算 1 次 2000 → 省 <strong>99%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：同样一段 2000 token 的前缀被 100 条请求共享，不缓存要重复 prefill <strong>200,000 token</strong>；缓存只算一次，省掉 <strong>99%</strong> 的这段计算。SGLang RadixAttention 报告前缀密集负载最多 <strong>6.4×</strong> 吞吐提升。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>调度器的目标从"公平"变成了"<strong>不浪费</strong>"：显存紧张时在 swap（带宽）与 recompute（算力）之间选便宜的那条，平时则把共享前缀缓存下来避免重复计算。这也解释了为什么"共享前缀多"的负载（多轮对话、RAG（即检索增强，把外部资料检索出来塞进上下文）、Agent 循环）特别吃前缀缓存——它们的重复计算占比高得惊人。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','18-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','18-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-18-5" class="llm-section"><button class="llm-btn" onclick="startChat('18-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="18-5"><div class="chat-toolbar"><button onclick="copyChat('18-5')">📋 复制对话</button><button onclick="clearChat('18-5')">🗑 清空</button><button onclick="stopLLM('18-5')" id="stop-btn-18-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('18-5')" id="regen-btn-18-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="18-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对调度与缓存有疑问？比如「swap 和 recompute 怎么选」「前缀缓存什么时候最值」？<br><br>描述你的负载（前缀共享多不多、序列多长），我帮你估收益。</div></div><div class="chat-input-row"><textarea data-input="18-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('18-5')}" rows="1" placeholder="例如：swap 和 recompute 哪个更划算？"></textarea><button onclick="sendLLM('18-5')">发送</button></div></div></div>
+      <div id="tab-qna-18-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('18-5')">🔄 换一批</button></div><div class="qna-list" data-qna="18-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="18-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">vLLM / SGLang / TensorRT-LLM，凭什么选 A 不选 B？</div><div class="card-q-hint">提示：先别比"谁更快"。问自己两个问题：你的流量里有没有一段反复出现的公共前缀？模型是不是长期固定、只用一种卡？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>主流推理引擎各有侧重：<strong>vLLM</strong>（PagedAttention + 块级自动前缀缓存，通用、模型与硬件覆盖广）、<strong>SGLang</strong>（RadixAttention，token 级前缀树，前缀复用强，报告前缀重负载最多 6.4×）、<strong>TensorRT-LLM</strong>（NVIDIA 专用、编译期优化，追求极致延迟）。另一条工程线是 <strong>PD 分离</strong>（prefill/decode disaggregation）：把计算受限的 prefill 与带宽受限的 decode 拆到不同 GPU 上跑。</div>
+      <div class="content-section"><p>前面五张卡片把单机引擎的机制讲完了：两段瓶颈、批量、连续批处理、分页 KV、调度取舍。这一张回答<strong>落地时最实际的问题——选哪个引擎</strong>。</p><p><strong>因为</strong>引擎的差异不体现在"谁绝对更快"，而体现在"<strong>你的负载长什么样</strong>"。四个判断维度：① 共享前缀多不多（多 → SGLang 的 token 级前缀树收益最大）；② 模型是否固定、是否只用 NVIDIA（固定 → TensorRT-LLM 的编译优化能榨出更低延迟）；③ 是否要覆盖多模型/多硬件（要 → vLLM 更通用）；④ TTFT（首 token 延迟）与 TBT（Time Between Tokens，相邻两个输出 token 的间隔，即逐字延迟）哪个是硬约束（长 prompt 会打断在跑的 decode，可考虑 PD 分离）。这就<strong>好比</strong>选运输工具：通用货车、冷链专车、还是固定线路的直达快线。</p><p>下面把选型矩阵与"分离 vs 混跑"的账算一遍。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：选型矩阵与 PD 分离的代价</div>
+        <div class="step"><div class="step-title">Step 1：按负载特征选引擎</div>
+          <table><tr><th>负载特征</th><th>更合适的引擎</th><th>为什么</th></tr><tr><td>共享前缀多（多轮/RAG/Agent）</td><td><strong>SGLang</strong></td><td>token 级前缀树，命中率高</td></tr><tr><td>模型固定 + 只用 NVIDIA + 追延迟</td><td><strong>TensorRT-LLM</strong></td><td>编译期算子优化</td></tr><tr><td>多模型 / 多硬件 / 通用</td><td><strong>vLLM</strong></td><td>覆盖广、块级前缀缓存</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">判据：<strong>不要按"谁的榜分高"选，要按"你的前缀命中率与硬件约束"选</strong>——在无共享前缀的负载上，几大引擎的差距会缩小到运行间噪声量级（经验判断，无统一 benchmark 支撑，需按自己的 trace 实测）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：PD 分离的收益与代价</div>
+          <table><tr><th>项</th><th>说明</th></tr><tr><td>收益</td><td>prefill 不再打断在跑的 decode，TBT 更稳（TBT 即相邻输出 token 的间隔）</td></tr><tr><td>代价①：多一份权重</td><td>7B 就要多 <strong>14 GB</strong>/卡</td></tr><tr><td>代价②：传 KV</td><td>每请求把 KV 从 prefill 卡传到 decode 卡（KB~GB 级）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术直觉：若长 prompt 让在跑请求的 TBT 从约 <strong>30 ms</strong> 抖到约 <strong>200 ms</strong>（Δ ≈ <strong>170 ms</strong>，估算），交互式场景就不可接受 —— 此时分离值得；代价是多一份权重（7B：14 GB）与 KV 传输。是否分离要<strong>按自己的 trace 压测</strong>决定。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：一张卡能扛多少并发（KV 池决定）</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>7B 每 token KV</td><td>2 × 32 × 32 × 128 × 2 B = <strong>524,288 B ≈ 0.524 MB</strong></td></tr><tr><td>每请求（1024 token）</td><td>524,288 × 1024 ≈ <strong>0.537 GB</strong></td></tr><tr><td>单卡 KV 池（80 GB − 14 GB 权重 − 余量）</td><td>≈ <strong>60 GB</strong></td></tr><tr><td>可并发条数</td><td>60 ÷ 0.537 ≈ <strong>112</strong> 条</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：7B 的 KV ≈ 0.524 MB/token，1024 token 的请求占 ≈ <strong>0.537 GB</strong>；一张 80 GB 卡扣掉 14 GB 权重与余量后约 60 GB 给 KV → 约 <strong>112 条并发</strong>。这解释了为什么"省 KV"（分页、量化 KV、前缀缓存）直接等于"提并发"。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>选型三步：<strong>① 先量自己负载的前缀命中率与 SLO（Service Level Objective，服务水平目标，即 TTFT / TBT 这类硬指标）；② 按"共享前缀多不多、模型是否固定、要不要多硬件"挑引擎；③ 只有当长 prefill 的干扰真的踩到 TBT 红线时，才上 PD 分离</strong>。到此，"训练与推理工程"这条线收口——下一课我们把"模型好不好"这件事本身，变成可核验的评测。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','18-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','18-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-18-6" class="llm-section"><button class="llm-btn" onclick="startChat('18-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="18-6"><div class="chat-toolbar"><button onclick="copyChat('18-6')">📋 复制对话</button><button onclick="clearChat('18-6')">🗑 清空</button><button onclick="stopLLM('18-6')" id="stop-btn-18-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('18-6')" id="regen-btn-18-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="18-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对引擎选型有疑问？比如「我的场景选 vLLM 还是 SGLang」「要不要做 PD 分离」？<br><br>说清负载特征与硬约束，我帮你走一遍选型。</div></div><div class="chat-input-row"><textarea data-input="18-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('18-6')}" rows="1" placeholder="例如：多轮客服场景，vLLM 还是 SGLang？"></textarea><button onclick="sendLLM('18-6')">发送</button></div></div></div>
+      <div id="tab-qna-18-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('18-6')">🔄 换一批</button></div><div class="qna-list" data-qna="18-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 18 课完成 · 下一课：第 19 课「大模型评测」</p>
+    <a href="#" onclick="switchLesson(19);return false;">进入第 19 课：大模型评测 →</a>　·　<a href="#" onclick="switchLesson(17);return false;">← 上一课：微调工程</a>
+  </div></div>

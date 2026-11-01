@@ -1,0 +1,50 @@
+/* ============================================================
+   课程内容美化层 · beautify.css（微调版）
+   只允许：调色、字体、字号、行高、间距、边框颜色。
+   禁止：改 DOM、加装饰脚本、换组件形态（圆角形状/渐变/徽章/卡片化）。
+   2026-11-01 用户反馈「改太多、不好看」后收紧为此范围。
+   ============================================================ */
+
+/* ── 正文：行高与段距略放松，字色略加深 ── */
+.content-section p {
+  line-height: 1.8;
+  margin-bottom: 10px;
+}
+
+/* ── 提示：原 #a8a29e 在白底上偏淡，加深一档 ── */
+.card-q-hint { color: #8a837d; }
+
+/* ── 知识背景：行高放松 ── */
+.card-bg { line-height: 1.75; padding: 12px 16px; }
+
+/* ── 计算走查：标签加深、步骤间距放大、描述字号 12→13 ── */
+.calc-block { padding: 20px 22px; }
+.calc-block .label { color: #78716c; margin-bottom: 12px; }
+.calc-block .step { margin-bottom: 16px; }
+.calc-block .step:last-child { margin-bottom: 4px; }
+.calc-block .step-title { margin-bottom: 6px; }
+.calc-block .step-desc { font-size: 13px; color: #44403c; line-height: 1.7; }
+
+/* ── 表格：单元格留白加大、边框与表头颜色变柔和 ── */
+.calc-block table, .highlight-box table, .content-section table { font-size: 13px; margin: 10px 0; }
+.calc-block td, .calc-block th,
+.highlight-box td, .highlight-box th,
+.content-section td, .content-section th {
+  padding: 7px 10px;
+  border-color: #e2dfdc;
+}
+.calc-block th, .highlight-box th, .content-section th { background: #eeecea; color: #44403c; }
+.calc-block td { background-color: #fff; }
+
+/* compare-table：表头与正文同一色系 */
+.compare-table th, .compare-table td { border-color: #e7e5e4; padding: 10px 14px; }
+.compare-table th { background: #f5f5f4; color: #44403c; }
+
+/* ── 结论框：行高与段距 ── */
+.highlight-box { padding: 16px 20px; }
+.highlight-box .label { margin-bottom: 8px; }
+.highlight-box p { line-height: 1.8; margin-bottom: 6px; }
+.highlight-box p:last-child { margin-bottom: 0; }
+
+/* ── 追问答案：表格同步留白 ── */
+.qna-item-a td, .qna-item-a th { padding: 7px 10px; }

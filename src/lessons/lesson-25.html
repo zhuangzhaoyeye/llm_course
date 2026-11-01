@@ -1,0 +1,204 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 25 课：规划与反思</h2>
+    <p class="subtitle">上一课我们把「知道什么」交给了记忆与检索；但一个长任务光有知识还不够——<strong>规划该怎么做、反思到底值不值？</strong>这一课从「一步错、步步错」的错误累积讲起，把计划—执行—反思三件套、分解粒度、树搜索式分解（Tree of Thoughts）与语言化反思（Reflexion）一路算清，最后回到最关键的边界：反思什么时候会白转、甚至有害。它上承第 24 课《记忆与 RAG 工程化》（RAG 即「检索增强生成」），下启第 26 课《多智能体与协议》。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 用 p^N 算出长任务的失败率：p=0.95 时 10 步全对仅 <strong>0.599</strong>、20 步只剩 <strong>0.359</strong>，先规划能把 10 步抬到 <strong>0.904</strong><br>② 用 b^d 估分解方案的搜索代价（3³=27、5³=125、5⁴=625），并说清「每步可独立验证」才是粒度下限<br>③ 用 Tree of Thoughts 的 <strong>4%→74%</strong> 与 Reflexion 的 <strong>80%→91%</strong> 两个数字，说清结构化探索与语言化反思各自的收益与代价</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步逻辑递进：从「为什么会错」到「反思何时该停」）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要让 Agent（即「会自己规划、调工具完成任务」的智能体）跑完一个长任务，<strong>这就要求</strong>先承认一个约束：每步正确率是连乘的 p^N，一处错写进 <b>context</b>（即「模型每一步能看到的全部文字」）就会被后续继承。<b class="rn-key">长任务要先规划</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然「<b>长任务要先规划</b>」，<strong>所以</strong>要把「想」和「做」分开——<strong>这就要求</strong>循环里有计划—执行—反思三步：执行产生真实观察、反思把教训写回 <b>context</b>，<strong>否则</strong>只会在同一个坑里重复。<b class="rn-key">三件套要闭环</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然「<b>三件套要闭环</b>」，<strong>于是</strong>计划「拆到多细」成了关键旋钮——<strong>这就要求</strong>在「分支数 b、深度 d」的搜索空间 b^d 与 <b>tokens</b>（即「模型处理的文字最小单位」）成本之间取舍：拆太粗等于没拆、拆太细则节点爆炸。<b class="rn-key">分解粒度要算清</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">既然「<b>分解粒度要算清</b>」，而粒度取舍就是在「每层几个候选（b）」与「往下几层（d）」之间定——<strong>这就要求</strong>在每一步真的把候选列出来、评估后再往下走：把推理展开成一棵树，每个节点是一个中间想法，写进 <b>context</b> 后可以评估、可以回溯（Tree of Thoughts，即「把思路展开成树再搜索」）。<b class="rn-key">先分支再选路</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>先分支再选路</b>」，<strong>所以</strong>选完还得看结果——<strong>这就要求</strong>把失败写成语言反馈、下一轮带着它重试（Reflexion，即「用文字写自我反思再重试」），<strong>于是</strong>同样的 <b>context</b> 会被反思改写，<strong>否则</strong>错了也不长记性。<b class="rn-key">反思要能改策略</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>反思要能改策略</b>」，<strong>这就要求</strong>给它设边界：没有新信息、只改同一处、只认同自己时，反思会空转，反而多烧 <b>tokens</b>——<strong>所以</strong>反思要先问「这一轮比上一轮多了什么新信息」。<b class="rn-key">反思要防空转</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">任务规划</span><span class="meta-tag">错误累积</span><span class="meta-tag">分解粒度</span><span class="meta-tag">Tree of Thoughts</span><span class="meta-tag">Reflexion</span><span class="meta-tag">反思失效</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="25-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">长任务为什么会「一步错、步步错」？</div><div class="card-q-hint">提示：把步数和单步正确率摆出来，想想「每步都对才算对」时，成功率会怎么随步数变。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>ReAct（即「先想一步、再调一次工具拿回观察结果」的交替循环，Yao 等，arXiv:2210.03629，ICLR 2023）证明「边想边做 + 外部观察」能纠正单步错误；但步数一长，错误会被后面每一步继承。Plan-and-Solve（Wang 等，arXiv:2305.04091）提出<strong>先规划再执行</strong>：把计划显式写出来，再逐步求解——这正是「规划」作为一个独立环节的起点。</div>
+      <div class="content-section"><p>一个 Agent 要跑完长任务，为什么常常「一步错、步步错」？</p><p><strong>因为</strong>长任务要求每一步都对，成功率是每步正确率的<strong>连乘</strong>（p^N）；更糟的是，一处错误一旦写进 <b>context</b>（即「模型每一步能看到的全部文字」），后面每一步都会带着它继续推理。<strong>就像</strong>没有图纸就盖楼：砌错一堵承重墙，上面所有楼层都得拆掉重来。<strong>所以</strong>先把「错从哪来、规划值多少」算清楚。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：步数如何放大失败</div>
+        <div class="step"><div class="step-title">Step 1：步数一多，成功率就掉</div>
+          <table><tr><th>任务步数 N</th><th>全对成功率 p^N（p=0.95）</th><th>至少错一步</th></tr><tr><td>5 步</td><td>0.95⁵ ≈ <strong>0.774</strong></td><td>约 23%</td></tr><tr><td>10 步</td><td>0.95¹⁰ ≈ <strong>0.599</strong></td><td>约 40%</td></tr><tr><td>20 步</td><td>0.95²⁰ ≈ <strong>0.359</strong></td><td>约 64%</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：单步 95% 看着很高，但 10 步只剩 <strong>0.599</strong>、20 步只剩 <strong>0.359</strong>——<strong>错误是乘性累积的</strong>，步数越多次方越低。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：先规划能把曲线抬回来</div>
+          <table><tr><th>做法</th><th>单步正确率</th><th>10 步全对</th></tr><tr><td>不规划，直接做</td><td>0.95</td><td>0.95¹⁰ ≈ <strong>0.599</strong></td></tr><tr><td>先花 1 步做计划，再执行</td><td>0.99</td><td>0.99¹⁰ ≈ <strong>0.904</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：先花一步把每步正确率从 0.95 抬到 0.99（0.99 为示意取值，用于演示杠杆方向，非某模型实测），10 步全对从 <strong>0.599</strong> 升到 <strong>0.904</strong>（+0.306）。代价只是多 1 次调用（11 步里的 1 步，约 <strong>9%</strong>）——<strong>用 9% 的成本换 0.306 的成功率，这就是规划的价值。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：错误会被后续步骤继承</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>总步数</td><td>10</td></tr><tr><td>出错位置</td><td>第 3 步</td></tr><tr><td>被影响的后续步数</td><td>10 − 3 = <strong>7 步</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：第 3 步出错，后面 <strong>7 步</strong>都要带着这个错误推理。这不是「扣一步的分」，而是把错误写进 <b>context</b>、让后续全在错的前提上工作——<strong>所以「尽早发现并纠错」比「最后重来」便宜得多。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>长任务的第一原则是<strong>先想再做</strong>：规划不是装饰，而是把每步正确率抬上来的杠杆；而错误一旦写进 <b>context</b> 就会被后续继承。记住这个量级——<strong>规划花 1 步，救回的是整条链的成功率</strong>。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','25-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','25-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-25-1" class="llm-section"><button class="llm-btn" onclick="startChat('25-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="25-1"><div class="chat-toolbar"><button onclick="copyChat('25-1')">📋 复制对话</button><button onclick="clearChat('25-1')">🗑 清空</button><button onclick="stopLLM('25-1')" id="stop-btn-25-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('25-1')" id="regenerate-btn-25-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="25-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对「长任务为什么容易崩」有疑问？比如「10 步任务大概多少成功率」「规划到底能抬多少」？<br><br>说出你的任务步数与单步正确率，我帮你用 p^N 估一遍。</div></div><div class="chat-input-row"><textarea data-input="25-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('25-1')}" rows="1" placeholder="例如：10 步任务的成功率大概多少？"></textarea><button onclick="sendLLM('25-1')">发送</button></div></div></div>
+      <div id="tab-qna-25-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('25-1')">🔄 换一批</button></div><div class="qna-list" data-qna="25-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="25-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">把其中一环拿掉，循环会退化成什么？</div><div class="card-q-hint">提示：从「缺了它，下一轮会不会重复上一轮的错」入手，逐个想三件套里每一个拿掉之后会怎样。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>ReAct（即「先想一步、再调一次工具拿回观察结果」的交替循环，Yao 等，arXiv:2210.03629，ICLR 2023）给了「执行—观察」这一环；Plan-and-Solve（Wang 等，arXiv:2305.04091）补上「先出计划」这一环；两者合起来还不够——失败之后要么改策略、要么原地重来，这一步就是反思。三件套的判据不是「三个角色」，而是「三个动作必须闭环」。</div>
+      <div class="content-section"><p>上一张卡片说明长任务要先规划。但「有计划」还不够——<strong>计划会错、执行会失败，所以为什么还要有反思这一环？</strong></p><p><strong>因为</strong>三步缺任何一步，循环都会退化成「重复劳动」：没有计划就没有方向，没有执行就只剩空想，没有反思就会在同一个坑里反复摔。<strong>就像</strong>考完试整理错题本：不改脑子，只改下一次的答题策略。<strong>所以</strong>先看清三件套的分工，再算它值多少。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：三件套的分工与一轮闭环的账</div>
+        <div class="step"><div class="step-title">Step 1：三件套各管什么、缺了会怎样</div>
+          <table><tr><th>组件</th><th>做什么</th><th>缺了会怎样</th></tr><tr><td>Plan 计划</td><td>把任务拆成可执行步骤</td><td>执行没有方向</td></tr><tr><td>Act 执行</td><td>调用工具、拿到观察</td><td>只剩空想，世界不变</td></tr><tr><td>Reflect 反思</td><td>评估结果、把教训写回 context</td><td>同一个错反复犯</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">三件套不是三个角色，而是三个<strong>必须闭环</strong>的动作——计划给方向、执行产生真实反馈、反思把反馈转成下一轮的经验。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：一轮闭环的调用账</div>
+          <table><tr><th>环节</th><th>调用次数（以 5 步任务为例）</th></tr><tr><td>计划</td><td>1</td></tr><tr><td>执行</td><td>5</td></tr><tr><td>反思</td><td>1</td></tr><tr><td>合计</td><td>1 + 5 + 1 = <strong>7 次</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：同样一个 5 步任务，不反思是 1 + 5 = 6 次调用，加了反思是 7 次，多约 <strong>17%</strong>（1 ÷ 6，示意）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：缺反思会重复劳动</div>
+          <table><tr><th>情形</th><th>3 轮里的执行步数</th></tr><tr><td>无反思，每轮重试 5 步</td><td>5 × 3 = <strong>15 步</strong>，错误照旧</td></tr><tr><td>有反思，第 2 轮换策略</td><td>5 × 2 = <strong>10 步</strong>，第 3 轮不再重试</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：同样失败 3 轮，无反思累计 <strong>15 步</strong>仍在原地；有反思第 2 轮就换了策略，省下约 5 步（15 − 10）。<strong>反思的价值在「换策略」，不在「多试一次」。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>三件套的判据是「闭环」：<strong>没有执行的反思是空想，没有反思的循环是重复</strong>。缺哪一环，循环都会退化成白转圈——所以要算清每一环的调用账，也要算清缺一环的浪费账。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','25-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','25-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-25-2" class="llm-section"><button class="llm-btn" onclick="startChat('25-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="25-2"><div class="chat-toolbar"><button onclick="copyChat('25-2')">📋 复制对话</button><button onclick="clearChat('25-2')">🗑 清空</button><button onclick="stopLLM('25-2')" id="stop-btn-25-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('25-2')" id="regenerate-btn-25-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="25-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对计划—执行—反思有疑问？比如「反思要不要写进提示」「反思几次比较合适」？<br><br>说一下你的任务与失败模式，我帮你设计这个闭环。</div></div><div class="chat-input-row"><textarea data-input="25-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('25-2')}" rows="1" placeholder="例如：反思文本该怎么写？"></textarea><button onclick="sendLLM('25-2')">发送</button></div></div></div>
+      <div id="tab-qna-25-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('25-2')">🔄 换一批</button></div><div class="qna-list" data-qna="25-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="25-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">计划该拆到多细——拆得更细，会带来什么？</div><div class="card-q-hint">提示：每多一个分支、多一层深度，可能路径会怎么变？再想 token 成本会跟着怎么变。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>分解粒度是规划里最容易拍脑袋的一环。Tree of Thoughts（ToT，即「把推理展开成树、每个节点可评估可回溯」的方法，Yao 等，arXiv:2305.10601，NeurIPS 2023）给出明确的设计原则：一个「思考」（thought）太小，模型评估不了；太大，搜索空间又会爆炸——粒度就是在这两者之间取舍。</div>
+      <div class="content-section"><p>上一张卡片把三件套讲清楚了，其中「计划」这一步要把任务拆开。那——<strong>拆得更细，会带来什么？</strong></p><p><strong>因为</strong>拆得越细、分支越多，可能路径按「分支数 b 的深度 d 次方」（b^d）爆炸，<b>tokens</b>（即「模型处理的文字最小单位」）成本跟着涨；拆得太粗，又等于没拆、计划里没有可执行的信息。<strong>就像</strong>导航：只给「去上海」没用，给「每个路口怎么打方向盘」又太啰嗦。<strong>所以</strong>先算清搜索空间，再定粒度。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：分解粒度的搜索代价</div>
+        <div class="step"><div class="step-title">Step 1：路径数随分支与深度爆炸</div>
+          <table><tr><th>分支数 b</th><th>深度 d</th><th>可能路径 b^d</th></tr><tr><td>3</td><td>3</td><td>3³ = <strong>27</strong></td></tr><tr><td>4</td><td>3</td><td>4³ = <strong>64</strong></td></tr><tr><td>5</td><td>3</td><td>5³ = <strong>125</strong></td></tr><tr><td>5</td><td>4</td><td>5⁴ = <strong>625</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：分支从 3 升到 5、深度不变，路径从 27 涨到 <strong>125</strong>（约 4.6 倍）；深度再加一层就到 <strong>625</strong>（再 ×5）。<strong>每多一个候选、多一层搜索，成本都是乘性的。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：粗拆、适中、细拆的对照</div>
+          <table><tr><th>粒度</th><th>步数</th><th>问题</th></tr><tr><td>太粗</td><td>2–3 步</td><td>计划本身没信息量</td></tr><tr><td>适中</td><td>5–9 步</td><td>每步可独立验证</td></tr><tr><td>太细</td><td>20 步以上</td><td>节点爆炸、context 塞满</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">判定（示意）：<strong>下限</strong>是「每一步都能被独立验证」（否则错了也不知道），<strong>上限</strong>是「路径数与 token 成本可承受」；5–9 步往往是较实用的区间，但步数服从「可验证」，不是反过来。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：拆细的 token 账单（示意）</div>
+          <table><tr><th>方案</th><th>每步 token</th><th>总 token</th></tr><tr><td>拆成 10 步</td><td>2,000</td><td><strong>20,000</strong></td></tr><tr><td>拆成 20 步</td><td>2,000</td><td><strong>40,000</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：同样内容拆成 20 步，进模型的 token 是 10 步的 40,000 ÷ 20,000 = <strong>2 倍</strong>，而成功率未必跟着涨——这就是「拆得越细 ≠ 做得越好」。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>分解粒度的判据是<strong>「每一步能否被独立验证」</strong>：可验证是下限，成本是上限。拆得越细，路径数按 b^d 涨、token 也跟着涨——<strong>粒度要算清，不是越细越好。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','25-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','25-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-25-3" class="llm-section"><button class="llm-btn" onclick="startChat('25-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="25-3"><div class="chat-toolbar"><button onclick="copyChat('25-3')">📋 复制对话</button><button onclick="clearChat('25-3')">🗑 清空</button><button onclick="stopLLM('25-3')" id="stop-btn-25-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('25-3')" id="regenerate-btn-25-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="25-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对分解粒度有疑问？比如「任务该拆成几步」「分支数怎么定」？<br><br>说一下你的任务步数与分支习惯，我帮你判断粒度是否划算。</div></div><div class="chat-input-row"><textarea data-input="25-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('25-3')}" rows="1" placeholder="例如：任务该拆成几步？"></textarea><button onclick="sendLLM('25-3')">发送</button></div></div></div>
+      <div id="tab-qna-25-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('25-3')">🔄 换一批</button></div><div class="qna-list" data-qna="25-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="25-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">一条链写到一半才发现开头就错了——若手上有几种方案，你能做什么？</div><div class="card-q-hint">提示：想一下「一条链写到一半才发现开头就错了」的场景——如果手上有几种方案，你能做点什么？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>Tree of Thoughts（ToT，即「把推理展开成树、每个节点是一个中间想法、可评估可回溯」的方法，Yao 等，arXiv:2305.10601，NeurIPS 2023）：在 Game of 24（用 4 个数字凑出 24 的算术题）上，GPT-4 用链式思维（CoT，即「把推理写成一条线」）只解出 <strong>4%</strong>，ToT 解出 <strong>74%</strong>。</div>
+      <div class="content-section"><p>上一张卡片说分解粒度要算清；而让模型自己「先展开几条候选再挑」，正是把粒度落到搜索上的做法。<strong>为什么「先想几个方案再选」比「一条路走到黑」好？</strong></p><p><strong>因为</strong>一条链是从左到右写下去的，开头错了后面再对也白搭；树搜索允许模型在中间停下、评估这一步有没有希望、没希望就回溯。<strong>就像</strong>写方案：先列 3 个提纲，比闷头写 30 页更容易发现「这个大方向不对」。<strong>所以</strong>先看搜索空间，再算它值多少 token。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：树搜索的收益与代价</div>
+        <div class="step"><div class="step-title">Step 1：同一道 Game of 24，不同做法的成功率</div>
+          <table><tr><th>方法</th><th>Game of 24 成功率</th></tr><tr><td>CoT（单链）</td><td>4%</td></tr><tr><td>ToT（b = 1，每步只展开 1 条）</td><td>45%</td></tr><tr><td>ToT（b = 5，每步留 5 条）</td><td><strong>74%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：从 4% 到 74% 是 <strong>+70 个百分点</strong>；即使只展开 1 条（b=1），也从 4% 升到 <strong>45%</strong>——注意 b=1 仍然是 ToT（每个中间步都会做「评估」，只是每步只保留 1 条候选），所以这 45% 主要说明「允许模型评估中间想法」这一步本身贡献很大，而不只是「展开条数变多」。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：树搜索一次要评估多少候选</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>分支数 b</td><td>5</td></tr><tr><td>搜索步数 T</td><td>3</td></tr><tr><td>被评估的中间想法（量级）</td><td>b × T = 5 × 3 = <strong>15</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意，按论文 b=5、T=3 的配置量级）：一次解题最多要评估约 <strong>15</strong> 个中间想法，而单链 CoT 只往 <b>context</b> 里写 1 条——收益来自「多生成 + 评估 + 回溯」。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：用 token 换正确率</div>
+          <table><tr><th>方法</th><th>相对推理次数</th><th>成功率</th></tr><tr><td>CoT</td><td>1×</td><td>4%</td></tr><tr><td>ToT（b = 5）</td><td>明显更高（多次前向）</td><td><strong>74%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：正确率涨了 74 ÷ 4 ≈ <strong>18.5 倍</strong>，但要付出多次前向的 token 成本——<strong>树搜索是用 token 换正确率，先想清楚愿意付多少。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>树搜索的有效性来自<strong>「结构化的探索」</strong>：允许模型在中间评估、回溯，而不是一条链走到黑。ToT 的 <strong>4%→74%</strong> 是真的，但它用 token 换来的——愿不愿付账，决定了该不该把推理拆成树。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','25-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','25-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-25-4" class="llm-section"><button class="llm-btn" onclick="startChat('25-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="25-4"><div class="chat-toolbar"><button onclick="copyChat('25-4')">📋 复制对话</button><button onclick="clearChat('25-4')">🗑 清空</button><button onclick="stopLLM('25-4')" id="stop-btn-25-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('25-4')" id="regenerate-btn-25-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="25-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对树搜索式分解有疑问？比如「什么时候该上树搜索」「它比多次采样强在哪」？<br><br>说一下你的任务能不能评估中间结果，我帮你判断值不值得展开成树。</div></div><div class="chat-input-row"><textarea data-input="25-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('25-4')}" rows="1" placeholder="例如：什么时候该用树搜索？"></textarea><button onclick="sendLLM('25-4')">发送</button></div></div></div>
+      <div id="tab-qna-25-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('25-4')">🔄 换一批</button></div><div class="qna-list" data-qna="25-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="25-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">反思（Reflexion）为什么能提升成绩？它又贵在哪？</div><div class="card-q-hint">提示：想一下「不改模型参数、只把失败总结成一句话写下来」会发生什么——第二轮它带着什么重试？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>Reflexion（Shinn 等，arXiv:2303.11366，NeurIPS 2023）不更新权重，而是把失败总结成<strong>语言反馈</strong>（即「用文字当强化信号」）写进情节记忆，下一轮带着再试。它在 HumanEval（一个代码生成基准）上把 pass@1（一次通过率）从 GPT-4 的 <strong>80%</strong> 提到 <strong>91%</strong>。</div>
+      <div class="content-section"><p>上一张卡片讲了「先分支再选路」，而选完之后还得看结果。<strong>反思为什么能把成绩抬上去？它又贵在哪？</strong></p><p><strong>因为</strong>反思把「这次错在哪、下次怎么改」写成一句话，放进下一轮的 <b>context</b>，等于不改权重就换了一次策略。<strong>就像</strong>导航发现前方堵车后，改用一句「绕开那段路」重新规划，而不是原路再开一遍。<strong>所以</strong>先看收益数字，再算它的账单。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：反思的收益与账单</div>
+        <div class="step"><div class="step-title">Step 1：反思带来多少提升</div>
+          <table><tr><th>方法</th><th>HumanEval pass@1</th></tr><tr><td>GPT-4 单次</td><td>80%</td></tr><tr><td>Reflexion（带语言反馈重试）</td><td><strong>91%</strong></td></tr><tr><td>差值</td><td>91 − 80 = <strong>11 个百分点</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：11 个百分点对应相对提升 91 ÷ 80 − 1 ≈ <strong>13.75%</strong>，靠的不是微调——<strong>只动上下文、不动权重。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：反思的账单</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>最多试错轮数（示意：本课假设，论文按任务设不同预算）</td><td>5</td></tr><tr><td>每轮新增</td><td>1 次反思 + 1 次重试</td></tr><tr><td>反思长期保留</td><td>滑动窗口最近 3–5 条（示意）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：最多 5 轮试错，每轮都多付「一次反思 + 一次重试」；把反思全留会让历史撑爆 context，所以用最近 <strong>3–5 条</strong>的窗口控制占用。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：收益能不能盖过成本</div>
+          <table><tr><th>项</th><th>计算</th></tr><tr><td>失败率（GPT-4）</td><td>100% − 80% = 20%</td></tr><tr><td>失败率（Reflexion）</td><td>100% − 91% = 9%</td></tr><tr><td>失败率降到</td><td>9 ÷ 20 = <strong>0.45</strong>（少了约一半失败）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：80% → 91% 意味着失败率从 <strong>20%</strong> 降到 <strong>9%</strong>，即失败少了约一半。值不值，取决于这半个失败率对你的任务值多少 token。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>反思是一种「便宜」的强化学习：<strong>只动上下文、不动权重</strong>。它用 +11 个百分点（80%→91%）证明了价值，但要清楚账单是「多轮试错 + 反思文本本身占上下文」。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','25-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','25-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-25-5" class="llm-section"><button class="llm-btn" onclick="startChat('25-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="25-5"><div class="chat-toolbar"><button onclick="copyChat('25-5')">📋 复制对话</button><button onclick="clearChat('25-5')">🗑 清空</button><button onclick="stopLLM('25-5')" id="stop-btn-25-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('25-5')" id="regenerate-btn-25-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="25-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 Reflexion 有疑问？比如「反思文本怎么写才有用」「它到底贵在哪」？<br><br>说一下你的任务有没有明确成败信号，我帮你判断反思值不值得上。</div></div><div class="chat-input-row"><textarea data-input="25-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('25-5')}" rows="1" placeholder="例如：反思文本该怎么写？"></textarea><button onclick="sendLLM('25-5')">发送</button></div></div></div>
+      <div id="tab-qna-25-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('25-5')">🔄 换一批</button></div><div class="qna-list" data-qna="25-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="25-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">反思什么时候没用甚至有害？</div><div class="card-q-hint">提示：想一下「没有任何新信息时，让模型再想一遍」会发生什么——它会变对，还是只换个说法？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>反思不是万灵药。Huang 等（arXiv:2310.01798，ICLR 2024）发现：没有外部反馈时，模型「自查自纠」（intrinsic self-correction，即「不靠外部信号、只凭自己判断对错」）会让推理成绩下降，而且调用越多越差——它无法可靠判断自己的推理对不对。Self-Refine（Madaan 等，arXiv:2303.17651，NeurIPS 2023）在有明确评价信号时平均提升约 <strong>20%</strong>，也印证了「有没有外部信号」是分水岭。</div>
+      <div class="content-section"><p>上一张卡片看到反思能涨分，但它的前提是「反思真的带来新信息」。<strong>反思什么时候没用，甚至有害？</strong></p><p><strong>因为</strong>当模型自己判断不了对错、又没有外部信号时，反思只会自我确认或反复改同一处——空转还多烧 <b>tokens</b>。<strong>就像</strong>考试时趴桌上反复检查同一道题：不改草稿，只把卷面抄得更工整。<strong>所以</strong>先算清空转的账，再定反思该停在哪。</p><p><strong>直觉上更自然的做法</strong>是让模型自查自纠、不加任何外部信号；Huang 等的实测显示这条路会掉分——调用从 1 次加到 5 次，GSM8K 正确率反而从 95.5 降到 89.0。<strong>所以</strong>反思的前提不是「多想几遍」，而是「这一轮多了什么新信息」。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：反思失效的三种模式与代价</div>
+        <div class="step"><div class="step-title">Step 1：无外部信号时，自纠会让成绩下降</div>
+          <table><tr><th>设置（论文报告）</th><th>调用次数</th><th>GSM8K 正确率</th></tr><tr><td>GPT-4 标准提示</td><td>1</td><td>95.5</td></tr><tr><td>自纠第 1 轮</td><td>3</td><td>91.5</td></tr><tr><td>自纠第 2 轮</td><td>5</td><td><strong>89.0</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：调用从 1 次加到 5 次，GSM8K 反而从 95.5 降到 <strong>89.0</strong>（−6.5）——数据来自该论文 Table 3（arXiv:2310.01798）。<strong>没有外部信号时，多反思不是更准，而是更差。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：三种失效模式</div>
+          <table><tr><th>模式</th><th>机制</th><th>后果</th></tr><tr><td>自我确认</td><td>模型认定自己没错</td><td>可能把对的改成错的</td></tr><tr><td>反复改同一处</td><td>没有新信息，只换措辞</td><td>答案不变、白烧 token</td></tr><tr><td>空转</td><td>无终止条件地重试</td><td>调用越多越差</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">判定（定性）：这三种模式的共同点是<strong>「没有新信息进来」</strong>——反思若不能引入外部信号或新观察，只是把同一段文字重新生成一遍。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：空转的账（示意）</div>
+          <table><tr><th>情形</th><th>调用次数</th></tr><tr><td>不反思，1 次作答</td><td>1</td></tr><tr><td>反思 3 轮，答案不变</td><td>1 + 3 = <strong>4 次</strong></td></tr><tr><td>浪费</td><td>多出的 3 次（约 3 ÷ 4 = <strong>75%</strong>）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：空转 3 轮后答案没变，等于多付 4 次里的 3 次调用（约 <strong>75%</strong>）却零收益——所以反思必须有「无进展即停」的终止条件。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>本课收口：反思的价值不在「多想几遍」，而在<strong>「引入新信息、换掉旧策略」</strong>。没有外部信号、只改同一处的反思是空转——判断反思有没有用，先问「这一轮比上一轮多了什么新信息」。下一课我们把视线从「单个 Agent 怎么想」移到「多个 Agent 怎么协作」，讲多智能体与协议。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','25-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','25-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-25-6" class="llm-section"><button class="llm-btn" onclick="startChat('25-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="25-6"><div class="chat-toolbar"><button onclick="copyChat('25-6')">📋 复制对话</button><button onclick="clearChat('25-6')">🗑 清空</button><button onclick="stopLLM('25-6')" id="stop-btn-25-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('25-6')" id="regenerate-btn-25-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="25-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对反思的失效模式有疑问？比如「怎么判断反思在空转」「什么时候该停」？<br><br>说一下你的反思循环与成败信号，我帮你判断它是在改策略还是在白转。</div></div><div class="chat-input-row"><textarea data-input="25-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('25-6')}" rows="1" placeholder="例如：反思什么时候没用？"></textarea><button onclick="sendLLM('25-6')">发送</button></div></div></div>
+      <div id="tab-qna-25-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('25-6')">🔄 换一批</button></div><div class="qna-list" data-qna="25-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 25 课完成 · 下一课：第 26 课「多智能体与协议」</p>
+    <a href="#" onclick="switchLesson(26);return false;">进入第 26 课：多智能体与协议 →</a>　·　<a href="#" onclick="switchLesson(24);return false;">← 上一课：记忆与 RAG 工程化</a>
+  </div></div>

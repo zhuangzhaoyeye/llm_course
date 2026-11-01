@@ -1,0 +1,204 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 19 课：大模型评测</h2>
+    <p class="subtitle">前一课我们把模型"发出去"服务了，也就能拿到一串跑分。这一课反过来问一件更要命的事：<strong>这些数字到底能不能信</strong>？一个分数背后藏着四层滤镜——它测的是不是你说的那个能力（构念效度）、答案有没有被背过（数据污染）、答案由谁打分（精确匹配还是 LLM 判官）、分数稳不稳（评测方差）。把四层看穿，你才能回答那个真正的问题：榜上的高分，为什么和我的真实体验对不上。这一课把评测的四个坑算清，最后给一套自建可信评测的流程。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清一个跑分数字里混进了哪四层"滤镜"（构念 / 污染 / 打分器 / 方差）<br>② 用数字算出一分虚高里有多少来自污染、多少来自选项数、多少只是噪声<br>③ 给自己模型搭一套可信评测：定构念、防污染、校准判官、报置信区间、设发布门禁</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：一个分数要过的四道关——构念 / 污染 / 判官 / 方差——再收到自建评测）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要回答"这个模型能不能上生产"，<strong>必须</strong>先有一个数字；<strong>这就要求</strong>先确认这个数字测的到底是不是你以为的那个能力——换掉选项顺序、改掉选项个数、换掉提示模板，同一个模型输出的 <b>logits</b>（模型对每个候选答案打出的原始分数）会不会跟着漂移？<b class="rn-key">先问数字测的是什么</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">即便「<b>先问数字测的是什么</b>」、确认了测量对象，<strong>这就要求</strong>继续排除最粗暴的一种"测错东西"——测试题早已混进训练的 <b>token</b> 流里，模型靠记忆作答、分数虚高；核心是能检测数据污染，并分清精确污染与改写过的语义污染。<b class="rn-key">题目得干净、没被背过</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">即便「<b>题目得干净、没被背过</b>」，<strong>这就要求</strong>再盯住下一个变量"谁来判对错"——开放生成没有唯一答案，精确匹配会冤枉语义正确的回答，而语义相似度要靠 <b>embedding</b>、大模型当判官又带着位置、长度、自我偏好的系统性偏差。<b class="rn-key">打分器本身要可信</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">即便「<b>打分器本身要可信</b>」，<strong>这就要求</strong>再问一层：同一个模型重跑一遍，分数还一样吗？<strong>因为</strong>题数是有限的，抽样本身就带噪声——差几个点可能只是噪声，不是真差异；若开了 <b>temperature</b> 采样，还会再叠一层生成随机性。<b class="rn-key">分数要稳过噪声</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>分数要稳过噪声</b>」，<strong>所以</strong>就能解释排行榜与真实体验为什么对不上——榜单是单一聚合分、单一提示，还叠着污染与对齐税，而你的流量分布、你喂给模型的 <b>context</b>、你的场景都不同。<b class="rn-key">榜单不能替代你的场景</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>榜单不能替代你的场景</b>」，<strong>这就要求</strong>自己建一套：定清构念、用私有/动态集把评测题与训练 <b>token</b> 流隔离、人工金标校准打分器、按需规划样本量、报告置信区间、把"超过基线且区间不重叠"写成发布门禁。<b class="rn-key">自建贴场景的可信评测</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">构念效度</span><span class="meta-tag">数据污染</span><span class="meta-tag">LLM-as-judge</span><span class="meta-tag">评测方差</span><span class="meta-tag">置信区间</span><span class="meta-tag">发布门禁</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="19-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">榜单上那些分数是怎么来的？——MMLU、GSM8K、HumanEval、Arena 各自在测什么，又凭什么代表能力？</div><div class="card-q-hint">提示：先别盯着谁分高，先问每个榜三个问题——它喂给模型的是什么题？答案由谁来判？换一批题、换一批人来判，名次还会一样吗？把这三问问过一遍，四个榜的差别自己就出来了。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>跑分的源头是一张张<strong>基准</strong>（benchmark，就是一份「标准考卷」：一套固定的题加一套固定的判分规则，让不同模型在同样条件下比）。业界最常被引用的四张考卷：<strong>MMLU</strong>（Hendrycks 等，2020，arXiv:2009.03300）——57 个学科的四选一，考「知识面」；<strong>GSM8K</strong>（Cobbe 等，2021，arXiv:2110.14168）——约 8.5K 道小学数学应用题，考「多步推理」；<strong>HumanEval</strong>（Chen 等，2021，arXiv:2107.03374）——164 道手写 Python 题，用 <b>pass@k</b>（指让模型生成 k 次、只要有一次通过测试就算过）判分；<strong>Chatbot Arena / LMArena</strong>（LMSYS 平台 2023 上线、论文 arXiv:2403.04132 为 2024）——真人两两盲投，用 Bradley-Terry（BT）模型估计实力并排名——<strong>Elo</strong> 只是同类积分制的直观类比（赢强者涨分多、输弱者掉分多），Arena 实际用的是 BT 估计。四张考卷的题、判法、数据来源完全不同——所以看到一个分数，先问：这是哪张考卷？</div>
+      <div class="content-section"><p>上一课我们把模型「发出去」服务了，服务端会吐出一串跑分。这一张先回到跑分的源头：<strong>这些数字各自是从哪张考卷里来的、由谁来判</strong>。</p><p><strong>因为</strong>「榜单上的分数」其实不是同一种东西——它是四张完全不同的考卷。<strong>就像</strong>学校里「语文 90 分、数学 60 分」，你不会直接说「语文比数学强」——两张卷子的题和判分方式都不一样。看榜要连问三件事：① 这张考卷喂给模型的是什么题（四选一 / 要写完整步骤 / 要跑代码 / 开放对话）？② 答案由谁来判（对选项 / 对数值 / 跑单元测试 / 真人投票）？③ 那它凭什么代表「能力」——换个问法还算数吗？这正是本课的主题<strong>构念效度</strong>。<strong>所以</strong>下面先把四张考卷摆在一起，再各算一笔账。</p><p>最常见的误读，是把「一次跑出的最高分」当成能力：同一个模型换个随机种子重跑，分数就会抖；而像 HumanEval 这种允许「生成 k 次、过一次算过」的指标，k 一大分数几乎必然逼近满分（单次通过率 p=0.3 时，pass@100 已 ≈ 100%）。所以看分必须先问：这是跑了几次的读数？</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：四张考卷各测什么、各含多少「非能力」成分</div>
+        <div class="step"><div class="step-title">Step 1：四个最有名的榜，各自在测什么</div>
+          <table><tr><th>榜（基准）</th><th>喂给模型的题</th><th>谁来判</th><th>测的是什么</th><th>一手来源</th></tr><tr><td><strong>MMLU</strong></td><td>57 个学科的四选一（约 1.4 万题）</td><td>对选项字母</td><td>知识面</td><td>arXiv:2009.03300</td></tr><tr><td><strong>GSM8K</strong></td><td>约 8.5K 道小学数学应用题</td><td>对最终数值</td><td>多步推理</td><td>arXiv:2110.14168</td></tr><tr><td><strong>HumanEval</strong></td><td>164 道手写 Python 题</td><td>跑隐藏单元测试（pass@k）</td><td>代码功能正确性</td><td>arXiv:2107.03374</td></tr><tr><td><strong>Chatbot Arena</strong></td><td>真实用户随便问的题</td><td>真人两两盲投（BT 估计）</td><td>人更喜欢哪个</td><td>arXiv:2403.04132</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">读法：四张考卷的数字根本不在一个坐标系里——MMLU 是正确率百分比、GSM8K 是正确率百分比、HumanEval 是 <b>pass@k</b>（生成 k 次里过一次就算过）、Arena 是无量纲的 BT 积分。所以第一步永远是<strong>先认出这是哪张考卷</strong>，再谈分数高低。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：MMLU 的随机猜测基线，能白送多少分</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>选项个数</td><td>4</td></tr><tr><td>纯随机猜的期望正确率 1 ÷ 4</td><td><strong>25%</strong></td></tr><tr><td>设某模型 5-shot 得分（示例值）</td><td><strong>70%</strong></td></tr><tr><td>高出随机基线</td><td>70 − 25 = <strong>45 个百分点</strong></td></tr><tr><td>相对基线倍数</td><td>45 ÷ 25 = <strong>1.8 倍</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：MMLU 判分时，模型在 A/B/C/D 四个选项上各打一个分（logits，模型给每个候选答案打出的原始分数），再取最高的那个作答。四选一时，模型一题不会、纯靠猜，期望也有 <strong>25%</strong> 正确率。若某模型 5-shot 拿 70%，减去 25% 的猜测基线，真正「超过瞎猜」的只有 <strong>45 个百分点</strong>。也就是说 MMLU 分数里天然含一段「蒙对分」——选项越多蒙对分越少（这正是后来 MMLU-Pro 把选项扩到 10 个的理由，下一张卡片展开）。<strong>这里 70% 是示例数字，仅示范算法，不指代任何具体模型。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：HumanEval 的 pass@k，到底按哪个公式报</div>
+          <table><tr><th>项</th><th>数值 / 定义</th></tr><tr><td>每题生成样本数 n（Codex 论文）</td><td><strong>200</strong></td></tr><tr><td>论文用的无偏估计式</td><td><strong>pass@k = 1 − C(n−c, k) / C(n, k)</strong>（c = 通过的样本数）</td></tr><tr><td>单题 c = 0（一次都没做对）</td><td>任意 k 都 = <strong>0</strong></td></tr><tr><td>Codex 的 pass@1</td><td><strong>28.8%</strong></td></tr><tr><td>Codex 的 pass@100</td><td><strong>70.2%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：HumanEval 论文（arXiv:2107.03374）对每道题生成 n = 200 个样本、数出其中通过单元测试的 c 个，用<strong>无偏估计</strong> pass@k = 1 − C(n−c, k) / C(n, k) 算该题的通过率，再对所有题求平均。它<strong>不是</strong>把全部题混在一起、用单次通过率 p 套 1 − (1−p)^k——那样算 p = 0.288 时 pass@100 会趋近 100%，与论文的 70.2% 对不上。差别在于论文是<strong>逐题</strong>算再平均：有些题模型一次都没做对（c = 0），k 再大贡献也是 0。论文里 Codex 报告 pass@1 = <strong>28.8%</strong>、pass@100 = <strong>70.2%</strong>——同一模型两种 k 的读数差一倍多，但都远未到满分。所以报 HumanEval 分数必须带上 k，也要说清用的是哪个公式。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>每张考卷都自带一个<strong>可被刷爆点</strong>，而它们都指向本课主题<strong>构念效度</strong>（这个测量，真的在测它声称的那件事吗？）：<br>① <strong>MMLU</strong>：四选一有 25% 的猜测基线，分数里含「蒙对分」，考的是知识面，却掺了点排除法与运气。<br>② <strong>GSM8K / HumanEval</strong>：题目公开且发布于多年前，很可能已进训练语料——一旦靠记忆作答，分数就系统性虚高（<strong>数据污染</strong>，第 2 张卡片展开）。<br>③ <strong>Arena</strong>：分数来自真人投票，测的是「人更喜欢哪个」，会受投票人群（偏英语、技术用户）与「更长、排版更花哨」的风格偏好影响——它测的不是「谁更会做」（判官偏差在第 3 张卡片展开）。<br><strong>所以看榜的顺序永远是：先认出是哪张考卷 → 再问它可能被什么刷高 → 最后才看分数。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','19-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','19-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-19-1" class="llm-section"><button class="llm-btn" onclick="startChat('19-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="19-1"><div class="chat-toolbar"><button onclick="copyChat('19-1')">📋 复制对话</button><button onclick="clearChat('19-1')">🗑 清空</button><button onclick="stopLLM('19-1')" id="stop-btn-19-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('19-1')" id="regenerate-btn-19-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="19-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对「榜单分数是怎么来的」有疑问？比如「MMLU 和 GSM8K 到底各测什么」「pass@k 为什么 k 越大分数越高」？<br><br>报出基准名，我帮你拆它的题型、判分方式和可能被刷高的点。</div></div><div class="chat-input-row"><textarea data-input="19-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('19-1')}" rows="1" placeholder="例如：pass@k 里的 k 是什么意思？"></textarea><button onclick="sendLLM('19-1')">发送</button></div></div></div>
+      <div id="tab-qna-19-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('19-1')">🔄 换一批</button></div><div class="qna-list" data-qna="19-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="19-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">如果测试题早就混进了训练语料，为什么这个分数会系统性虚高？</div><div class="card-q-hint">提示：把测试集里的题分成"模型训练时见过"和"没见过"两组，分别估一下正确率，再看合起来的总分。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>大模型在<strong>网络规模的语料</strong>上训练，而基准题集也来自公开网络——于是测试题可能早在训练时就被读过，这叫<strong>数据污染</strong>（data contamination）。系统综述《Are LLM Benchmarks Already Contaminated?》（Nourbakhsh 等，GEM 2026，ACL）把污染分四层（精确 / 句法 / 语义 / 任务级），梳理了五类检测方法，并给出污染导致的分数虚高区间约 <strong>6%–40%</strong>（随基准与设定而异）。NVIDIA 的 <strong>CoDeC</strong>（Zawalski 等，arXiv:2510.27055，ICLR 2026）提供了一种黑盒检测：给模型加同分布的上下文的例子，<strong>被记忆过的数据置信度反而下降</strong>。</div>
+      <div class="content-section"><p>上一张卡片拆开了分数里的"格式附加分"。这一张拆更隐蔽的一层：<strong>答案可能不是推出来的，是背出来的</strong>。</p><p><strong>因为</strong>如果某道测试题（或它的改写版）出现在训练语料里，模型见到它时走的是"回忆"而不是"推理"——<strong>就像</strong>考前泄题：分数高不代表会，只代表见过。这类污染会系统性地把分数往上抬：那些看过的 <b>token</b> 序列已在训练里固化，模型不再需要现推；且不同模型被抬的幅度不同，于是"榜上谁高"就失去了可比性。<strong>所以</strong>下面先算"污染能让总分虚高多少"，再看"怎么把它揪出来"。</p><p>更自然的做法是拿公开基准直接测、直接信总分——但题目公开且发布多年，很可能早已进了训练语料：靠记忆答对，卷面看着涨了几分，能力却一点没变（下一段的算例里，仅 20% 的题被见过就能白涨 5 分）。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：污染能把分数抬高多少（占比与正确率为示意值）</div>
+        <div class="step"><div class="step-title">Step 1：20% 的题被见过，总分虚高多少</div>
+          <table><tr><th>组</th><th>占比</th><th>正确率</th><th>贡献</th></tr><tr><td>训练时见过（靠记忆）</td><td>20%</td><td><strong>95%</strong></td><td>0.2 × 95 = 19.0</td></tr><tr><td>没见过（真实推理）</td><td>80%</td><td><strong>70%</strong></td><td>0.8 × 70 = 56.0</td></tr><tr><td>卷面总分</td><td>100%</td><td>—</td><td><strong>75.0</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：0.2 × 95 + 0.8 × 70 = 19 + 56 = <strong>75.0</strong>。但模型的<strong>真实能力只有 70%</strong>（没见过的那部分的正确率）——<strong>中间 5 分全是"背过"带来的虚高</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：污染比例更高时，虚高被放大多倍</div>
+          <table><tr><th>污染的题占比</th><th>卷面总分</th><th>虚高（绝对分）</th></tr><tr><td>20%</td><td>0.2×95 + 0.8×70 = <strong>75.0</strong></td><td><strong>+5.0</strong></td></tr><tr><td>40%</td><td>0.4×95 + 0.6×70 = <strong>80.0</strong></td><td><strong>+10.0</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：污染比例从 20% 升到 40%，虚高从 5 分翻到 <strong>10 分</strong>。这还只是"精确污染"；如果算上改写过的<strong>语义污染</strong>，综述给出的虚高区间可以到 <strong>40%</strong>——足以让"能力相当"的两个模型在榜上拉开一个身位。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：怎么把污染揪出来</div>
+          <table><tr><th>污染层级</th><th>典型检测</th><th>能不能抓到</th></tr><tr><td>精确（题目原文照抄）</td><td>n-gram（连续 n 个词的片段）重合 / 字符串匹配</td><td>能</td></tr><tr><td>句法 / 语义（改写过）</td><td>字符串匹配失效</td><td><strong>抓不到</strong></td></tr><tr><td>黑盒检测（如 CoDeC）</td><td>加同分布上下文看置信度</td><td>可，论文自报 <strong>99.9%</strong> 数据集级 AUC（判别能力指标，1 为完美区分）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术直觉：字符串匹配只能抓"原样照抄"的精确污染；一旦题目被<strong>改写</strong>，重合就抓不到。CoDeC 换了个思路——给模型喂同分布的例子，若它<strong>本来就背过</strong>，这些例子只会干扰记忆、让<strong>置信度下降</strong>；靠这个信号做数据集级判别，论文自报 AUC 达 <strong>99.9%</strong>。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>污染不是"作弊被抓"，而是<strong>评测的前提被悄悄破坏</strong>：你以为在测推理，其实在测记忆。<strong>防污染最稳的办法不是事后检测，而是事前隔离</strong>——用私有题集、动态生成题、或按时间切分（训练截止之后才出现的题）。检测是补救，隔离才是设计。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','19-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','19-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-19-2" class="llm-section"><button class="llm-btn" onclick="startChat('19-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="19-2"><div class="chat-toolbar"><button onclick="copyChat('19-2')">📋 复制对话</button><button onclick="clearChat('19-2')">🗑 清空</button><button onclick="stopLLM('19-2')" id="stop-btn-19-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('19-2')" id="regenerate-btn-19-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="19-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对数据污染有疑问？比如「怎么知道自己踩没踩污染」「改写过的题还能检出吗」？<br><br>说清你的评测集来源与模型训练时间，我帮你判断污染风险。</div></div><div class="chat-input-row"><textarea data-input="19-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('19-2')}" rows="1" placeholder="例如：怎么防止评测集被训练数据污染？"></textarea><button onclick="sendLLM('19-2')">发送</button></div></div></div>
+      <div id="tab-qna-19-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('19-2')">🔄 换一批</button></div><div class="qna-list" data-qna="19-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="19-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">开放生成没有唯一标准答案，凭什么说某个回答"更好"？</div><div class="card-q-hint">提示：先问"谁来判"——是字符串比对、是语义相似度，还是请另一个大模型当裁判？再问这个裁判自己有没有偏心。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>选择题可以对答案，但"写一段客服回复""总结这篇文章"没有唯一正确答案。常见打分器有：<strong>精确匹配</strong>（EM，答案必须逐字一致）、<strong>ROUGE / BLEU</strong>（看词重叠）、<strong>语义相似度</strong>（如 BERTScore，用词向量算两句在语义上像不像）、以及把强模型当裁判的 <strong>LLM-as-a-judge</strong>。<strong>MT-Bench</strong>（Zheng 等，arXiv:2306.05685，NeurIPS 2023）系统检验了 LLM 判官：强模型（GPT-4）与人类判断的一致率超过 80%（其中 pairwise 两两对比设定下 GPT-4↔人类达 85%，甚至高于人类之间 81% 的一致率），但同时暴露了<strong>位置偏差、冗长偏差、自我偏好</strong>三类系统性偏差。</div>
+      <div class="content-section"><p>上一张卡片保证了题目干净。这一张处理下一个变量：<strong>同样的回答，由谁来判分</strong>。</p><p><strong>因为</strong>开放生成没有唯一答案，打分器就成了评测的一部分。精确匹配最省事，但它只认逐字相同——<strong>就像</strong>判作文只数"和范文重复了几个字"，写得更好但用词不同的反而被判错。<strong>所以</strong>工业界转向 LLM-as-a-judge（请强模型当裁判）。可裁判会偏心：它偏爱排在前面的答案（位置偏差）、偏爱更长的答案（冗长偏差）、还偏爱自己模型家族写的答案（自我偏好）——而 Semantic 相似度这类指标靠 <b>embedding</b> 比对，也各自有盲区。<strong>于是</strong>下面把这三种偏差各自量化一次。</p><p>更自然的做法是把「答对」定义成「和参考答案逐字相同」（精确匹配）——但这只认逐字一致：100 条回答里若有 30 条意思对、说法不同，它们会被全部判错，分数上限凭空少 30 个点。开放任务上，「判对错」本身就比「算对错」难。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：打分器的三种系统性偏差</div>
+        <div class="step"><div class="step-title">Step 1：精确匹配会冤枉多少"对的回答"</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>总题数</td><td><strong>100</strong></td></tr><tr><td>语义正确但表述不同的回答</td><td><strong>30</strong> 条</td></tr><tr><td>EM 只认逐字一致，判对的</td><td><strong>70</strong> 条</td></tr><tr><td>被低估</td><td><strong>30 个点</strong>（示意）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术示意：100 题里若有 30 条回答"意思对、说法不同"，EM 会把它们全判错 → 分数上限只剩 <strong>70</strong>，凭空低估 <strong>30 个点</strong>。所以开放任务上"判对错"比"算对错"难得多。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：位置偏差——把 A/B 换个位置，判决会翻转</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>MT-Bench 论文里 GPT-4 判官的换序一致性</td><td><strong>约 65%</strong></td></tr><tr><td>即换序后判决改变的比例 1 − 0.65</td><td><strong>约 35%</strong></td></tr><tr><td>每 100 对里会改判的</td><td><strong>约 35 对</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：1 − 0.65 = <strong>约 35%</strong>——每 100 对回答里约 35 对，只要把两个答案的左右位置对调，GPT-4 判官的胜者就变了。<strong>口径</strong>：这个"约 65% 换序一致性"来自 MT-Bench 论文（arXiv:2306.05685）对 GPT-4 判官的实测。<strong>解法</strong>是标准做法：每一对<strong>正反各判一次再平均</strong>，把翻转记为平局（MT-Bench 约定）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：冗长偏差与自我偏好</div>
+          <table><tr><th>偏差</th><th>论文报告</th></tr><tr><td>冗长偏差（偏好更长的答案）</td><td>判官与人类都偏好更长的回答（GPT-4 尤甚）</td></tr><tr><td>自我偏好（偏向自己家族的答案）</td><td>GPT-4 <strong>约 10%</strong>、Claude-v1 <strong>约 25%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">口径：冗长偏差与自我偏好均出自 MT-Bench 论文（arXiv:2306.05685）——判官倾向给更长的回答更高分；让不同家族的判官打分时，GPT-4 判官偏向自己家族答案的比例约 <strong>10%</strong>、Claude-v1 约 <strong>25%</strong>。<strong>所以</strong>不能让模型评自己家族；跨家族评测时也要做长度校正。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>打分器<strong>不是中立的尺子，而是评测的一部分</strong>。用 LLM 当判官前，必须做三件事：<strong>①换序取平均</strong>（消位置偏差）、<strong>②长度校正</strong>（消冗长偏差）、<strong>③避开自我评测</strong>（消自我偏好），并用一批<strong>人工金标</strong>校准它到底准不准（下一张卡片讲样本量，最后一张讲校准）。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','19-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','19-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-19-3" class="llm-section"><button class="llm-btn" onclick="startChat('19-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="19-3"><div class="chat-toolbar"><button onclick="copyChat('19-3')">📋 复制对话</button><button onclick="clearChat('19-3')">🗑 清空</button><button onclick="stopLLM('19-3')" id="stop-btn-19-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('19-3')" id="regenerate-btn-19-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="19-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对打分器有疑问？比如「EM 和 LLM 判官该用哪个」「位置偏差怎么修」？<br><br>说清你的任务类型（分类/生成/对话），我帮你选打分器并列出要校正的偏差。</div></div><div class="chat-input-row"><textarea data-input="19-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('19-3')}" rows="1" placeholder="例如：LLM 当裁判有哪些偏差？"></textarea><button onclick="sendLLM('19-3')">发送</button></div></div></div>
+      <div id="tab-qna-19-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('19-3')">🔄 换一批</button></div><div class="qna-list" data-qna="19-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="19-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">跑三遍分数差了几个点，这算"真的更好"还是只是运气？</div><div class="card-q-hint">提示：分数是"有限道题里答对的比例"，本质是一次抽样。抽样就有标准误——把题数 n 和正确率 p 代进去算。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>一个基准分数，本质是"从"所有可能题目"里抽了 n 道、答对 p 比例"——它是一次<strong>抽样估计</strong>，带<strong>抽样误差</strong>。比例的<strong>标准误</strong>是 SE = √(p(1−p)/n)，95% 置信区间约为 p ± 1.96×SE。这就是为什么论文里报基准分常附<strong>置信区间</strong>或多次运行的方差，而不是一个孤零零的数字。</div>
+      <div class="content-section"><p>上一张卡片解决了"判官偏心"。这一张处理最后一层随机性：<strong>就算判官完全公正，分数本身也不稳</strong>。</p><p><strong>因为</strong>你不可能把所有可能的题都考一遍，只能抽一部分——抽到的题偏容易还是偏难，直接决定分数。<strong>就像</strong>只随机抽查 20 个客户的满意度去代表全公司：抽到谁，结果就差一截。所以"模型 A 比 B 高 2 分"很可能只是抽样运气。<strong>所以</strong>下面用标准误公式，把"差几个点才算真差异"算出来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：差几个点才算真实差异</div>
+        <div class="step"><div class="step-title">Step 1：1000 道题时，噪声有多大</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>题数 n</td><td><strong>1000</strong></td></tr><tr><td>正确率 p（取最坏情况）</td><td><strong>0.5</strong></td></tr><tr><td>标准误 SE = √(0.5×0.5/1000)</td><td><strong>1.58%</strong></td></tr><tr><td>95% 区间半宽 = 1.96 × 1.58%</td><td><strong>±3.1%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：√(0.25/1000) = <strong>1.58%</strong>，95% 置信区间 ≈ ±<strong>3.1%</strong>。两个模型各 1000 题比较时，差值要大于约 <strong>6.2 个点</strong>才谈得上"真实差异"——小于它，两个区间还重叠着。（这里假设用贪心解码；若开了 <b>temperature</b> 采样，还会叠一层生成随机性，噪声更大。）</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：题数缩到 100，噪声翻数倍</div>
+          <table><tr><th>题数 n</th><th>SE = √(0.25/n)</th><th>95% 区间半宽</th><th>差 < 多少不可区分</th></tr><tr><td><strong>1000</strong></td><td>1.58%</td><td>±3.1%</td><td>约 <strong>6.2</strong> 点</td></tr><tr><td><strong>100</strong></td><td><strong>5.0%</strong></td><td><strong>±9.8%</strong></td><td>约 <strong>19.6</strong> 点</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：n=100 时 SE = √(0.25/100) = <strong>5.0%</strong>，95% 区间 ±<strong>9.8%</strong> → 差不到约 <strong>19.6 点</strong>都是噪声。这解释了小基准（几百题）为什么"榜位天天变"：不是模型在变，是抽样在抖。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：想分辨特定差异，需要多少题</div>
+          <table><tr><th>要分辨的差异 Δ</th><th>所需题数 n ≈ 4×(1.96/Δ)²×p(1−p)，p=0.5 → n ≈ (1.96/Δ)²</th></tr><tr><td><strong>5 个点</strong></td><td>(1.96/0.05)² ≈ <strong>1,537</strong> 题</td></tr><tr><td><strong>3 个点</strong></td><td>(1.96/0.03)² ≈ <strong>4,268</strong> 题</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：口径与 Step 1/2 <strong>完全一致</strong>——要求两条 95% 区间<strong>不重叠</strong>（即 2×1.96×SE ≤ Δ），把 SE=√(p(1−p)/n) 代进去就得到 n ≈ 4×(1.96/Δ)²×p(1−p)；p=0.5 最坏时 (1.96/Δ)²。想分辨 <strong>5 个点</strong>要 <strong>1,537</strong> 题、<strong>3 个点</strong>要 <strong>4,268</strong> 题（自检：n=1000 时 (1.96/√1000) ≈ 6.2%，与 Step 1 对上）。<strong>所以"题数"不是随手定的，而是由你要检测的最小差异（和"两区间不重叠"这个判据）倒推出来的。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>"跑三遍差几个点"这个问题的答案<strong>不是一个数，而是一条公式</strong>：n 越小、p 越接近 0.5，噪声越大。凡是要下"谁更强"的结论，先问三件事——<strong>题数多少、区间多宽、两个区间有没有重叠</strong>。没有置信区间的排名，本质上是在比较两团噪声。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','19-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','19-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-19-4" class="llm-section"><button class="llm-btn" onclick="startChat('19-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="19-4"><div class="chat-toolbar"><button onclick="copyChat('19-4')">📋 复制对话</button><button onclick="clearChat('19-4')">🗑 清空</button><button onclick="stopLLM('19-4')" id="stop-btn-19-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('19-4')" id="regenerate-btn-19-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="19-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对评测方差有疑问？比如「差 2 分算不算提升」「要多少题才够」？<br><br>报出题数与正确率，我帮你算标准误、置信区间与最小可分辨差异。</div></div><div class="chat-input-row"><textarea data-input="19-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('19-4')}" rows="1" placeholder="例如：500 道题，差 4 分算显著吗？"></textarea><button onclick="sendLLM('19-4')">发送</button></div></div></div>
+      <div id="tab-qna-19-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('19-4')">🔄 换一批</button></div><div class="qna-list" data-qna="19-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="19-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">排行榜上 A 比 B 高，为什么我换成自己的数据一测就反过来了？</div><div class="card-q-hint">提示：榜单是一个"所有领域等权相加"的单分。先算一下：如果按你的真实流量分布给各领域加权，排序会不会变？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>多数排行榜把 MMLU 这类基准的<strong>各子领域做等权平均</strong>，压成一个单分再排名。但真实业务里，各领域的<strong>流量占比</strong>差异极大——你 70% 的请求可能都在代码和客服上，而榜单给数学和通用知识同样的权重。<strong>MT-Bench</strong>（arXiv:2306.05685）还指出另一种失配：对齐（RLHF，即用人类偏好数据反过来调整模型）后的模型在人类偏好上大幅领先基座，但传统基准（MMLU 与 HELM，后者是多场景多指标的统一评测套件）几乎区分不出来，这被称为<strong>对齐税</strong>——榜单测的"知识"，测不到你真正在意的"有用性"。</div>
+      <div class="content-section"><p>上一张卡片让"差几个点才算真差异"变得可算。这一张用它来解释那个最普遍的困惑：<strong>榜单选出来的模型，用起来却不如人意</strong>。</p><p><strong>因为</strong>榜单做了一次"等权平均"的聚合，而你的业务从来不是等权的——<strong>就像</strong>按"全国平均气温"决定今天穿什么，你在哈尔滨就该棉袄、在三亚就该短袖。平均分掩盖了分布：你的流量分布、你喂给模型的 <b>context</b>、你的领域占比，恰恰是榜单看不见的那部分。<strong>所以</strong>下面用一个具体算例，演示"等权排序 A 更高、按你流量加权后 B 反超"。</p><p>更自然的做法是照榜单名次选模型——但榜单把各领域等权平均，你的流量却可能 70% 压在代码与客服上：等权下领先 5.5 分的模型，换一组权重后会以 0.8 分被反超。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：等权榜单 vs 你的流量加权（各领域分数与流量为示意值）</div>
+        <div class="step"><div class="step-title">Step 1：榜单的等权平均</div>
+          <table><tr><th>领域</th><th>模型 A</th><th>模型 B</th></tr><tr><td>代码</td><td>70</td><td><strong>82</strong></td></tr><tr><td>客服</td><td>74</td><td><strong>80</strong></td></tr><tr><td>通用知识</td><td><strong>90</strong></td><td>72</td></tr><tr><td>数学</td><td><strong>92</strong></td><td>70</td></tr><tr><td>等权平均</td><td>(70+74+90+92)/4 = <strong>81.5</strong></td><td>(82+80+72+70)/4 = <strong>76.0</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：等权平均下 A = <strong>81.5</strong>、B = <strong>76.0</strong> → <strong>榜单把 A 排在 B 前面</strong>，领先 5.5 分。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：按你的真实流量加权，排序反过来</div>
+          <table><tr><th>领域</th><th>你的流量占比</th><th>A 贡献</th><th>B 贡献</th></tr><tr><td>代码</td><td><strong>40%</strong></td><td>0.4×70 = 28.0</td><td>0.4×82 = 32.8</td></tr><tr><td>客服</td><td><strong>30%</strong></td><td>0.3×74 = 22.2</td><td>0.3×80 = 24.0</td></tr><tr><td>通用知识</td><td><strong>20%</strong></td><td>0.2×90 = 18.0</td><td>0.2×72 = 14.4</td></tr><tr><td>数学</td><td><strong>10%</strong></td><td>0.1×92 = 9.2</td><td>0.1×70 = 7.0</td></tr><tr><td>加权总分</td><td>100%</td><td><strong>77.4</strong></td><td><strong>78.2</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：按你的流量加权后 A = <strong>77.4</strong>、B = <strong>78.2</strong> → <strong>B 反超</strong>。同一个榜单、同一组分数，只是换了权重，"谁更强"就翻转了——因为你的场景 70% 的流量压在代码与客服上，而这两项 B 全面领先。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：而且这 0.8 分的差距还在噪声里</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>加权后 A / B 差</td><td>78.2 − 77.4 = <strong>0.8 分</strong></td></tr><tr><td>1000 题时的可分辨阈值（承上卡）</td><td>约 <strong>6.2 分</strong></td></tr><tr><td>结论</td><td>0.8 &lt; 6.2 → <strong>不可区分</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：0.8 分远小于 1000 题时的阈值 <strong>6.2 分</strong> → 这个"反超"本身也在噪声里。<strong>口径说明</strong>：6.2 分取自第 4 张卡片的单基准简算（n=1000、p≈0.5 时两区间不重叠的阈值）；把四个领域加权合成后样本量更大、噪声会更小，但量级一致——因此 0.8 分仍不足以支撑"谁更强"的结论。<strong>正确做法不是换一个榜，而是在你自己的领域集上、用足够多的题、同一提示，独立评一次。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>榜单失配有三重原因：<strong>①等权聚合掩盖了分布</strong>（你的流量不是等权的）、<strong>②对齐税</strong>（榜测知识、不测有用性）、<strong>③污染与噪声</strong>叠加。结论：<strong>榜单只能当"初筛"，不能当选型依据</strong>。选型的最后一步永远是你自己领域上的评测——这正是下一张卡片要给的流程。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','19-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','19-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-19-5" class="llm-section"><button class="llm-btn" onclick="startChat('19-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="19-5"><div class="chat-toolbar"><button onclick="copyChat('19-5')">📋 复制对话</button><button onclick="clearChat('19-5')">🗑 清空</button><button onclick="stopLLM('19-5')" id="stop-btn-19-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('19-5')" id="regenerate-btn-19-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="19-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对榜单失配有疑问？比如「为什么榜单和我体验不符」「怎么把自己的场景折进评测」？<br><br>说说你的领域分布与候选模型，我帮你算加权后的排序。</div></div><div class="chat-input-row"><textarea data-input="19-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('19-5')}" rows="1" placeholder="例如：我的流量 70% 在客服，该怎么选模型？"></textarea><button onclick="sendLLM('19-5')">发送</button></div></div></div>
+      <div id="tab-qna-19-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('19-5')">🔄 换一批</button></div><div class="qna-list" data-qna="19-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="19-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">怎样给自己模型建一套不被公开榜单牵着走的可信评测？</div><div class="card-q-hint">提示：把前面五张卡片各当成一道"检查关"，逐关问自己"这一关不通过会怎样"；再想清楚两个数字——多少题才够、什么样才算通过。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>一套可信的自建评测是<strong>一条流水线</strong>：定义构念 → 建贴场景的题集 → 防污染（私有集 / 动态生成 / 时间切分）→ 选并<strong>校准打分器</strong>（用人工金标抽样比对）→ 规划样本量、报告置信区间 → 把"提升多少才放行"写成<strong>发布门禁</strong>。这套流程的每一环都对应前五张卡片拆过的一个坑。</div>
+      <div class="content-section"><p>上一张卡片说明榜单不能替代你的场景。这一张把前面所有结论收成<strong>一套你能立刻搭起来的流程</strong>。</p><p><strong>因为</strong>可信评测的每一步都是在堵一个具体的坑：堵"测错东西"就写清构念、堵"背过答案"就用私有集（把评测题与训练 <b>token</b> 流彻底隔开）、堵"判官偏心"就人工金标校准、堵"噪声当提升"就报置信区间。<strong>就像</strong>上飞机前的检查清单——单看每一项都很小，但漏掉任何一项都可能让结论失效。<strong>所以</strong>下面把最关键的三步——<strong>样本量、判官校准、发布门禁</strong>——各算一个数。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：自建评测的三个关键数</div>
+        <div class="step"><div class="step-title">Step 1：按"要分辨的最小差异"定题数</div>
+          <table><tr><th>要分辨的差异</th><th>所需题数</th><th>适用</th></tr><tr><td><strong>5 个点</strong></td><td>≈ <strong>1,537</strong> 题</td><td>粗筛</td></tr><tr><td><strong>3 个点</strong></td><td>≈ <strong>4,268</strong> 题</td><td>上线决策</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：承第 4 张卡片的公式 n ≈ 4×(1.96/Δ)²×p(1−p)（两区间不重叠口径；p=0.5 → n ≈ (1.96/Δ)²）。<strong>先定"我要能看出几个点的差异"，再倒推题数</strong>——想看出 3 个点就得 4,000 题量级；题数不足，结论永远泡在噪声里。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：用人工金标校准打分器（判官准不准）</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>抽检比对条数</td><td><strong>200</strong> 条</td></tr><tr><td>判官与人工一致条数</td><td><strong>156</strong> 条</td></tr><tr><td>一致率</td><td>156 ÷ 200 = <strong>78%</strong>（示意）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术示意：抽 <strong>200</strong> 条人工金标，若判官只一致 <strong>156</strong> 条 = <strong>78%</strong>，说明这个判官还不足以直接下决策，要先修（换序取平均、长度校正、换更强判官或集成多个判官）<strong>再上线</strong>。校准这一步，是把"判官可信"从口号变成读数。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：把结论写成发布门禁</div>
+          <table><tr><th>门禁条款</th><th>要求</th></tr><tr><td>同一条件下比</td><td>同一私有集、同一提示模板、同一解码参数</td></tr><tr><td>提升要过噪声</td><td>相对基线 <strong>≥3 个点</strong> 且 95% 区间不重叠（3 点阈值对应约 <strong>4,268</strong> 题，题数不足就改用 5 点门槛）</td></tr><tr><td>报告口径</td><td>分数 ± 95%CI + 题数 + 提示版本 + 日期</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术化：把"看起来更好"翻译成可执行条件——<strong>提升 ≥3 个点且两个 95% 区间不重叠</strong>才算通过。<strong>门槛要与题数匹配</strong>：这条 3 点门槛按两区间不重叠口径需要约 <strong>4,268</strong> 题；若你的私有集只有几百题，就把门槛放宽到 5 点（约 1,537 题）或改用配对比较，否则门禁永远通不过。这样每次上线都有可复现的判据，而不是靠感觉。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>到此，"训练与推理工程"这条线收口——从怎么训、怎么省、怎么调、怎么发，到<strong>怎么证明它真的变好了</strong>。评测不是训练结束后的一个动作，而是<strong>贯穿始终的一条门禁</strong>。下一部分我们进入 Agent 工程：从"一次问答"到"一次循环"，那会带来全新的评测对象——不再是一个答案，而是一条<strong>轨迹</strong>（归第 25 课）。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','19-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','19-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-19-6" class="llm-section"><button class="llm-btn" onclick="startChat('19-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="19-6"><div class="chat-toolbar"><button onclick="copyChat('19-6')">📋 复制对话</button><button onclick="clearChat('19-6')">🗑 清空</button><button onclick="stopLLM('19-6')" id="stop-btn-19-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('19-6')" id="regenerate-btn-19-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="19-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对自建评测有疑问？比如「私有集怎么建」「判官怎么校准」「门禁阈值怎么定」？<br><br>说清你的任务与决策场景，我帮你把评测流水线列出来。</div></div><div class="chat-input-row"><textarea data-input="19-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('19-6')}" rows="1" placeholder="例如：上线前该设什么样的评测门禁？"></textarea><button onclick="sendLLM('19-6')">发送</button></div></div></div>
+      <div id="tab-qna-19-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('19-6')">🔄 换一批</button></div><div class="qna-list" data-qna="19-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 19 课完成 · 下一课：第 20 课「提示工程」</p>
+    <a href="#" onclick="switchLesson(20);return false;">进入第 20 课：提示工程 →</a>　·　<a href="#" onclick="switchLesson(18);return false;">← 上一课：推理引擎</a>
+  </div></div>

@@ -1,0 +1,204 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 29 课：自主研究全景与自主度分级</h2>
+    <p class="subtitle">前 28 课我们把一个 Agent"造出来、接上工具、记住知识、会规划、能训练、可上线"。这一课翻到新的一页——第五部分，问一个更远的问题：<strong>AI 能不能自己做研究？做到哪一步了？哪里还不可信？</strong>我们不看发布会上的 demo，而是把它拆成一条<strong>可测的流水线</strong>：先用公开竞赛的奖牌率给一个硬读数，再把"科研"拆成五条必须成立的工作流条件，然后拿出一把 L1–L5 的自主度尺子定位今天的位置，接着说清哪个领域更可信、它和我们前 9 课学的 Agent 差在哪，最后落到三条可测性判据，教你在几分钟内识破"演示级"产品。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说出自主研究的五条工作流条件与各自的失败代价<br>② 用 L1–L5 判断一个系统处在哪一级、瓶颈是什么<br>③ 用三条可测性判据（held-out / 审计事件数 / 可回滚）识破"演示级"产品</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步逻辑递进：从"它能不能做研究"到"怎么识破演示"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要判断它能不能做研究，<strong>这就要求</strong>先拿一个硬读数——公开竞赛 <b>MLE-bench</b> 上的奖牌率，而不是看 demo 有多流畅。<b class="rn-key">先要一个硬读数</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然「<b>先要一个硬读数</b>」，可奖牌率只反映终点，<strong>所以</strong>得把"科研"拆成五步流水线：文献锚定 / 假设与规划 / 实验与工具 / 反馈与验证 / 报告与传播——每一步都要真的烧掉 <b>flops</b>（浮点运算量，用来衡量算力消耗）与机时，断一环整条就废，<b>MLE-bench</b> 的奖牌率也就上不去。<b class="rn-key">先拆成可测的流水线</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然「<b>先拆成可测的流水线</b>」，<strong>这就要求</strong>一把尺子量它能不看人跑多久、跨多少个上下文窗口——于是有了 <b>L1–L5</b> 自主度分级；前沿站在 L4，L5 仍是构想。<b class="rn-key">得有一把自主度的尺子</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">既然「<b>得有一把自主度的尺子</b>」，<strong>那么</strong>同一级在不同领域含义不同——<strong>所以</strong>还得看这个领域能不能真的执行、能不能便宜地验证——这就决定 <b>L1–L5</b> 里同一级在两边能走多远，即域条件性（domain-conditioned autonomy ceiling）。<b class="rn-key">还要看领域可不可信</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>还要看领域可不可信</b>」，<strong>那么</strong>这条"领域上限"决定的正是每个任务能自动化的边界；<strong>因此</strong>要把研究型任务和我们前 9 课学的普通 Agent 任务放在一起比，看差别落在哪三条：长时程（烧掉远超单轮问答的 <b>token</b> 预算）、延迟反馈、结论要负责（工具与多智能体已在第 20–28 课讲过，此处不重讲）。<b class="rn-key">说清它和一般 Agent 的差别</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>说清它和一般 Agent 的差别</b>」，<strong>所以</strong>最后落到三条可测性判据——<b>held-out</b>、审计事件数、可回滚，用它在一分钟内判断一个"AI 科研"产品是真本事还是演示。<b class="rn-key">三条可测性判据</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">自主研究</span><span class="meta-tag">MLE-bench</span><span class="meta-tag">L1–L5 自主度</span><span class="meta-tag">域条件性</span><span class="meta-tag">held-out</span><span class="meta-tag">可测性判据</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="29-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">AI 现在到底能不能自己做研究了？</div><div class="card-q-hint">提示：别只看发布会上的 demo，先给它找一个公开、可比的读数——不看它怎么说，看它在别人出的考场上考得怎么样。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>MLE-bench</strong>（OpenAI Preparedness，arXiv:2410.07095，ICLR 2025 Oral）把 <strong>75</strong> 个 Kaggle 竞赛做成离线考场：Agent 要读题、准备数据、训练模型、调试、提交，最后按人类排行榜的<strong>铜 / 银 / 金牌线</strong>判分——拿到铜牌，就等于"达到人类选手的奖牌级"。发布时最强配置 o1-preview + AIDE 拿到奖牌的竞赛占比 <strong>16.9%</strong>，其 pass@8 为 <strong>34.1%</strong>。</div>
+      <div class="content-section"><p>这是第五部分「自主研究」的第一课。前面九课（第 20–28 课）我们在造一个能干活的 Agent；现在问一个更远的问题：<strong>它能自己做研究吗？</strong></p><p><strong>但</strong>"会写论文"这种演示说明不了什么——真正可信的证据，是它在<strong>没被特别照顾的公开考场</strong>上能拿到什么名次。<strong>就像</strong>招研究员不看自我介绍，看他有没有在公开竞赛里上过榜。<strong>所以</strong>先看一个可比的硬读数：MLE-bench 上的奖牌率。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：把"能不能做研究"变成一个奖牌率</div>
+        <div class="step"><div class="step-title">Step 1：MLE-bench 这把尺子怎么量</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>竞赛数</td><td><strong>75</strong> 个 Kaggle 竞赛</td></tr><tr><td>判分方式</td><td>对齐人类排行榜的铜 / 银 / 金牌线</td></tr><tr><td>出题方</td><td>OpenAI Preparedness（arXiv:2410.07095，ICLR 2025 Oral）</td></tr><tr><td>发布</td><td>2024-10-09</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条设定：它不判"论文写得好不好"，只判"提交的模型在人类排行榜上够不够奖牌线"——这就是"可比"的来源。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：从 16.9% 到 60% 以上</div>
+          <table><tr><th>时间 / 配置</th><th>奖牌率</th></tr><tr><td>2024-10 出题时 o1-preview + AIDE（pass@1）</td><td><strong>16.9%</strong>（arXiv:2410.07095）</td></tr><tr><td>社区榜单同配置记录（AIDE + o1-preview）</td><td>17.1%（mlebench.com）</td></tr><tr><td>2026-02 Famou-Agent 2.0 + Gemini-3-Pro-Preview</td><td><strong>64.4%</strong>（mlebench.com）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：16.9% × 75 ≈ <strong>12.7</strong> 个竞赛拿牌，64.4% × 75 ≈ <strong>48.3</strong> 个；两个读数相差 64.4 − 16.9 = <strong>47.5</strong> 个百分点。注意：起点与现状<strong>不是同一套系统</strong>——起点是 o1-preview + AIDE，现状是 Famou-Agent 2.0 + Gemini-3-Pro-Preview，模型与脚手架都换了，不能当成一条"进步曲线"；从发布（2024-10）到该榜单读数（2026-02）约 <strong>16 个月</strong>。分数在涨，但这是"奖牌线"，不等于"能独立做研究"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：一次 vs 多次，奖牌翻倍</div>
+          <table><tr><th>尝试次数</th><th>o1-preview + AIDE 奖牌率</th></tr><tr><td>pass@1</td><td><strong>16.9%</strong></td></tr><tr><td>pass@8</td><td><strong>34.1%</strong></td></tr><tr><td>倍数</td><td>34.1 ÷ 16.9 ≈ <strong>2.02×</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：34.1 ÷ 16.9 ≈ 2.02。"能拿到一次"和"能稳定拿到"不是一回事——多试 8 次，奖牌率翻倍，说明单次成功里混着运气。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>判断"它能不能自己做研究"，第一步是把它变成一个<strong>公开、可比的读数</strong>（竞赛奖牌率），而不是看演示。MLE-bench 给了这条基准线：出题时 16.9%（o1-preview + AIDE），约 <strong>16 个月</strong>后（2024-10 → 2026-02，约 502 天）榜单已破 <strong>60%</strong>——但起点与现状<strong>不是同一套系统</strong>（模型与脚手架都换了），不能当成一条趋势曲线；奖牌线只说明"达到了人类的某个名次"，离"独立做研究"还有距离。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','29-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','29-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-29-1" class="llm-section"><button class="llm-btn" onclick="startChat('29-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="29-1"><div class="chat-toolbar"><button onclick="copyChat('29-1')">📋 复制对话</button><button onclick="clearChat('29-1')">🗑 清空</button><button onclick="stopLLM('29-1')" id="stop-btn-29-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('29-1')" id="regenerate-btn-29-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="29-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"MLE-bench 奖牌率"有疑问？比如「16.9% 和 64.4% 怎么比」「奖牌线等于能做研究吗」？<br><br>说清你想判断的场景，我帮你读这个分数。</div></div><div class="chat-input-row"><textarea data-input="29-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('29-1')}" rows="1" placeholder="例如：奖牌率 60% 说明什么？"></textarea><button onclick="sendLLM('29-1')">发送</button></div></div></div>
+      <div id="tab-qna-29-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('29-1')">🔄 换一批</button></div><div class="qna-list" data-qna="29-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="29-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">做研究这件事，到底哪几步是必须的？</div><div class="card-q-hint">提示：把"科研"当成一条流水线拆开，看看哪一步断了整条就废。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>综述《AutoResearch AI》（Tie 等，arXiv:2605.23204）把科研自动化拆成<strong>五条反复出现的工作流条件</strong>：文献锚定、假设生成与规划、实验与工具使用、反馈·验证·评审、报告与知识传播。任一条断了，整条闭环就合不上。</div>
+      <div class="content-section"><p>上一张卡片用 MLE-bench 给出了"最后做没做成"的读数。可奖牌率只反映终点，看不出中间<strong>哪一环</strong>出的问题。</p><p><strong>所以</strong>要把科研当成一条流水线拆开。<strong>就像</strong>做饭：买菜、定菜谱、开火、尝味道、端上桌——少了"尝味道"这步，端上桌才发现整锅咸了。<strong>这就要求</strong>先列出真实研究反复出现的五条工作流条件。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：五步流水线与断一环的代价</div>
+        <div class="step"><div class="step-title">Step 1：五条必须成立的工作流条件</div>
+          <table><tr><th>环节</th><th>干什么</th><th>断了会怎样</th></tr><tr><td>文献锚定</td><td>把已有工作找全、判断新旧</td><td>做了别人做过的</td></tr><tr><td>假设与规划</td><td>产生可检验的假设与计划</td><td>不知道要做啥</td></tr><tr><td>实验与工具</td><td>写代码、跑实验</td><td>想法停在纸上</td></tr><tr><td>反馈与验证</td><td>判断结果可不可信</td><td>结果不知真假</td></tr><tr><td>报告与传播</td><td>写成可读的报告</td><td>结论传不出去</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条拆解：五条不是"知识点分类"，而是一条闭环的五个断面——上一步的产出是下一步的输入，缺一条后面就接不上。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：一步占多少成本（示意）</div>
+          <table><tr><th>环节</th><th>成本占比（示意，需人工核实）</th></tr><tr><td>文献锚定</td><td>15%</td></tr><tr><td>假设与规划</td><td>15%</td></tr><tr><td>实验与工具</td><td>45%</td></tr><tr><td>反馈与验证</td><td>20%</td></tr><tr><td>报告与传播</td><td>5%</td></tr><tr><td>合计</td><td><strong>100%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：15 + 15 + 45 + 20 + 5 = <strong>100</strong>（示意值，非论文读数）。实验最贵，但"验证"决定了前面 80% 的钱有没有白花。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：跳过验证到底省不省钱</div>
+          <table><tr><th>项</th><th>数值（示意）</th><th>说明</th></tr><tr><td>跳过"反馈与验证"省下</td><td>20%</td><td>少花这部分成本</td></tr><tr><td>由此需要返工的产物</td><td>30%</td><td>结果不可信要重做</td></tr><tr><td>净亏</td><td>30% − 20% = <strong>10 个百分点</strong></td><td>省小赔大</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：0.30 − 0.20 = <strong>0.10</strong>。省下 20% 的验证成本，却换来 30% 返工——账是负的。（示意，需人工核实。）</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>科研不是一步，是<strong>五条必须同时成立的工作流条件</strong>：文献锚定、假设与规划、实验与工具、反馈与验证、报告与传播。其中"反馈与验证"最像保险——平时看不见，断了才发现整条链的结论都不可信。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','29-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','29-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-29-2" class="llm-section"><button class="llm-btn" onclick="startChat('29-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="29-2"><div class="chat-toolbar"><button onclick="copyChat('29-2')">📋 复制对话</button><button onclick="clearChat('29-2')">🗑 清空</button><button onclick="stopLLM('29-2')" id="stop-btn-29-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('29-2')" id="regenerate-btn-29-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="29-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"五条工作流条件"有疑问？比如「哪一步最容易被跳过」「怎么给每步设检查点」？<br><br>说清你的研究场景，我帮你定位最脆弱的那一环。</div></div><div class="chat-input-row"><textarea data-input="29-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('29-2')}" rows="1" placeholder="例如：五步里哪步最容易断？"></textarea><button onclick="sendLLM('29-2')">发送</button></div></div></div>
+      <div id="tab-qna-29-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('29-2')">🔄 换一批</button></div><div class="qna-list" data-qna="29-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="29-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">"自主"到底分几级，它现在到哪一级了？</div><div class="card-q-hint">提示：从两个维度想：它能自己决定什么、能不看人跑多久。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>综述《从 Copilots 到 Colleagues》（Deli Chen，2026）提出 <strong>L1–L5</strong> 五级自主度分级体系：分级只看两个维度——① 它能对<strong>什么内容</strong>独立做决定，② 在没人审核时能<strong>连续自主运行多久</strong>。它对 17 个系统做六维分析后指出：前沿系统普遍处于 <strong>L4</strong>，<strong>L5 仍是目标构想</strong>。</div>
+      <div class="content-section"><p>上一张卡片把科研拆成五步。接下来要问：这五步它到底能自己走几步、能走多久？这需要一把尺子。</p><p><strong>L1–L5</strong>（一把把"自主程度"分成五档的尺子，L1 最低、L5 最高）就是这把尺子，它只看两件事：<strong>能自己决定什么 + 能不看人跑多久</strong>。<strong>就像</strong>自动驾驶分级：L2 手不能离方向盘，L4 在限定区域可脱手，L5 才全场景无人。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：L1–L5 这把尺子</div>
+        <div class="step"><div class="step-title">Step 1：五档分别是什么</div>
+          <table><tr><th>级别</th><th>能自主决定什么</th><th>代表</th></tr><tr><td>L1</td><td>补全单行代码 / 单个 token</td><td>Copilot 类代码补全</td></tr><tr><td>L2</td><td>拆解明确任务，但每步需批准</td><td>带工具的对话助手</td></tr><tr><td>L3</td><td>自主执行 10–100 个连续动作，检查点才问人</td><td>Claude Code 等代码 Agent</td></tr><tr><td>L4</td><td>限定领域内多步自主、跨阶段闭环</td><td>AI Scientist、Devin、SWE-Agent</td></tr><tr><td>L5</td><td>自己定研究议程、全程无需人审</td><td>仍是构想</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条口径：分级不按"模型多大"，只按"能决定什么 + 能跑多久"两个可观察维度——这样不同系统才能放在一把尺子上比（各系统的级别归类见该综述的六维分析）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：两个维度的量化（综述口径）</div>
+          <table><tr><th>系统</th><th>级别</th><th>连续动作数</th><th>完成率</th></tr><tr><td>Claude Code（默认）</td><td>L3</td><td>15–60</td><td>60–75%</td></tr><tr><td>SWE-Agent</td><td>L4</td><td>30–150</td><td>12–53%</td></tr><tr><td>AI Scientist</td><td>L4</td><td>100–500</td><td>40–60%</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：从 L3 的 15–60 到 L4 的 100–500，动作跨度约 100 ÷ 15 ≈ <strong>6.7×</strong> 到 500 ÷ 60 ≈ <strong>8.3×</strong>（取综述区间端点，示意）。级别越高，能连续自主的动作越多。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：今天站在第几级</div>
+          <table><tr><th>结论</th><th>依据</th></tr><tr><td>前沿系统普遍 L4</td><td>综述对 17 个系统的六维分析</td></tr><tr><td>L5 仍是构想</td><td>能自定议程的系统尚未出现</td></tr><tr><td>已到第 <strong>4</strong> 级</td><td>5 级里站在第 4 级</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：L1–L5 共 <strong>5</strong> 级，前沿到第 <strong>4</strong> 级，距 L5 还差 1 级；但这一级的差距不是"调参"能补的，瓶颈在长效知识沉淀、可靠自评与架构可扩展。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>用两个可观察维度（能决定什么 + 能自主多久）给自主度分级，比"能写论文 / 不能写论文"清楚得多：<strong>今天的前沿站在 L4，L5 还差最后一格</strong>。看一个系统，先问它在这把尺子上是第几级、卡在哪。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','29-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','29-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-29-3" class="llm-section"><button class="llm-btn" onclick="startChat('29-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="29-3"><div class="chat-toolbar"><button onclick="copyChat('29-3')">📋 复制对话</button><button onclick="clearChat('29-3')">🗑 清空</button><button onclick="stopLLM('29-3')" id="stop-btn-29-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('29-3')" id="regenerate-btn-29-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="29-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 L1–L5 有疑问？比如「L4 和 L5 的界线在哪」「怎么给我的系统定级」？<br><br>说清系统能决定什么、能跑多久，我帮你判断在第几级。</div></div><div class="chat-input-row"><textarea data-input="29-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('29-3')}" rows="1" placeholder="例如：L4 和 L5 差在哪？"></textarea><button onclick="sendLLM('29-3')">发送</button></div></div></div>
+      <div id="tab-qna-29-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('29-3')">🔄 换一批</button></div><div class="qna-list" data-qna="29-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="29-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">同一个自主级别，做 ML 研究和做生物研究，能不能走到同样的深度？差在哪些条件上？</div><div class="card-q-hint">提示：看两件事：实验能不能自动执行、结果能不能很快验证。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>AutoResearch 综述（Tie 等，arXiv:2605.23204）提出"<strong>域条件性</strong>"（domain-conditioned autonomy ceiling）：计算与形式科学最容易闭环，实验类学科受物理与安全约束，自动化天花板更低。它的判断依据是四个条件：<strong>可执行、反馈快、可复现、伦理约束小</strong>。</div>
+      <div class="content-section"><p>上一张卡片把自主度分成 L1–L5。但同一个级别在不同领域含义不同——同样是 L4，做 ML 和做生物能走到的深度差很远。</p><p><strong>所以</strong>要引入"域条件性"（domain-conditioned autonomy ceiling，指一个领域本身允许自动化走到多高）。<strong>就像</strong>在厨房做菜 vs 在野外做菜：厨房里调料随时可尝、可回锅；野外要先找食材、等天气，做完才发现不对也没法重来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：领域条件决定天花板</div>
+        <div class="step"><div class="step-title">Step 1：四个决定可信度的条件</div>
+          <table><tr><th>条件</th><th>含义</th></tr><tr><td>可执行</td><td>实验能不能在计算机内自动跑</td></tr><tr><td>反馈快</td><td>结果多久能拿到（分钟级还是月级）</td></tr><tr><td>可复现</td><td>换台机器能不能得到同样结果</td></tr><tr><td>伦理约束小</td><td>是否涉及人体、安全等不可逆后果</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条拆解：四个条件里任一条差，闭环就会在那一环断掉——"域条件性"本质是这四项的合取。其中"伦理约束小"是一个<strong>否决项</strong>：一旦不满足（涉及人体、安全等不可逆后果），直接判不可行，因此不参与后面的均值打分——均值只取前三条可量化的条件。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：两个领域逐条打分（示意）</div>
+          <table><tr><th>条件</th><th>ML 研究（示意）</th><th>生物研究（示意）</th></tr><tr><td>可执行（计算机内跑）</td><td>1.0</td><td>0.4</td></tr><tr><td>反馈快（分钟—小时级）</td><td>0.9</td><td>0.3</td></tr><tr><td>可复现</td><td>0.9</td><td>0.4</td></tr><tr><td>均值</td><td><strong>0.93</strong></td><td><strong>0.37</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：(1.0 + 0.9 + 0.9) ÷ 3 ≈ <strong>0.93</strong>，(0.4 + 0.3 + 0.4) ÷ 3 ≈ <strong>0.37</strong>；0.93 ÷ 0.37 ≈ <strong>2.5×</strong>（示意打分，非论文读数，需人工核实）。均值只对可执行 / 反馈快 / 可复现三项取——第四条"伦理约束小"是否决项（见 Step1），不计入均值。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：闭环断在哪一环</div>
+          <table><tr><th>环节</th><th>ML 研究</th><th>生物研究</th></tr><tr><td>跑实验</td><td>计算机内自动</td><td>需湿实验 / 人体</td></tr><tr><td>拿反馈</td><td>分钟—小时</td><td>周—月</td></tr><tr><td>同样跑 <strong>30</strong> 天</td><td>可迭代很多轮</td><td>可能不到 1 轮</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：把两者换算到同一单位——生物一轮约 <strong>30</strong> 天 = 30 × 24 × 60 = <strong>43,200</strong> 分钟；若 ML 单轮按小时级（约 60 分钟）计，同样 30 天里 ML 能跑的轮数约为生物的 43,200 ÷ 60 = <strong>720×</strong>（示意）。反馈越慢，同一窗口里能迭代的轮数越少，闭环就断在"验证"这一环。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>"AI 能做研究"这句话必须加定语：<strong>在结构清晰、可执行、能快速验证的领域（如 ML 研究）它才靠得住</strong>；越往具身、延迟反馈、涉伦理的方向走，闭环越难合上。所以先问"这是哪个领域"，再谈能不能自动。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','29-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','29-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-29-4" class="llm-section"><button class="llm-btn" onclick="startChat('29-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="29-4"><div class="chat-toolbar"><button onclick="copyChat('29-4')">📋 复制对话</button><button onclick="clearChat('29-4')">🗑 清空</button><button onclick="stopLLM('29-4')" id="stop-btn-29-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('29-4')" id="regenerate-btn-29-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="29-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"域条件性"有疑问？比如「我的领域属于哪一类」「怎么判断可不可信」？<br><br>说清你的实验流程，我帮你判断闭环能不能合上。</div></div><div class="chat-input-row"><textarea data-input="29-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('29-4')}" rows="1" placeholder="例如：为什么生物研究更难自动化？"></textarea><button onclick="sendLLM('29-4')">发送</button></div></div></div>
+      <div id="tab-qna-29-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('29-4')">🔄 换一批</button></div><div class="qna-list" data-qna="29-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="29-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">这套东西和我们前 9 课学的 Agent 有什么不一样？</div><div class="card-q-hint">提示：别重学工具调用——想清楚研究任务比一般任务多了哪些约束。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>承第 20–28 课：工具调用、MCP、多智能体、RAG（检索增强生成：先查资料再回答）、评测基建都已经讲过，本部分<strong>不重讲</strong>。本部分特有约束只有三条：<strong>长时程</strong>（跑很久）、<strong>延迟反馈</strong>（结果很晚才知道）、<strong>结论要负责</strong>（写在论文里、要能追溯）。</div>
+      <div class="content-section"><p>上一张卡片说明自主度受领域限制。那研究型 Agent 和我们前面造的 Agent 到底差在哪？</p><p><strong>不是</strong>工具怎么调，而是三件事：跑得久、反馈慢、结论要有人负责。<strong>这就要求</strong>重新设计"人在哪里介入"和"账怎么算"。<strong>就像</strong>一般 Agent 像打车（一段路、很快到），研究型 Agent 像备战一场马拉松（周期长、看长期指标、教练要对结果负责）。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：三条新约束与 token 口径</div>
+        <div class="step"><div class="step-title">Step 1：本部分特有的三条约束</div>
+          <table><tr><th>约束</th><th>和一般 Agent 的差别</th></tr><tr><td>长时程</td><td>一次任务可能跑几小时到几天，不是单轮问答</td></tr><tr><td>延迟反馈</td><td>结果要等实验跑完才知道，不能即时纠错</td></tr><tr><td>结论要负责</td><td>产出写进论文，必须可追溯、可复现、有人署名</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条区分：工具调用解决"能不能做"，这三条约束解决"能不能长时间、可信地做完"——后者是本部分的新问题。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：成本对比（承第 26 课 token 口径）</div>
+          <table><tr><th>形态</th><th>token</th></tr><tr><td>普通对话（第 26 课锚点）</td><td><strong>20,000</strong></td></tr><tr><td>单 Agent（约 4×）</td><td>20,000 × 4 = <strong>80,000</strong></td></tr><tr><td>多智能体（约 15×）</td><td>20,000 × 15 = <strong>300,000</strong></td></tr><tr><td>自动研究（示意 20 轮 × 20,000）</td><td>20,000 × 20 = <strong>400,000</strong>（20×）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：20,000 × 4 = 80,000；20,000 × 15 = 300,000；20,000 × 20 = 400,000；400,000 ÷ 20,000 = <strong>20×</strong>（研究按轮数放大，示意口径）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：人在哪里介入</div>
+          <table><tr><th>方式</th><th>人工确认次数</th><th>用时（示意 5 分钟/次）</th></tr><tr><td>每轮都确认</td><td>20</td><td>20 × 5 = <strong>100 分钟</strong></td></tr><tr><td>只在检查点确认</td><td>3</td><td>3 × 5 = <strong>15 分钟</strong></td></tr><tr><td>差</td><td>—</td><td>100 − 15 = <strong>85 分钟</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：20 × 5 = 100，3 × 5 = 15，100 − 15 = <strong>85</strong>。长时程任务不能每步等人，只在关键检查点介入（示意）。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>研究型 Agent = 一般 Agent + 三条新约束（<strong>长时程、延迟反馈、结论要负责</strong>）。它不需要重学工具调用，但需要我们重新设计"人在哪里介入、账怎么算"。这也是本部分和前面九课的分界线。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','29-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','29-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-29-5" class="llm-section"><button class="llm-btn" onclick="startChat('29-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="29-5"><div class="chat-toolbar"><button onclick="copyChat('29-5')">📋 复制对话</button><button onclick="clearChat('29-5')">🗑 清空</button><button onclick="stopLLM('29-5')" id="stop-btn-29-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('29-5')" id="regenerate-btn-29-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="29-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"研究型 Agent 的约束"有疑问？比如「为什么不能每步都等人」「token 账怎么估」？<br><br>说清你的任务时长与轮数，我帮你算账并定介入点。</div></div><div class="chat-input-row"><textarea data-input="29-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('29-5')}" rows="1" placeholder="例如：为什么研究任务更贵？"></textarea><button onclick="sendLLM('29-5')">发送</button></div></div></div>
+      <div id="tab-qna-29-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('29-5')">🔄 换一批</button></div><div class="qna-list" data-qna="29-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="29-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">怎么判断一个"AI 科研"产品是真本事还是演示？</div><div class="card-q-hint">提示：先问自己——要凑齐哪些证据，才敢相信一个"AI 科研"产品不是演示？答案不止一条，先想三十秒。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>held-out</strong>（留出集：训练与调参阶段都没见过、只在最后验收时用一次的数据）。审材料多少决定能不能查出问题：CMU 一项审计研究（Luo 等，arXiv:2509.08713）用 LLM 当审计器，<strong>只看最终论文</strong>时二分类准确率约 <strong>55%</strong>（F1 0.51），<strong>加上完整轨迹日志与代码</strong>后升到约 <strong>82%</strong>（F1 0.81）。注意：这是<strong>审计器</strong>的检测准确率，不是科研系统本身的正确率——它衡量的是"能不能把关"，不等于"科研结果对不对"。</div>
+      <div class="content-section"><p>上一张卡片把研究型 Agent 和一般 Agent 分开。最后一个问题：面对一个声称"AI 科研"的产品，怎么在几分钟内判断它是不是演示？</p><p><strong>这就要求</strong>三条可测性判据：held-out（别用见过的数据验收）、审计事件数（能不能看到每一步执行）、可回滚（出错能不能撤）。<strong>就像</strong>验收解题能力：不能拿做过的作业题再考一次，要能翻出每一步草稿，答错了还得能擦掉重来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：三条可测性判据</div>
+        <div class="step"><div class="step-title">Step 1：三条判据各问什么</div>
+          <table><tr><th>判据</th><th>问什么</th><th>不合格的信号</th></tr><tr><td>held-out（留出验收集）</td><td>验收数据它训练 / 检索时见过吗</td><td>用公开榜单当验收</td></tr><tr><td>审计事件数</td><td>每一步执行有记录吗</td><td>只能看到最终 PDF</td></tr><tr><td>可回滚</td><td>出错能撤销吗</td><td>写操作不可逆</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条分工：held-out 管"结果是不是真的"，审计事件数管"过程看不看得见"，可回滚管"出事能不能收场"——三者缺一不可。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：审计材料越多，越能查出问题</div>
+          <table><tr><th>审计方式</th><th>准确率</th><th>F1</th></tr><tr><td>只看最终论文</td><td><strong>55%</strong></td><td>0.51</td></tr><tr><td>论文 + 轨迹日志 + 代码</td><td><strong>82%</strong></td><td>0.81</td></tr><tr><td>差</td><td>82 − 55 = <strong>27 个百分点</strong></td><td>0.81 − 0.51 = <strong>0.30</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：82 − 55 = <strong>27</strong>（个百分点），0.81 − 0.51 = <strong>0.30</strong>（来源：arXiv:2509.08713）。审核材料越全，越能查出问题——"只能看 PDF"本身就是不合格信号。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：held-out 为什么不能省</div>
+          <table><tr><th>验收集</th><th>结论可信度</th></tr><tr><td>被训练 / 检索见过</td><td>分数虚高</td></tr><tr><td>held-out（只在最后用一次）</td><td>才反映真实能力</td></tr><tr><td>75 个竞赛里 <strong>20%</strong> 被见过（示意）</td><td>纯 held-out 只剩 75 × 80% = <strong>60</strong> 个</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：75 × (1 − 0.20) = <strong>60</strong>（示意见过比例）。用"见过的题"当验收，等于把作业题当期末考；held-out 才有意义——注意 MLE-bench 的污染实验显示混淆题面后分数无显著变化，污染贡献有限（需人工核实）。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>识破演示级产品的三条判据：<strong>held-out</strong>（别用见过的数据验收）、<strong>审计事件数</strong>（只看 PDF 等于没审）、<strong>可回滚</strong>（出错要能撤）。而 <strong>provenance</strong>（出处可追溯：每个结论能点回它的来源与执行记录）正是把这三条落到证据上的机制。这套判据会在第 33 课展开成"验证与评审"。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','29-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','29-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-29-6" class="llm-section"><button class="llm-btn" onclick="startChat('29-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="29-6"><div class="chat-toolbar"><button onclick="copyChat('29-6')">📋 复制对话</button><button onclick="clearChat('29-6')">🗑 清空</button><button onclick="stopLLM('29-6')" id="stop-btn-29-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('29-6')" id="regenerate-btn-29-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="29-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"三条判据"有疑问？比如「held-out 怎么划」「审计要记哪些事件」？<br><br>说清你要评估的产品，我帮你逐条打分。</div></div><div class="chat-input-row"><textarea data-input="29-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('29-6')}" rows="1" placeholder="例如：held-out 和公开榜单差在哪？"></textarea><button onclick="sendLLM('29-6')">发送</button></div></div></div>
+      <div id="tab-qna-29-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('29-6')">🔄 换一批</button></div><div class="qna-list" data-qna="29-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 29 课完成 · 下一课：第 30 课「文献锚定与选题」</p>
+    <a href="#" onclick="switchLesson(30);return false;">进入第 30 课：文献锚定与选题 →</a>　·　<a href="#" onclick="switchLesson(28);return false;">← 上一课：Agent 评测与生产化</a>
+  </div></div>

@@ -1,0 +1,203 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 9 课：预训练全流程</h2>
+    <p class="subtitle">上一课我们备好了数据。这一课把这些 token 真正跑起来——做一次预训练要走哪些阶段、学习率怎么设、模型怎么切到几千张卡上、跑崩了怎么办、最后能跑出多少算力利用率。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清一次预训练的三个阶段与各自的 token 预算<br>② 解释学习率 warmup + cosine 的必要性，并算出衰减比例<br>③ 会估训练显存、会选并行策略、会处理 loss spike、会算 MFU</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：从"分几个阶段"到"算力利用率有多高"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要把万亿级 <b class="rn-key">token</b> 真正训完，<strong>必须先回答</strong>"这事能不能一次跑完"——<strong>因为</strong>上下文长度、学习率与数据配比在训练不同时期的最优值不同，<strong>所以</strong>一次预训练通常拆成初始预训练、长上下文扩展、退火三个阶段。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然分阶段跑，<strong>这就要求</strong>给每个阶段配好学习率曲线——<strong>因为</strong>训练初期参数是随机的、<b class="rn-key">gradient</b>（梯度）的方向很不可靠，<strong>于是</strong>要先 <b class="rn-key">warmup</b>（学习率预热）把学习率从小升到峰值，再用 cosine 衰减到接近 0，否则会一步走飞。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">学习率定好了，但 405B 参数的模型<strong>根本装不进一张卡</strong>——<strong>因此</strong>必须把模型与数据切分到几千张卡上，<strong>这就要求</strong>按切分维度选择并行策略（数据并行 / 张量并行 / 流水线并行 / 上下文并行）——其中上下文并行是专为长序列的 <b class="rn-key">attention</b> 计算设计的。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">切分之后要提效、更要防崩，<strong>这就要求</strong>把计算压到 <b class="rn-key">BF16</b>（一种训练常用的半精度浮点格式）以换取更快的矩阵乘（注意它省的是算力而非显存），并给 <b class="rn-key">gradient</b> 加上裁剪——<strong>否则</strong>一个异常批次就能把参数一次推飞。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">上一步的裁剪只挡住了"梯度范数已超阈值"的批次；<strong>但</strong>训练长达数月，仍会有"范数没超、却与当前参数组合出坏结果"的批次，让与 <b class="rn-key">logits</b>（模型对词表里每个 token 打出的原始分数）相关的损失突然飙升——<strong>所以</strong>还要一道兜底：loss spike 的检测与回滚机制，从 spike 前的检查点重跑、跳过那几批数据。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text"><strong>【支链 · 效率维度】</strong>最后要给这次训练一个效率读数：<strong>因此</strong>引入 <b class="rn-key">MFU</b>（模型算力利用率 = 实际算力 ÷ 硬件峰值）——分子就是实际达到的模型 <b class="rn-key">FLOPs</b>/秒（FLOPs＝一次浮点运算，FLOPs/s＝每秒可做的浮点运算次数），<strong>于是</strong>才能判断这套并行与精度方案到底跑得好不好，而不是只看"跑了多少天"。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">Pre-training</span><span class="meta-tag">LR Schedule</span><span class="meta-tag">Parallelism</span><span class="meta-tag">Mixed Precision</span><span class="meta-tag">Loss Spike</span><span class="meta-tag">MFU</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="9-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">一次预训练能不能一口气跑完，还是必须分成几个阶段？</div><div class="card-q-hint">提示：先想"短上下文训练"和"长上下文训练"的最优设置是不是同一套；再想训练最后阶段，数据配比和前面该不该一样。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>Llama 3 的预训练分三个阶段（Meta Llama Team, arXiv:2407.21783）：① <strong>初始预训练</strong>——8K 上下文、15.6T token 中的绝大部分；② <strong>长上下文扩展</strong>——分 6 个阶段把窗口从 8K 撑到 128K，累计约 <strong>800B token</strong>；③ <strong>退火（annealing）</strong>——最后约 <strong>40M token</strong>，学习率降到 0，同时上采样高质量数据。三阶段的数据配比、上下文长度、学习率都不相同。</div>
+      <div class="content-section"><p>上一课我们把语料备好了。现在问：<strong>这些 token 能不能一口气训完？</strong></p><p><strong>因为</strong>不同训练阶段的最优设置并不相同，<strong>所以</strong>必须分阶段。可以把这<strong>类比</strong>成盖楼：打地基、砌主体、精装修三道工序用的材料和手法都不一样，硬要一次做完只会两头不讨好。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 三阶段的 token 预算与设置差异</div>
+        <div class="step"><div class="step-title">Step 1：三个阶段各自在做什么</div>
+          <table><tr><th>阶段</th><th>上下文长度</th><th>token 预算</th><th>关键设置</th></tr><tr><td>① 初始预训练</td><td>8K</td><td>绝大部分（15.6T 减去后面两段）</td><td>高学习率、稳定为主</td></tr><tr><td>② 长上下文扩展</td><td>8K → 128K（6 个子阶段）</td><td>约 800B</td><td>逐步拉长序列，配 RoPE（给每个 token 注入位置信息的位置编码）频率调整</td></tr><tr><td>③ 退火</td><td>同②</td><td>约 40M</td><td>学习率降到 0，上采样高质量数据</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：为什么不能合成一段</div>
+          <table><tr><th>若强行合并</th><th>会发生什么</th></tr><tr><td>一开始就用 128K 上下文</td><td>注意力成本按序列长度平方增长，早期算力被大量浪费在长序列上</td></tr><tr><td>全程用同一套数据配比</td><td>无法在末期"精准补课"，推理与代码能力上不去</td></tr><tr><td>末尾不做退火</td><td>学习率停在半空，最后一段数据的影响被稀释</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">三阶段的共同逻辑是：<strong>先学通用能力（量大、便宜），再学长上下文（针对性强、贵），最后用高质量数据精修（量小、影响最大）</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：退火为什么"量最小、影响最大"</div>
+          <table><tr><th>阶段</th><th>token 量</th><th>占比</th><th>学习率</th><th>对最终权重的影响</th></tr><tr><td>初始预训练</td><td>约 14.8T</td><td>≈ 94.9%</td><td>高</td><td>决定能力底座</td></tr><tr><td>长上下文扩展</td><td>约 800B</td><td>≈ 5.1%</td><td>逐步降低</td><td>决定窗口能开多大</td></tr><tr><td>退火</td><td>约 40M</td><td>≈ 0.0003%（量级示意）</td><td><strong>衰减到 0</strong></td><td>决定"最后一公里"的风格与专项能力</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">占比极小却能显著影响最终表现——<strong>因为学习率越低，同一批数据对权重的改变方向越"定"</strong>。这也是"数据退火"成为标准工序的原因。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>预训练不是"一条曲线跑到底"，而是<strong>三个目标不同的阶段串联</strong>：初始预训练打底座（便宜、量大）、长上下文扩展补窗口（贵、针对性强）、退火做精修（量极小、影响极大）。<strong>不理解分阶段，就会误以为"多喂数据就能变强"——实际上末期喂什么，往往比总量更重要。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','9-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','9-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-9-1" class="llm-section"><button class="llm-btn" onclick="startChat('9-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="9-1"><div class="chat-toolbar"><button onclick="copyChat('9-1')">📋 复制对话</button><button onclick="clearChat('9-1')">🗑 清空</button><button onclick="stopLLM('9-1')" id="stop-btn-9-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('9-1')" id="regen-btn-9-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="9-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对预训练阶段有疑问？比如"长上下文扩展为什么要分 6 个子阶段？""退火的数据从哪来？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="9-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('9-1')}" rows="1" placeholder="例如：如果跳过退火，模型会差多少？"></textarea><button onclick="sendLLM('9-1')">发送</button></div></div></div>
+      <div id="tab-qna-9-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('9-1')">🔄 换一批</button></div><div class="qna-list" data-qna="9-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="9-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">学习率该一路保持峰值不变，还是随训练进程变化？两端各会出什么问题？</div><div class="card-q-hint">提示：先想训练最开始，参数是随机的，此时算出的梯度方向可信吗？再想训练快结束时，如果学习率还很大，会发生什么。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>Llama 3 405B 的学习率设置（arXiv:2407.21783）：峰值 <strong>8×10⁻⁵</strong>，用 <strong>8,000 步线性 warmup</strong>（学习率预热）从 0 升到峰值，再用 <strong>cosine 调度在 1,200,000 步内衰减到 8×10⁻⁷</strong>。同族的 70B 峰值是 1.5×10⁻⁴、8B 是 3×10⁻⁴——<strong>模型越大，峰值学习率越小</strong>。warmup 的经典依据来自大批量训练实践（Goyal et al., arXiv:1706.02677）。</div>
+      <div class="content-section"><p>上一张卡片我们看到预训练分三阶段。每个阶段都要配一条学习率曲线，而这条曲线的形状是<strong>先升后降</strong>——<strong>为什么？</strong></p><p><strong>因为</strong>训练初期参数是随机初始化的，<b class="rn-key">gradient</b>（梯度）方向噪声极大，<strong>所以</strong>要用 warmup 把步长从小放大；<strong>因为</strong>训练末期已经接近最优解，<strong>所以</strong>要把步长收敛到接近 0。可以把这<strong>类比</strong>成开车：起步时缓慢加油（warmup），到站前必须减速（decay）——上来就地板油或者到站不刹车都会出事。</p><p>更早、更自然的做法是<strong>一步到位就用峰值学习率</strong>——但那恰好落在训练最脆弱的时刻：初始权重随机，早期 <b class="rn-key">gradient</b>（梯度）既大又乱，一次更新就能把参数推入「logits 饱和、范数爆掉」的区域，训练在最初几百步内直接 NaN 或发散（Goyal et al., arXiv:1706.02677 的 warmup 方案正是为此提出）。warmup 只用 <strong>8,000</strong> 步（占总步数 <strong>0.67%</strong>）就把这段危险期护了过去。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 学习率曲线：三个数决定形状</div>
+        <div class="step"><div class="step-title">Step 1：Llama 3 三档模型的峰值学习率</div>
+          <table><tr><th>模型</th><th>峰值学习率</th><th>相对 405B</th><th>说明</th></tr><tr><td>8B</td><td>3 × 10⁻⁴</td><td>3.75×</td><td>小模型可用更大步长</td></tr><tr><td>70B</td><td>1.5 × 10⁻⁴</td><td>1.875×</td><td>——</td></tr><tr><td>405B</td><td><strong>8 × 10⁻⁵</strong></td><td>1×</td><td>越大越保守</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">规模越大、单步影响越广，<strong>因此峰值学习率必须更小</strong>——这也是"大模型更怕训崩"的量化体现。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：warmup 有多长、衰减到多小</div>
+          <table><tr><th>参数</th><th>数值</th><th>占总步数比例</th></tr><tr><td>总训练步数</td><td>1,200,000</td><td>100%</td></tr><tr><td>warmup 步数</td><td>8,000</td><td>≈ 0.67%</td></tr><tr><td>峰值学习率</td><td>8 × 10⁻⁵</td><td>——</td></tr><tr><td>最终学习率</td><td>8 × 10⁻⁷</td><td><strong>峰值的 1%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">warmup 只占不到 <strong>1%</strong> 的步数，但缺了它往往直接训崩——因为它保护的是"最脆弱的最初几千步"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：cosine 衰减到底降了多少</div>
+          <table><tr><th>项目</th><th>计算</th><th>结果</th></tr><tr><td>学习率降幅</td><td>8e-7 ÷ 8e-5</td><td><strong>1%</strong>（降了 99%）</td></tr><tr><td>对照：线性衰减（同样端点）</td><td>中点同为 50% 峰值</td><td>cosine 在前 1/4 段更高、后 1/4 段更低</td></tr><tr><td>若不衰减（恒定 8e-5）</td><td>末期步长过大</td><td>损失在最优解附近来回震荡，收敛不到底</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">cosine 的形状特征：<strong>前 1/4 段比线性更高（前期学得快）、后 1/4 段比线性更低（末期收得住）</strong>——两条曲线在中点都是峰值的 50%。这是 cosine 比线性衰减更常用的原因。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>学习率曲线是"<strong>先探索、后收敛</strong>"的量化表达：warmup 用不到 1% 的步数换取训练不崩，cosine 把学习率从峰值压到 <strong>1%</strong> 换取收敛到最优解附近。<strong>三个数（峰值、warmup 步数、衰减终点）就决定了整条曲线——而峰值随模型变大而减小，是"规模越大越保守"的直接体现。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','9-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','9-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-9-2" class="llm-section"><button class="llm-btn" onclick="startChat('9-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="9-2"><div class="chat-toolbar"><button onclick="copyChat('9-2')">📋 复制对话</button><button onclick="clearChat('9-2')">🗑 清空</button><button onclick="stopLLM('9-2')" id="stop-btn-9-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('9-2')" id="regen-btn-9-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="9-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对学习率有疑问？比如"warmup 8000 步是怎么定的？""为什么不用线性衰减？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="9-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('9-2')}" rows="1" placeholder="例如：如果 warmup 太短会怎样？"></textarea><button onclick="sendLLM('9-2')">发送</button></div></div></div>
+      <div id="tab-qna-9-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('9-2')">🔄 换一批</button></div><div class="qna-list" data-qna="9-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="9-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">模型装不进一张卡，该怎么切分到几千张卡上？</div><div class="card-q-hint">提示：先算一个 405B 模型光"权重 + 梯度 + 优化器状态"要多少显存，再想一张 80GB 的卡能装下多少。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>大模型训练用多维并行（Megatron-LM, Shoeybi et al., arXiv:1909.08053；GPipe, Huang et al., arXiv:1811.06965）：<strong>DP</strong>（数据并行，每卡一份模型、分不同数据）、<strong>TP</strong>（张量并行，把矩阵乘切成几块）、<strong>PP</strong>（流水线并行，把不同层放到不同卡）、<strong>CP</strong>（上下文并行，把长序列切开）。工业配置示例（MLPerf / NVIDIA NeMo）：Llama 3.1 405B 被记为一组 TP=8 / PP=9 / CP=2 / DP=4 的并行度（全局批大小 2,304），但总卡数在 NVIDIA 官方文档之间不一致——有文档记 <strong>512 张 H100</strong>（https://docs.nvidia.com/dl-cuda-graph/examples/llama-31-405b.html），而并行度之积 8×9×2×4 = 576，两者对不上；本课不替它选定一个，引用时两处来源都要注明。</div>
+      <div class="content-section"><p>上一张卡片把学习率定好了。但还有一个更硬的问题：<strong>405B 参数的模型，一张卡装得下吗？</strong></p><p><strong>因为</strong>权重、梯度和优化器状态加起来有好几 TB，<strong>所以</strong>必须切分。可以把这<strong>类比</strong>成搬一张超大沙发进小公寓：要么拆成几块分别搬（张量并行），要么先把客厅、卧室分开搬（流水线并行），要么雇几组人各搬各的家具（数据并行）。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 显存账：为什么必须切分</div>
+        <div class="step"><div class="step-title">Step 1：405B 模型的训练显存构成</div>
+          <table><tr><th>项目</th><th>每参数字节</th><th>405B 总计</th></tr><tr><td>fp16/BF16 权重</td><td>2</td><td>405e9 × 2 = 810 GB</td></tr><tr><td>fp16/BF16 梯度</td><td>2</td><td>405e9 × 2 = 810 GB</td></tr><tr><td>Adam 优化器状态（fp32 主权重 + 一阶 + 二阶矩）</td><td>12</td><td>405e9 × 12 = 4,860 GB</td></tr><tr><td><strong>合计</strong></td><td><strong>16</strong></td><td><strong>≈ 6,480 GB（6.48 TB）</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">注意：这里还<strong>没算激活值</strong>。真实训练还要额外几百 GB 到几 TB 的临时缓冲。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：一张 80GB 的 H100 能装多少</div>
+          <table><tr><th>项目</th><th>计算</th><th>结果</th></tr><tr><td>单卡显存</td><td>——</td><td>80 GB</td></tr><tr><td>仅装训练状态所需卡数</td><td>6,480 ÷ 80</td><td>≥ <strong>81 张</strong></td></tr><tr><td>加上激活与缓冲（经验上再留 50% 余量）</td><td>6,480 × 1.5 ÷ 80</td><td>≈ <strong>122 张</strong>起</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">所以上千张卡不是"想跑快点"，而是<strong>装下的最低要求</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：几种并行各切什么</div>
+          <table><tr><th>策略</th><th>切什么</th><th>解决什么问题</th><th>代价</th></tr><tr><td>DP 数据并行</td><td>数据</td><td>提高吞吐</td><td>每卡都要存完整模型状态</td></tr><tr><td>TP 张量并行</td><td>矩阵乘</td><td>单层显存与算力分摊</td><td><strong>通信量最大</strong>（每层都要同步）</td></tr><tr><td>PP 流水线并行</td><td>网络层</td><td>按层分摊模型</td><td>有空泡（流水线等待造成的空闲），需微批填充（把大批切成小块塞满流水线）</td></tr><tr><td>CP 上下文并行</td><td>序列</td><td>支撑超长上下文</td><td><b class="rn-key">attention</b>（注意力）通信增加</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">实践是<strong>组合使用</strong>：MLPerf / NVIDIA NeMo 的 405B 参考配置标注为 TP=8、PP=9、CP=2、DP=4。选择依据是<strong>通信开销</strong>——TP 优先放在同一台机器内（NVLink），PP 与 DP 跨机器。总卡数等于各并行维度之积（8×9×2×4 = <strong>576</strong>）；但 NVIDIA 某文档把同一组并行度记作 <strong>512</strong> 张（https://docs.nvidia.com/dl-cuda-graph/examples/llama-31-405b.html），与连乘结果对不上——这是官方文档之间自身不一致，引用时两处数字与来源都要写明，不要替它选定一个。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>并行策略不是"为了快"，而是"<strong>为了装得下</strong>"：405B 的训练状态就要 <strong>6.48 TB</strong>，单卡 80GB 至少需要 81 张卡，实际配置往往上千张。<strong>选哪种并行的核心判据是通信开销</strong>——通信量最大的张量并行放在机内高速互联，通信量小的数据并行放到跨机器。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','9-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','9-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-9-3" class="llm-section"><button class="llm-btn" onclick="startChat('9-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="9-3"><div class="chat-toolbar"><button onclick="copyChat('9-3')">📋 复制对话</button><button onclick="clearChat('9-3')">🗑 清空</button><button onclick="stopLLM('9-3')" id="stop-btn-9-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('9-3')" id="regen-btn-9-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="9-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对并行策略有疑问？比如"为什么 TP 不能跨机器？""流水线空泡怎么消？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="9-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('9-3')}" rows="1" placeholder="例如：ZeRO 和 TP 有什么区别？"></textarea><button onclick="sendLLM('9-3')">发送</button></div></div></div>
+      <div id="tab-qna-9-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('9-3')">🔄 换一批</button></div><div class="qna-list" data-qna="9-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="9-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">为什么要用低精度训练？梯度裁剪又在防什么？</div><div class="card-q-hint">提示：先想如果把每一步的参数都翻倍存，显存会变成几倍；再想如果某一批数据让梯度突然变得特别大，参数会被推到哪里去。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>混合精度训练</strong>（Micikevicius et al., arXiv:1710.03740）：前向与反向用 16 位（BF16 或 FP16——都是训练常用的半精度浮点格式）跑，同时保留一份 fp32 主权重做更新。Llama 3 405B 的训练用 <strong>BF16</strong>，MLPerf 参考实现进一步在计算密集算子用 FP8（8 位浮点：比 BF16 更激进的低精度格式，靠缩放因子把数值压进可表示范围）。<strong>梯度裁剪</strong>（gradient clipping, Pascanu et al., arXiv:1211.5063）把 <b class="rn-key">gradient</b> 的范数限制在阈值内，防止个别批次把参数推飞。</div>
+      <div class="content-section"><p>上一张卡片把模型切分开了。但显存仍然紧张，而且训练还有个更隐蔽的风险：<strong>某一步梯度爆炸</strong>——<strong>为什么这两个问题要一起解决？</strong></p><p><strong>因为</strong>降低精度既能省显存又能加速，<strong>所以</strong>用 BF16 混合精度；<strong>因为</strong>低精度下梯度更容易溢出，<strong>所以</strong>必须配梯度裁剪兜底。可以把这<strong>类比</strong>成开车既换轻量轮胎（省油），又加装限速器（防超速失控）——前者提高效率，后者保证不出事。</p><p><strong>更早的做法是全程 fp32</strong>——但代价是双份：权重与梯度都要按 4 字节存（BF16 只需 2 字节），矩阵乘吞吐也低得多（H100 上 FP32 CUDA Core 峰值 67 TFLOPS、BF16 张量核 dense 989 TFLOPS，跨口径差约 <strong>15</strong> 倍；同为张量核口径时 TF32 约 495 TFLOPS，差距要小得多。来源：NVIDIA H100 官方规格）。<strong>不做裁剪也一样会翻车</strong>：正常批次梯度范数约 <strong>0.3</strong>，异常批次可达 <strong>50</strong>（均为示意值），不裁剪时后者的更新幅度是前者的约 <strong>167</strong> 倍；而把全局学习率调小来兜底，又会拖慢所有正常批次——裁剪只对异常批次收手，正是为了不动正常学习。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 精度账：省了多少显存，裁掉了什么</div>
+        <div class="step"><div class="step-title">Step 1：BF16 vs FP16 的关键差别</div>
+          <table><tr><th>格式</th><th>指数位</th><th>尾数位</th><th>能表示的最大值</th><th>是否需要 loss scaling（损失缩放：把损失放大以避免小梯度下溢）</th></tr><tr><td>FP16</td><td>5</td><td>10</td><td>约 6.5 × 10⁴</td><td><strong>需要</strong>（容易溢出）</td></tr><tr><td>BF16</td><td>8</td><td>7</td><td>约 3.4 × 10³⁸</td><td>不需要（指数范围与 fp32 一致）</td></tr><tr><td>FP32</td><td>8</td><td>23</td><td>约 3.4 × 10³⁸</td><td>不需要</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">BF16 用"牺牲尾数精度"换"保留 fp32 的动态范围"——<strong>大模型训练最怕的是溢出而不是精度不够</strong>，所以 BF16 成了默认选择。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：显存省了多少</div>
+          <table><tr><th>方案</th><th>权重</th><th>梯度</th><th>优化器状态</th><th>合计（字节/参数）</th></tr><tr><td>全程 fp32（Adam）</td><td>4</td><td>4</td><td>4 + 4 = 8</td><td><strong>16</strong></td></tr><tr><td>BF16 混合精度</td><td>2</td><td>2</td><td>fp32 主权重 4 + 4 + 4 = 12</td><td><strong>16</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;"><strong>反直觉但重要</strong>：混合精度省的是<strong>算力不是显存</strong>——权重与梯度各减半（省 4 字节），但要多存一份 fp32 主权重（加 4 字节），两者正好抵消，合计仍是 <strong>16 字节/参数</strong>。真正省显存的是 ZeRO（把优化器状态、梯度和参数分摊到不同卡上，避免每张卡各存一份）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：梯度裁剪在防什么</div>
+          <table><tr><th>情形</th><th>梯度范数</th><th>若裁剪到阈值 1.0</th><th>后果对比</th></tr><tr><td>正常批次</td><td>0.3（示意）</td><td>不触发（0.3 &lt; 1.0）</td><td>正常更新</td></tr><tr><td>异常批次</td><td>50（示意）</td><td>缩放到 1.0（缩小 50 倍）</td><td><strong>避免一步走出有效区域</strong></td></tr><tr><td>若裁剪到 10</td><td>50</td><td>缩放到 10（仅缩 5 倍）</td><td>可能仍不够，模型仍有被推飞的风险</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">裁剪的本质是<strong>给单步更新设上界</strong>：它不改变正常批次的更新，只把异常批次的步长压回安全范围。阈值太松等于没裁，太紧会拖慢正常学习。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>低精度与梯度裁剪是一对：<strong>BF16 换的是更快的矩阵乘，而不是更小的显存</strong>（权重梯度各减半、但要多存 fp32 主权重，合计仍是 16 字节/参数），<strong>梯度裁剪则给单步更新设上界</strong>，防止个别异常批次把参数推飞。<strong>两者合起来，才让"几千张卡连续跑几个月"成为可能</strong>——任何一步坏掉，整轮训练的时间成本都极高。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','9-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','9-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-9-4" class="llm-section"><button class="llm-btn" onclick="startChat('9-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="9-4"><div class="chat-toolbar"><button onclick="copyChat('9-4')">📋 复制对话</button><button onclick="clearChat('9-4')">🗑 清空</button><button onclick="stopLLM('9-4')" id="stop-btn-9-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('9-4')" id="regen-btn-9-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="9-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对混合精度有疑问？比如"FP8 训练靠谱吗？""loss scaling 具体怎么做？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="9-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('9-4')}" rows="1" placeholder="例如：为什么优化器状态不用 BF16 存？"></textarea><button onclick="sendLLM('9-4')">发送</button></div></div></div>
+      <div id="tab-qna-9-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('9-4')">🔄 换一批</button></div><div class="qna-list" data-qna="9-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="9-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">训练到一半 loss 突然飙升，该怎么处理？</div><div class="card-q-hint">提示：先想 loss 飙升时那一步的参数还值不值得保留；再想如果直接从头重训成本有多高。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Loss spike（损失尖峰）</strong>在大规模训练中很常见。PaLM 540B 的论文记录（Chowdhery et al., arXiv:2204.02311）：<strong>训练期间出现约 20 次 loss 尖峰</strong>，<strong>即使已启用梯度裁剪</strong>；它们的处理办法是"从尖峰前约 <strong>100 步</strong>的检查点重启，并跳过那附近约 <strong>200~500 个批次</strong>"，之后 loss 恢复原趋势。论文把原因归为数据驱动（特定批次与当前参数值交互不好），而非系统性不稳定。</div>
+      <div class="content-section"><p>上一张卡片讲了精度与裁剪。但即便这些都做对，训练仍可能<strong>突然崩一下</strong>——loss 在几步之内飙升。该怎么处理？</p><p><strong>因为</strong>尖峰往往是"坏批次 × 当前参数"的偶发组合——具体表现为某一批数据算出的 <b class="rn-key">logits</b> 异常，交叉熵损失随之跳高——<strong>所以</strong>处理思路不是改超参，而是<strong>回滚 + 跳过</strong>。可以把这<strong>类比</strong>成走山路遇到塌方：不用重修整条路（从头重训），退回到塌方前的位置（回滚检查点）、绕开那一段（跳过坏批次）就够了。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 Spike 处置账：回滚 vs 重训</div>
+        <div class="step"><div class="step-title">Step 1：PaLM 的实际处置数据</div>
+          <table><tr><th>项目</th><th>数值</th><th>说明</th></tr><tr><td>尖峰次数</td><td>约 20 次</td><td>540B 训练全程</td></tr><tr><td>回滚步数</td><td>约 100 步</td><td>从尖峰前最近的检查点重启</td></tr><tr><td>跳过批次</td><td>约 200~500 批</td><td>绕开导致尖峰的数据段</td></tr><tr><td>是否启用梯度裁剪</td><td>已启用却仍发生</td><td>说明裁剪不是万能的</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">关键观察：<strong>尖峰出现在"高度不规则的间隔"，有时发生在训练后期</strong>——说明它不是某个固定阶段的问题。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：为什么回滚比重训划算</div>
+          <table><tr><th>方案</th><th>要重算的量</th><th>相对成本</th></tr><tr><td>从头重训</td><td>全部 1,200,000 步</td><td><strong>1×</strong>（完整预训练成本）</td></tr><tr><td>回滚 100 步 + 跳过 500 批</td><td>约 100 步的重复 + 跳过的数据</td><td>约 <strong>0.008%</strong></td></tr><tr><td>不回滚、继续训</td><td>0</td><td>但参数可能已进入坏区域，后续 loss 长期偏高</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">计算：100 ÷ 1,200,000 ≈ 0.0083%。<strong>这就是"检查点频率"背后的权衡</strong>——存得越密，回滚损失越小，但存储与 I/O 开销越大。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：怎么判断该回滚还是继续</div>
+          <table><tr><th>现象</th><th>判断</th><th>动作</th></tr><tr><td>loss 飙升后几步内自行回落</td><td>偶发波动</td><td>不必回滚，继续观察</td></tr><tr><td>飙升后持续在高位不降</td><td><strong>参数已坏</strong></td><td>回滚检查点 + 跳过该数据段</td></tr><tr><td>同一数据段反复引发尖峰</td><td>数据本身有问题</td><td>回滚并<strong>永久剔除</strong>该数据</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">判据是<strong>"能否自行恢复"</strong>：能恢复的是噪声，不能恢复的是损坏。这也意味着必须有<strong>自动化的 loss 监控</strong>，才能第一时间发现并处置。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>Loss spike 是<strong>大规模训练的常态而非异常</strong>——PaLM 540B 全程遇到约 20 次，且梯度裁剪已启用。<strong>标准处置是"回滚约 100 步 + 跳过约 200~500 批"，成本仅约 0.008% 的一轮训练</strong>，远低于从头重训。<strong>所以工程上的关键不是"如何避免尖峰"，而是"多快能发现、多近能回滚"</strong>——这直接决定了检查点策略。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','9-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','9-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-9-5" class="llm-section"><button class="llm-btn" onclick="startChat('9-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="9-5"><div class="chat-toolbar"><button onclick="copyChat('9-5')">📋 复制对话</button><button onclick="clearChat('9-5')">🗑 清空</button><button onclick="stopLLM('9-5')" id="stop-btn-9-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('9-5')" id="regen-btn-9-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="9-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 loss spike 有疑问？比如"怎么自动检测尖峰？""检查点该多密？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="9-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('9-5')}" rows="1" placeholder="例如：如果坏数据被永久剔除了，模型会缺什么？"></textarea><button onclick="sendLLM('9-5')">发送</button></div></div></div>
+      <div id="tab-qna-9-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('9-5')">🔄 换一批</button></div><div class="qna-list" data-qna="9-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="9-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">几千张卡跑几个月，实际用上了多少算力？</div><div class="card-q-hint">提示：先算这张卡理论上一秒能做多少浮点运算，再算实际训练摊到每张卡每秒做了多少。两者一比，就是答案。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>MFU（Model FLOPs Utilization，模型算力利用率）</strong>这个度量由 PaLM 论文引入（Chowdhery et al., arXiv:2204.02311）：MFU = 实际达到的模型 FLOPs/s ÷ 硬件理论峰值 FLOPs/s（FLOPs＝一次浮点运算，FLOPs/s＝每秒可做的浮点运算次数）。PaLM 540B 在 6,144 块 TPU v4 上达到 <strong>46.2% MFU</strong>。它与"硬件利用率"不同：MFU 只统计"模型真正需要的那些运算"，重算（gradient checkpointing）带来的额外计算不计入分子。</div>
+      <div class="content-section"><p>前面五张卡片讲了阶段、学习率、并行、精度、故障处理。最后要回答一个问题：<strong>这套方案跑下来，到底用上了多少算力？</strong></p><p><strong>因为</strong>"跑了多少天"不能反映效率（卡多、模型小、效率低也能耗掉同样时间），<strong>所以</strong>需要一个归一化指标——MFU。可以把这<strong>类比</strong>成评价一辆货车的运输效率：不看它跑了多久，而看"载重 × 里程 ÷ 理论最大载重里程"——MFU 就是这个比值。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 MFU 账：从公开数字反推利用率</div>
+        <div class="step"><div class="step-title">Step 1：MFU 的定义</div>
+          <table><tr><th>符号</th><th>含义</th><th>来源</th></tr><tr><td>分子</td><td>实际达到的模型 FLOPs/s</td><td>由 6ND ÷ 训练时长 ÷ 卡数 反推；厂商或论文通常直接报告 MFU</td></tr><tr><td>分母</td><td>硬件理论峰值 FLOPs/s</td><td>厂商规格（需注明精度口径）</td></tr><tr><td>MFU</td><td>分子 ÷ 分母</td><td>越高说明算力浪费越少</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;"><strong>口径要点</strong>：分母必须写清是哪种精度、是否含稀疏加速——否则同一张卡算出的 MFU 能差 2 倍以上。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：用 Llama 3 405B 的公开数字反推</div>
+          <table><tr><th>模型</th><th>报告的 MFU</th><th>硬件与口径</th></tr><tr><td>PaLM 540B</td><td><strong>46.2%</strong></td><td>6,144 TPU v4</td></tr><tr><td>Llama 3 405B</td><td><strong>约 38%~43%</strong></td><td>H100，BF16 口径（区间随并行与批配置而异，非同一配置）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">反推一下这个区间对应多少算力：按 BF16 dense 峰值 989 TFLOPS 算，40% MFU ≈ 每卡 396 TFLOP/s，16,384 卡跑完 3.8e25 FLOPs 约需 68 天——<strong>与"几千张卡跑一两个月"的公开印象一致</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：剩下的算力去哪了</div>
+          <table><tr><th>损耗项</th><th>大致影响</th><th>能否消除</th></tr><tr><td>通信等待（TP/PP/DP 同步）</td><td>主要损耗</td><td>部分（重叠通信与计算）</td></tr><tr><td>流水线空泡</td><td>随 PP 级数增大</td><td>部分（增加微批、交错调度）</td></tr><tr><td>重算（gradient checkpointing）</td><td>多算约 30% 前向</td><td><strong>不计入 MFU 分子</strong>，但真实耗时增加</td></tr><tr><td>激活与缓冲的访存</td><td>次要</td><td>部分</td></tr><tr><td>故障回滚（loss spike 等）</td><td>少量</td><td>不可完全消除</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">注意最后一行与上一张卡片的联系：<strong>每次回滚都要重算一段，直接拉低整体效率</strong>——这就是"稳定性"也能换算成"算力成本"的地方。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>MFU 是衡量"这次预训练跑得好不好"的<strong>归一化读尺</strong>：PaLM 540B 是 46.2%，Llama 3 405B 论文自报约 <strong>38%~43%（BF16 口径）</strong>。剩下的算力损耗主要来自通信、流水线空泡与故障回滚。<strong>所以"能不能训成"之外，"能不能把 MFU 做上去"才是工程能力的直接体现</strong>——同一笔预算，MFU 差 10 个百分点就是十天级别的差距。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','9-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','9-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-9-6" class="llm-section"><button class="llm-btn" onclick="startChat('9-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="9-6"><div class="chat-toolbar"><button onclick="copyChat('9-6')">📋 复制对话</button><button onclick="clearChat('9-6')">🗑 清空</button><button onclick="stopLLM('9-6')" id="stop-btn-9-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('9-6')" id="regen-btn-9-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="9-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 MFU 有疑问？比如"MFU 和 GPU 利用率有什么区别？""怎么把 MFU 提上去？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="9-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('9-6')}" rows="1" placeholder="例如：如果 MFU 从 50% 降到 40%，要多花多少天？"></textarea><button onclick="sendLLM('9-6')">发送</button></div></div></div>
+      <div id="tab-qna-9-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('9-6')">🔄 换一批</button></div><div class="qna-list" data-qna="9-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 9 课完成 · 下一课：第 10 课「SFT 微调」</p>
+    <a href="#" onclick="switchLesson(10);return false;">进入第 10 课：SFT 微调 →</a>　·　<a href="#" onclick="switchLesson(8);return false;">← 上一课：数据工程</a>
+  </div></div>

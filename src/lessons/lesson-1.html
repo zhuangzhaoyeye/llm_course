@@ -1,0 +1,565 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 1 课：Transformer 回顾</h2>
+    <p class="subtitle">用你熟悉的 BERT 作为锚点，一步步理解 Self-Attention 做了什么，以及为什么 GPT 必须走 Decoder-only 路线。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 用自己的话推导 Self-Attention 的计算流程（Q·K<sup>T</sup> → Softmax → 加权 V）<br>② 说清为什么生成任务必须用 Causal Mask，以及它怎么把 BERT 和 GPT 分成两条路<br>③ 向别人解释「RNN 到底哪里不行」并用具体数字举例，而不是背概念</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：任务约束 → RNN 撞墙逼出 Self-Attention → Causal Mask → Softmax 加权 → Multi-Head → KV Cache，即生成时把已算过的键和值存下来复用、不必每步重算）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node">
+          <span class="rn-num">1</span>
+          <span class="rn-text"><strong>任务约束：跨任意距离传信息，且能并行</strong> — 语言建模要求每个位置能直接读到前面任意远的 token（长距离依赖），又不能按时间步串行。用「我把昨天在图书馆借的那本书还了」试：句首的"把"和句尾的"还"相隔 12 个字，信息必须跨过这 12 个位置传过来。</span>
+        </div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node">
+          <span class="rn-num">2</span>
+          <span class="rn-text"><strong>先试 RNN → 撞墙，逼出 Self-Attention</strong> — RNN 用一张被反复覆盖的 <b class="rn-key">hidden state</b> 记笔记，读得越远开头的"把"越模糊，而且只能按时间步串行，两条约束都破。于是让每个位置各自投影出 query / key，点积一次得到 n×n 的<b class="rn-key">分数矩阵</b>，任意两位置直连、可并行。</span>
+        </div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node">
+          <span class="rn-num">3</span>
+          <span class="rn-text"><strong>Causal Mask：生成时只能看左边</strong> — 自回归于是只允许看左侧，因此对分数矩阵上三角填 -∞，得到的<b class="rn-key">可见范围</b>只含左下角</span>
+        </div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node">
+          <span class="rn-num">4</span>
+          <span class="rn-text"><strong>Softmax + 加权求和：把分数变成输出</strong> — 对保留下来的可见范围因此要做归一化（不用 argmax：不可导），再对 value 加权求和，得到<b class="rn-key">attention 权重</b>；÷√d_k 防 softmax 饱和</span>
+        </div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node">
+          <span class="rn-num">5</span>
+          <span class="rn-text"><strong>Multi-Head：一个头不够用</strong> — 上一张卡片的输出只有一组 attention 权重，表达不了"苹果-甜"（属性）与"苹果-买"（动作）等多种关系，于是并行开 h 个 head、各自独立投影，结果是 <b class="rn-key">每个 head 一组 K/V</b></span>
+        </div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node">
+          <span class="rn-num">6</span>
+          <span class="rn-text"><strong>KV Cache：生成时别重算</strong> — 解码每一步都要用到前面所有 token、每个 head 的 K/V，于是把它们存下来复用；代价是显存：KV Cache 大小 = 2 × 层数 × head 数 × d_k × 序列长 × 每个数的字节数</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="meta-tags">
+      <span class="meta-tag">Self-Attention</span>
+      <span class="meta-tag">Q×K^T</span>
+      <span class="meta-tag">Causal Mask</span>
+      <span class="meta-tag">BERT vs GPT</span>
+      <span class="meta-tag">Softmax ÷√d_k</span>
+      <span class="meta-tag">Multi-Head</span>
+      <span class="meta-tag">KV Cache</span>
+    </div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="1">
+    <div class="card-q" onclick="toggleCard(this)">
+      <div class="card-num">1</div>
+      <div class="card-q-content">
+        <div class="card-q-text">RNN 为什么记不住远处的词？</div>
+        <div class="card-q-hint">提示：数一数句首的"把"和句尾的"还"隔了多少个字</div>
+      </div>
+      <span class="card-arrow">▾</span>
+      <input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完">
+    </div>
+    <div class="card-a"><div class="card-bg"><div class="bg-label">知识背景</div><strong>RNN</strong>（Recurrent Neural Network）的标准形态由 Elman 于 1990 年提出，称为 Simple Recurrent Network（更早的循环结构可追溯到 Jordan 1986）；<strong>LSTM</strong>（Long Short-Term Memory）由 Hochreiter &amp; Schmidhuber 于 1997 年提出，用门控机制缓解了短期记忆问题，但串行瓶颈仍在。2017 年之前，RNN/LSTM 是 NLP 的默认架构，广泛用于机器翻译、语音识别。</div><div class="content-section">
+        <p>先看一个任务：<b>语言建模（language modeling）</b>——给定前文预测下一个 token。用「我把昨天在图书馆借的那本书还了」走一遍：句首的"把"和句尾的"还"构成同一个"把…还了"结构，两者相隔 12 个字（"把"在第 2 位、"还"在第 14 位）——信息必须跨过这 12 个位置传过来。① 相隔任意远的两个位置必须能直接交换信息，即建模<b>长距离依赖</b>；② 不能按时间步串行计算，必须可并行。这两条就是我们要满足的<b>任务约束</b>。</p>
+        <p>先用 <strong>RNN（循环神经网络）</strong>撞一下墙。它的工作方式：从左到右，<strong>一个词接一个词</strong>地读。"我" → 更新隐藏状态 → "把" → 更新隐藏状态 → ...（<strong>隐藏状态</strong> = RNN 用来记住"前面所有词"的那个向量。）RNN 的隐藏状态每步都被整体重写（像只用一张便签纸记笔记），读到句尾开头的信息早被擦没了；而且它必须按时间步一个个算。这两点正好同时踩中上面两条约束。在 <strong>2017 年之前</strong>，处理句子的主力就是 <strong>RNN</strong> 及其门控版本 <strong>LSTM</strong>。</p>
+        <p>打个比方：RNN 读句子像一个人只用<b>一张便签纸</b>做笔记——每读一个词就把便签擦掉重写，便签上只剩当前这一行；读到句尾，开头记的细节早被擦没了。后面所有"遗忘"和"消失"的毛病，都源于这一张便签。</p>
+        <p><strong>RNN 的三个致命问题：</strong></p>
+        <p><strong>① 串行慢。</strong>第 100 个词必须等前 99 个词全算完。GPU 有几千个核心，RNN 的时间步却只能一个一个来——<strong>并行度用不上</strong>。</p>
+        <p><strong>② 远距离遗忘。</strong>句子开头的信息传到句尾已经模糊不清。</p>
+        <p><strong>③ 梯度消失。</strong>反向传播（把误差从输出端往回传、据此调参数的算法）沿时间步往回传，每传一步就把梯度乘一个小于 1 的数，传到开头几乎为零。</p>
+      </div>
+      <div class="calc-block">
+        <div class="label">🧮 具体感受一下"梯度消失"</div>
+        <div class="step"><div class="step-title">Step 1：设每步梯度乘 0.9，看 1 / 10 / 50 步后的残余</div>
+          <table><tr><th>步数</th><th>梯度残余</th><th>含义</th></tr>
+          <tr><td>1</td><td>0.9</td><td>还行</td></tr>
+          <tr><td>10</td><td>0.9¹⁰ = <strong>0.35</strong></td><td>不到一半了</td></tr>
+          <tr><td>50</td><td>0.9⁵⁰ = <strong>0.005</strong></td><td>几乎为零，模型学不到任何东西</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：50 步后只剩 0.005，等于断了</div>
+          <div class="step-desc" style="margin-top:8px;color:#ef4444;">这就是为什么 RNN 处理长句子时，开头的信息根本学不到——梯度在路上"饿死了"。</div>
+        </div>
+      </div>
+      <div class="highlight-box">
+        <div class="label">🎯 留下什么问题</div>
+        <p>现在我们知道必须同时满足：任意两位置<b>直连</b> + 计算能<b>并行</b>。</p>
+        <p>下一个问题是：这两条要求，具体该用一个什么样的算式实现？</p>
+      </div>
+      <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab(this,'ai',1)">💡 自定义问答</button>
+        <button class="tab-btn" onclick="switchTab(this,'qna',1)">🤔 你可能还想问</button>
+      </div>
+      <div id="tab-ai-1" class="llm-section">
+        <button class="llm-btn" onclick="startChat(1)">
+          💡 对这张卡片有疑问？点我开始对话
+        </button>
+        <div class="llm-chat" data-llm="1">
+          <div class="chat-toolbar">
+            <button onclick="copyChat(1)" title="复制全部对话">📋 复制对话</button>
+            <button onclick="clearChat(1)" title="清空对话">🗑 清空</button>
+            <button onclick="stopLLM(1)" id="stop-btn-1" style="display:none">⏹ 停止</button>
+            <button onclick="regenerateLLM(1)" id="regen-btn-1" style="display:none">🔄 重新生成</button>
+          </div>
+          <div class="chat-messages" data-chat="1">
+            <div class="chat-msg assistant">
+              <div class="role-label">AI 助教</div>
+              <div class="msg-content">👋 我是你的课程助教。对这张卡片（RNN 的局限性和 Self-Attention 的动机）有任何疑问都可以问我。<br><br>我会用<strong>具体数字和计算例子</strong>来回答，而不是堆砌概念。</div>
+            </div>
+          </div>
+          <div class="chat-input-row">
+            <textarea placeholder="例如：能不能用一组具体数字演示一下梯度消失？" data-input="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM(1)}" rows="1"></textarea>
+            <button onclick="sendLLM(1)">发送</button>
+          </div>
+        </div>
+      </div>
+      <div id="tab-qna-1" class="qna-section" style="display:none;">
+        <div class="qna-header">
+          <div class="qna-title">🤔 学生最可能追问的 5 个问题</div>
+          <button class="qna-refresh-btn" onclick="refreshQnA(1)" title="换一批问题">🔄 换一批</button>
+        </div>
+        <div class="qna-list" data-qna="1">
+          <div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="2">
+    <div class="card-q" onclick="toggleCard(this)">
+      <div class="card-num">2</div>
+      <div class="card-q-content">
+        <div class="card-q-text">要让相隔 12 个位置的两处直接比对，该怎么算？</div>
+        <div class="card-q-hint">提示：要一次算出所有位置对</div>
+      </div>
+      <span class="card-arrow">▾</span>
+      <input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完">
+    </div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Self-Attention</strong> 出自 <strong>"Attention Is All You Need"</strong>（Vaswani et al., Google, 2017）。"Self" 的含义是每个词关注同一句子中的所有词（而非跨句关注）。Q/K/V 的术语源于信息检索：Query（你在搜什么）、Key（索引）、Value（实际内容）。今天所有主流 LLM 都基于 Self-Attention。</div>
+<div class="content-section">
+        <p>上一张卡片看到 RNN 的 <b>hidden state</b> 每读一个词就被整体覆盖一次，开头的信息留不住。要解决它，最直接的做法是让每两个位置之间都算一个"像不像"的分数——n 个 token 就是 n×n 张分数表。</p>
+        <p>Self-Attention 的核心：<strong>让每个词都去"查"一遍所有其他词，看它们和自己有多相关。</strong></p>
+        <p>用图书馆打个比方：<b>Q</b> 是你手里的<b>索书号</b>，<b>K</b> 是每本书书脊上的<b>分类标签</b>，<b>V</b> 是书页里的<b>正文</b>——拿 Q 去和每一张 K 比对，谁最像就把谁的 V 借走。句子里的每个词<strong>同时扮演</strong>这三种角色。</p>
+        <p><strong>Q（Query）</strong> = "我在找什么？"&nbsp;&nbsp;<strong>K（Key）</strong> = "我有什么可以提供？"&nbsp;&nbsp;<strong>V（Value）</strong> = "如果选了我，我给你什么信息？"</p>
+        <p>为什么不直接用词向量本身两两算点积、非要投影出 Q、K？因为词向量的相似度是固定的——不管任务是翻译还是问答，「苹果」和「甜」的分数都一样，模型没法按任务调；投影成 Q、K 之后，同一对词的分数可以被训练成任意大小（本例 Q_我·K_吃 = 0.16 就是这样算出来的）。</p>
+      </div>
+      <div class="calc-block">
+        <div class="label">🧮 完整计算走查：句子 = ["我", "吃"]，维度简化为 3（Q/K/V 再经 W 矩阵投影为 2 维；以下数值为演示用示意值）</div>
+        <div class="step"><div class="step-title">Step 1：输入 Embedding</div>
+          <table><tr><th>词</th><th>d₁</th><th>d₂</th><th>d₃</th></tr>
+          <tr><td>"我"</td><td>0.5</td><td>0.3</td><td>0.8</td></tr>
+          <tr><td>"吃"</td><td>0.2</td><td>0.9</td><td>0.4</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：乘 W^Q、W^K、W^V，得到 Q、K、V（简化）</div>
+          <table><tr><th>词</th><th>Q</th><th>K</th><th>V</th></tr>
+          <tr><td>"我"</td><td>[0.6, 0.2]</td><td>[0.4, 0.7]</td><td>[0.8, 0.3]</td></tr>
+          <tr><td>"吃"</td><td>[0.3, 0.9]</td><td>[0.1, 0.5]</td><td>[0.6, 0.2]</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 3：注意力分数 = Q × K^T</div>
+          <div class="step-desc">"我"看清楚自己：Q_我·K_我 = <strong>0.6×0.4 + 0.2×0.7</strong> = 0.24+0.14 = <strong>0.38</strong></div>
+          <div class="step-desc">"我"看清楚"吃"：Q_我·K_吃 = <strong>0.6×0.1 + 0.2×0.5</strong> = 0.06+0.10 = <strong>0.16</strong></div>
+          <div class="math">注意力矩阵 = <span style="display:inline-block;border-left:1px solid #999;border-right:1px solid #999;padding:0 6px;">0.38 0.16<br>0.75 0.48</span></div>
+        </div>
+        <div class="step"><div class="step-title">Step 4：÷√d_k（这里 d_k=2，√2≈1.41）→ Softmax</div>
+          <div class="step-desc">"我"看"我"：0.38/1.41=0.27，"我"看"吃"：0.16/1.41=0.11</div>
+          <div class="step-desc">Softmax(0.27, 0.11) → <strong>[0.54, 0.46]</strong>（注意力权重）</div>
+        </div>
+        <div class="step"><div class="step-title">Step 5：用权重加权求和 V</div>
+          <div class="step-desc">"我"的新表示 = <strong>0.54</strong>×[0.8, 0.3] + <strong>0.46</strong>×[0.6, 0.2]</div>
+          <div class="step-desc">&nbsp;&nbsp;&nbsp;&nbsp;= [0.43+0.28, 0.16+0.09]</div>
+          <div class="step-desc" style="color:var(--success);font-weight:600;">&nbsp;&nbsp;&nbsp;&nbsp;= <strong>[0.71, 0.25]</strong>  ← 这个向量同时包含了"我"和"吃"的信息</div>
+        </div>
+      </div>
+      <div class="content-section">
+        
+        <p><strong>关键洞察：</strong>所有词的计算是<strong>同时</strong>进行的——这就是为什么 Self-Attention 能并行，比 RNN 快得多（尽管总计算量更大）。</p>
+      </div>
+      <div class="highlight-box">
+        <div class="label">🎯 Q、K、V 的本质角色</div>
+        <p><strong>Q（Query）</strong> = 每个词在问"谁和我最相关？"<br><strong>K（Key）</strong> = 每个词在答"我是什么，来找我"<br><strong>V（Value）</strong> = "如果真的选了我，我给你这些信息"</p>
+        <p>这种"查询-索引-取值"的三步机制，让 Self-Attention 的每条信息路径长度恒为 1——<strong>不管两个词距离多远，梯度都能一步直达</strong>。这就是它在"长距离依赖"上明显优于 RNN 的核心原因。</p>
+      </div>
+      <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab(this,'ai',2)">💡 自定义问答</button>
+        <button class="tab-btn" onclick="switchTab(this,'qna',2)">🤔 你可能还想问</button>
+      </div>
+      <div id="tab-ai-2" class="llm-section">
+        <button class="llm-btn" onclick="startChat(2)">💡 对这张卡片有疑问？点我开始对话</button>
+        <div class="llm-chat" data-llm="2">
+          <div class="chat-toolbar">
+            <button onclick="copyChat(2)">📋 复制对话</button>
+            <button onclick="clearChat(2)">🗑 清空</button>
+            <button onclick="stopLLM(2)" id="stop-btn-2" style="display:none">⏹ 停止</button>
+            <button onclick="regenerateLLM(2)" id="regen-btn-2" style="display:none">🔄 重新生成</button>
+          </div>
+          <div class="chat-messages" data-chat="2">
+            <div class="chat-msg assistant">
+              <div class="role-label">AI 助教</div>
+              <div class="msg-content">👋 对 QKV 计算有疑问？比如："为什么是 Q×K^T 而不是别的运算？""Softmax 换成别的激活函数会怎样？"<br><br>我会用<strong>具体数字</strong>帮你走一遍。</div>
+            </div>
+          </div>
+          <div class="chat-input-row">
+            <textarea placeholder="例如：Q×K^T 如果改成点积之外的运算会怎样？" data-input="2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM(2)}" rows="1"></textarea>
+            <button onclick="sendLLM(2)">发送</button>
+          </div>
+        </div>
+      </div>
+      <div id="tab-qna-2" class="qna-section" style="display:none;">
+        <div class="qna-header">
+          <div class="qna-title">🤔 学生最可能追问的 5 个问题</div>
+          <button class="qna-refresh-btn" onclick="refreshQnA(2)">🔄 换一批</button>
+        </div>
+        <div class="qna-list" data-qna="2">
+          <div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="3">
+    <div class="card-q" onclick="toggleCard(this)">
+      <div class="card-num">3</div>
+      <div class="card-q-content">
+        <div class="card-q-text">生成时不允许看后面的词，这个限制该加在注意力计算的哪一步？</div>
+        <div class="card-q-hint">提示：限制的对象是刚算出的那张分数矩阵</div>
+      </div>
+      <span class="card-arrow">▾</span>
+      <input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完">
+    </div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Causal Mask</strong> 中的 "Causal" 指因果——原因必须在前、结果必须在后。<strong>GPT</strong>（Radford et al., OpenAI, 2018）把「因果掩码 + Decoder-only」确立为生成式预训练范式（规模化验证由后续 GPT-2/GPT-3 完成；因果掩码本身在 2017 年原论文的 Decoder 里就已使用）。这一机制让模型不能"偷看"未来的词——是 Decoder-only 架构（GPT）和 Encoder-only 架构（BERT）分道扬镳的关键。</div>
+<div class="content-section">
+        <p>上一张卡片算出了一张 n×n 的<b>分数矩阵</b>（attention 分数）。但生成有个前提：模型从左往右吐词，生成"我"的时候"爱"还不存在。所以矩阵里"列号大于行号"的格子（<b>上三角</b>）必须作废——填成 -∞，Softmax 之后自然是 0。</p>
+        <p>这就像<b>闭卷考试</b>：练习时若允许翻书（看到未来），上考场却只能凭记忆，成绩必然崩，所以练习就得按考场规则来。</p>
+        <p>训练一个"理解"任务时，双向注意力没问题——"苹果很甜"中，"甜"确认了"苹果"是水果。</p>
+        <p>但<strong>生成</strong>时完全不同。如果训练时允许模型"偷看"未来 token，它上线做生成任务时会彻底蒙圈——真实世界里未来 token 就是不可用的。</p>
+      </div>
+      <div class="calc-block">
+        <div class="label">🧮 Causal Mask 怎么加的？</div>
+        <div class="step"><div class="step-title">句子 = ["我", "爱", "你"]，正常 Q×K^T 矩阵（构造的示意值）：</div>
+          <table><tr><th></th><th>"我"</th><th>"爱"</th><th>"你"</th></tr>
+          <tr><th>"我"</th><td>0.5</td><td>0.3</td><td>0.1</td></tr>
+          <tr><th>"爱"</th><td>0.2</td><td>0.6</td><td>0.4</td></tr>
+          <tr><th>"你"</th><td>0.1</td><td>0.3</td><td>0.7</td></tr></table>
+          <div class="step-desc" style="color:#ef4444;">"我"能看到"爱"(0.3)和"你"(0.1)——训练时偷看了未来！</div>
+        </div>
+        <div class="step"><div class="step-title">加上 Causal Mask（上三角 = "列号大于行号"的那些格子 → -∞）：</div>
+          <table><tr><th></th><th>"我"</th><th>"爱"</th><th>"你"</th></tr>
+          <tr><th>"我"</th><td>0.5</td><td style="color:#ef4444">-∞</td><td style="color:#ef4444">-∞</td></tr>
+          <tr><th>"爱"</th><td>0.2</td><td>0.6</td><td style="color:#ef4444">-∞</td></tr>
+          <tr><th>"你"</th><td>0.1</td><td>0.3</td><td>0.7</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Softmax 之后（e^(-∞) = 0，其余正常归一化）：</div>
+          <table><tr><th></th><th>"我"</th><th>"爱"</th><th>"你"</th></tr>
+          <tr><th>"我"</th><td><strong>1.0</strong></td><td>0</td><td>0</td></tr>
+          <tr><th>"爱"</th><td>0.40</td><td><strong>0.60</strong></td><td>0</td></tr>
+          <tr><th>"你"</th><td>0.25</td><td>0.30</td><td><strong>0.45</strong></td></tr></table>
+          <div class="step-desc" style="color:var(--success);font-weight:600;">✅ "我"只能看到自己，"爱"能看到"我"和自己，"你"能看到前面所有。因果链成立。</div>
+        </div>
+      </div>
+      <div class="highlight-box">
+        <div class="label">🎯 这个限制带来的分岔</div>
+        <p>同一个架构，只因"要不要挡未来"，就分成两条路。<b>BERT</b> 不挡（双向 Encoder，做理解），<b>GPT</b> 必须挡（单向 Decoder，做生成）。</p>
+        <table class="compare-table"><tr><th></th><th>BERT（不挡未来）</th><th>GPT（必须挡）</th></tr>
+        <tr><td>能看到</td><td>左右两边</td><td>只有左边</td></tr>
+        <tr><td>擅长</td><td>理解（完形填空）</td><td>生成（续写）</td></tr>
+        <tr><td>训练目标</td><td>MLM：遮住 15% 的词去猜</td><td>自回归：预测下一个词</td></tr></table>
+      </div>
+      <div class="highlight-box">
+        <div class="label">🎯 -∞ 与 0 的差别：Softmax 之后各是什么</div>
+        <p>填 0 → Softmax 后 = e⁰/(...) ≠ 0，被 mask 的词仍有残留权重。</p>
+        <p>填 -∞ → Softmax 后 = e^(-∞)/(...) = 0/(...) = <strong>0</strong>，真正"完全忽略"。</p>
+      </div>
+      <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab(this,'ai',3)">💡 自定义问答</button>
+        <button class="tab-btn" onclick="switchTab(this,'qna',3)">🤔 你可能还想问</button>
+      </div>
+      <div id="tab-ai-3" class="llm-section">
+        <button class="llm-btn" onclick="startChat(3)">💡 对这张卡片有疑问？点我开始对话</button>
+        <div class="llm-chat" data-llm="3">
+          <div class="chat-toolbar">
+            <button onclick="copyChat(3)">📋 复制对话</button>
+            <button onclick="clearChat(3)">🗑 清空</button>
+            <button onclick="stopLLM(3)" id="stop-btn-3" style="display:none">⏹ 停止</button>
+            <button onclick="regenerateLLM(3)" id="regen-btn-3" style="display:none">🔄 重新生成</button>
+          </div>
+          <div class="chat-messages" data-chat="3">
+            <div class="chat-msg assistant">
+              <div class="role-label">AI 助教</div>
+              <div class="msg-content">👋 对 Causal Mask 有疑问？比如"训练时也要 mask 吗？""为什么推理时不加 mask 也能跑？"<br><br>我会用矩阵数字走一遍。</div>
+            </div>
+          </div>
+          <div class="chat-input-row">
+            <textarea placeholder="例如：训练时也加 Mask，那模型不是永远看不到后面的词？" data-input="3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM(3)}" rows="1"></textarea>
+            <button onclick="sendLLM(3)">发送</button>
+          </div>
+        </div>
+      </div>
+      <div id="tab-qna-3" class="qna-section" style="display:none;">
+        <div class="qna-header">
+          <div class="qna-title">🤔 学生最可能追问的 7 个问题</div>
+          <button class="qna-refresh-btn" onclick="refreshQnA(3)">🔄 换一批</button>
+        </div>
+        <div class="qna-list" data-qna="3">
+          <div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="4">
+    <div class="card-q" onclick="toggleCard(this)">
+      <div class="card-num">4</div>
+      <div class="card-q-content">
+        <div class="card-q-text">分数矩阵要变成"把信息搬过来"的动作，先得做哪一步归一化、不做会怎样？</div>
+        <div class="card-q-hint">提示：分数是"像不像"，不是"内容"</div>
+      </div>
+      <span class="card-arrow">▾</span>
+      <input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完">
+    </div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>原论文把这一步命名为 <strong>Scaled Dot-Product Attention</strong>（Vaswani et al., 2017）：Attention(Q, K, V) = softmax(QK<sup>T</sup> / √d_k) · V。论文给出除以 √d_k 的理由：d_k 较大时点积量级过大，会把 softmax 推进梯度极小的区域。</div>
+<div class="content-section">
+        <p>上一张卡片用 mask 把分数矩阵的<b>可见范围</b>限成了左下三角。但这些数字只表示"像不像"——要真的把内容搬过来，还需要 V，并按分数做加权求和。</p>
+        <p>加权之前必须先归一化：每一行除以自己那行的总和，让权重加起来是 1。这里只能选 softmax——<b>argmax</b> 虽然也能"选一个"，但它不可导，梯度传不回去。</p>
+        <p>打个比方：分数矩阵像一张"兴趣打分表"，不能直接拿去分配信息——两个人合伙出资，不能按出资的绝对金额直接分账，得先按比例折成各自的份额；这个"把打分折成占比"的动作，在数学上就是 softmax 归一化。</p>
+        <p>而一旦用了 softmax，新的麻烦就来了——这也是 ÷√d_k 存在的原因。</p>
+      </div>
+      <div class="calc-block">
+        <div class="label">🧮 接着第 2 张卡片"我"那一行的分数往下算（双向、未加 mask 的情形；若按第 3 张卡片加 Causal Mask，"我"只能看自己，权重为 1.0）</div>
+        <div class="step"><div class="step-title">Step 1：先缩放，再归一化</div>
+          <div class="step-desc">0.38 / 1.41 = <strong>0.27</strong>，0.16 / 1.41 = <strong>0.11</strong>（÷√d_k；此处 d_k = 2，√2 ≈ 1.41）</div>
+          <div class="step-desc">Softmax(0.27, 0.11) = <strong>[0.54, 0.46]</strong> — 这一行两个权重，和为 1</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：用权重对 V 加权求和</div>
+          <div class="step-desc">= 0.54×[0.8, 0.3] + 0.46×[0.6, 0.2]</div>
+          <div class="step-desc">= [0.43+0.28, 0.16+0.09] = <strong>[0.71, 0.25]</strong> ← 这个向量同时包含了"我"和"吃"的信息</div>
+        </div>
+      </div>
+      <div class="highlight-box">
+        <div class="label">🎯 不除 √d_k 会怎样</div>
+        <p>以原论文 base 的每头维度 d_k=64（d_model=512、8 个头）为例，两个独立随机向量点积的<strong>标准差约 √d_k=√64=8</strong>（期望为 0）；每头维度越大，点积方差越大。不缩放的话，Softmax 输入量级太大 → 输出极度尖锐（≈one-hot）→ 梯度<strong>趋于零</strong>，模型学不动。</p>
+        <p>除以 √d_k 把量级拉回 1 附近。这就是一根"保险丝"——d_k 小时无害（本卡走查的小例子里 d_k=2），统一保留。</p>
+      </div>
+      <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab(this,'ai',4)">💡 自定义问答</button>
+        <button class="tab-btn" onclick="switchTab(this,'qna',4)">🤔 你可能还想问</button>
+      </div>
+      <div id="tab-ai-4" class="llm-section">
+        <button class="llm-btn" onclick="startChat(4)">💡 对这张卡片有疑问？点我开始对话</button>
+        <div class="llm-chat" data-llm="4">
+          <div class="chat-toolbar">
+            <button onclick="copyChat(4)">📋 复制对话</button>
+            <button onclick="clearChat(4)">🗑 清空</button>
+            <button onclick="stopLLM(4)" id="stop-btn-4" style="display:none">⏹ 停止</button>
+            <button onclick="regenerateLLM(4)" id="regen-btn-4" style="display:none">🔄 重新生成</button>
+          </div>
+          <div class="chat-messages" data-chat="4">
+            <div class="chat-msg assistant">
+              <div class="role-label">AI 助教</div>
+              <div class="msg-content">👋 对 softmax 归一化或 ÷√d_k 有疑问？比如"softmax 和直接除以总和差在哪？""d_k 很小时还要除吗？"</div>
+            </div>
+          </div>
+          <div class="chat-input-row">
+            <textarea placeholder="例如：如果不除 √d_k，d_k=64 时 softmax 会变成什么样？" data-input="4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM(4)}" rows="1"></textarea>
+            <button onclick="sendLLM(4)">发送</button>
+          </div>
+        </div>
+      </div>
+      <div id="tab-qna-4" class="qna-section" style="display:none;">
+        <div class="qna-header">
+          <div class="qna-title">🤔 学生最可能追问的 5 个问题</div>
+          <button class="qna-refresh-btn" onclick="refreshQnA(4)">🔄 换一批</button>
+        </div>
+        <div class="qna-list" data-qna="4">
+          <div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="5">
+    <div class="card-q" onclick="toggleCard(this)">
+      <div class="card-num">5</div>
+      <div class="card-q-content">
+        <div class="card-q-text">多开几个注意力头，究竟比单头多看到了什么？</div>
+        <div class="card-q-hint">提示：挑一个词，看它同时和哪几个词发生关系</div>
+      </div>
+      <span class="card-arrow">▾</span>
+      <input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完">
+    </div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Multi-Head Attention</strong> 同样出自 "Attention Is All You Need"（2017）。原论文设 h=8 个头，每头 d_k=64。与 CNN 的多卷积核同源：不同头捕捉不同关系模式。现代 LLM 的头数随规模变：Llama 2 7B 是 32 头（隐藏维度 4096、每头 128 维），Qwen2.5-7B 是 28 头（隐藏维度 3584、每头仍是 128 维），Llama 2 70B 是 64 头。</div>
+<div class="content-section">
+        <p>上一张卡片只算了一组 <b>attention 权重</b>——所有关系被迫压进同一张矩阵。但"苹果"和"甜"（属性）、"苹果"和"买"（动作）、"苹果"和"斤"（数量）是三种异质关系，一组权重表达不了。</p>
+        <p>就像<b>多个人同时读同一句话</b>：一个人盯语法、一个人盯语义、一个人盯数量，最后把各自的笔记合并成一份更完整的理解。</p>
+        <p>"<strong>苹果</strong>很<strong>甜</strong>，<strong>我</strong>昨天<strong>买</strong>了三<strong>斤</strong>"——"苹果"既和"甜"有关（属性），又和"买"有关（动作），还和"斤"有关（数量）。一个头很难同时捕捉三种异质关系。</p>
+        <p>那能不能干脆不分组，只把单头加宽（每头维度由 64 提到 128）？不能——加宽只是把<strong>同一张</strong>打分表放大，Softmax 之后仍然只有一行权重；要同时表达「属性 / 动作 / 数量」三套彼此独立的分布，就必须真的开出三个头，让它们各持一张打分表。</p>
+      </div>
+      <div class="calc-block">
+        <div class="label">🧮 Multi-Head 的计算本质</div>
+        <div class="step"><div class="step-title">Step 1：按原论文口径，d_model=512、h=8 个头</div>
+        <div class="step-desc">每头分到 <strong>512/8 = 64</strong> 维（与知识背景里的 d_k=64 一致）</div></div>
+        <div class="step"><div class="step-title">Step 2：每头独立算，再拼回 512 维</div>
+        <div class="step-desc">每头独立算 Attention（64 维的 Q、K、V）</div>
+        <div class="step-desc">8 个头各自输出 64 维 → 拼接回 <strong>64×8 = 512</strong> 维</div>
+        <div class="step-desc">最后过一个线性层 W_O，把拼接结果再融合一次</div>
+        <div class="step-desc" style="margin-top:8px;"><strong>总计算量和单头一样</strong>（每头维度缩小了），但能学到 8 种不同的"注意力模式"。</div>
+        </div>
+      </div>
+      <div class="calc-block">
+        <div class="label">🧮 具体对比：单头的弱点 vs 多头的专业化（权重为示意值）</div>
+        <div class="step-desc" style="margin-bottom:6px;">假设句子："苹果很甜，我昨天买了三斤"——"苹果"同时和"甜"（属性）、"买"（动作）、"斤"（数量）有三种关系。</div>
+        <div class="step"><div class="step-title">单头：只能用一个权重分布表达所有关系</div>
+          <table style="margin-top:4px;"><tr><th>苹果→</th><th>苹果(自)</th><th>甜(属性)</th><th>买(动作)</th><th>斤(数量)</th></tr>
+          <tr><td>权重</td><td style="background:#dbeafe;">0.18</td><td style="background:#dcfce7;">0.22</td><td style="background:#fef3c7;">0.27</td><td style="background:#fef3c7;">0.33</td></tr></table>
+          <div class="step-desc" style="font-size:12px;color:#ef4444;margin-top:4px;">"甜"（属性）只分到 0.22，"斤"（数量）分到 0.33——三种关系挤在一个分布里，互相稀释。</div>
+        </div>
+        <div class="step" style="margin-top:12px;"><div class="step-title">8 个头：每个头可以专注一种关系（模拟其中 3 个头的权重）</div>
+          <table style="margin-top:4px;"><tr><th>头</th><th>功能</th><th>苹果(自)</th><th>甜(属性)</th><th>买(动作)</th><th>斤(数量)</th></tr>
+          <tr><td style="background:#dbeafe;font-weight:600;">#1</td><td style="background:#dbeafe;">属性</td><td>0.10</td><td style="background:#dcfce7;font-weight:600;">0.55</td><td>0.15</td><td>0.20</td></tr>
+          <tr><td style="background:#fef3c7;font-weight:600;">#3</td><td style="background:#fef3c7;">动作</td><td>0.08</td><td>0.10</td><td style="background:#fcd34d;font-weight:600;">0.62</td><td>0.20</td></tr>
+          <tr><td style="background:#fef2f2;font-weight:600;">#6</td><td style="background:#fef2f2;">数量</td><td>0.05</td><td>0.08</td><td>0.15</td><td style="background:#fecaca;font-weight:600;">0.72</td></tr></table>
+        </div>
+        <div class="step-desc" style="color:var(--success);font-weight:600;margin-top:6px;">头#1 把 55% 注意力给"甜"，头#3 把 62% 给"买"，头#6 把 72% 给"斤"——每种关系都有专属的"专家"。单头永远做不到这种专业化。</div>
+      </div>
+      <div class="highlight-box">
+        <div class="label">🎯 为什么 GQA（把多个 Query 头分成几组、每组共享同一份 K/V）能把 KV Cache 降到 1/g 而不掉点</div>
+        <p>因为<strong>很多头是冗余的</strong>——Voita 等人 2019 年的分析显示注意力头存在大量冗余：在他们的英俄翻译模型里，48 个头剪掉 38 个，BLEU 只掉 0.15。GQA（Grouped Query Attention）正是基于这个洞察。它让多个 Q 头共享一组 K/V，从而大幅压缩 KV Cache、同时几乎不掉点——这里的 KV Cache，指生成时把已算过的 Key/Value 存下来复用、避免重复计算。</p>
+        <p>这也是为什么从 Llama 2 70B 开始、到 Llama 3 全系列，以及 Mistral、Qwen 都用 GQA 而非纯 <strong>MHA</strong>（Multi-Head Attention，标准多头注意力；Llama 2 的 7B/13B 仍是 MHA）——<strong>不是越多头越好，是聪明的分组更好。</strong></p>
+      </div>
+      <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab(this,'ai',5)">💡 自定义问答</button>
+        <button class="tab-btn" onclick="switchTab(this,'qna',5)">🤔 你可能还想问</button>
+      </div>
+      <div id="tab-ai-5" class="llm-section">
+        <button class="llm-btn" onclick="startChat(5)">💡 对这张卡片有疑问？点我开始对话</button>
+        <div class="llm-chat" data-llm="5">
+          <div class="chat-toolbar">
+            <button onclick="copyChat(5)">📋 复制对话</button>
+            <button onclick="clearChat(5)">🗑 清空</button>
+            <button onclick="stopLLM(5)" id="stop-btn-5" style="display:none">⏹ 停止</button>
+            <button onclick="regenerateLLM(5)" id="regen-btn-5" style="display:none">🔄 重新生成</button>
+          </div>
+          <div class="chat-messages" data-chat="5">
+            <div class="chat-msg assistant">
+              <div class="role-label">AI 助教</div>
+              <div class="msg-content">👋 对多头注意力有疑问？比如"能不能可视化不同头学到了什么？""减少头数会损失多少性能？"</div>
+            </div>
+          </div>
+          <div class="chat-input-row">
+            <textarea placeholder="例如：8 个头是不是越多越好？32 个头会更准吗？" data-input="5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM(5)}" rows="1"></textarea>
+            <button onclick="sendLLM(5)">发送</button>
+          </div>
+        </div>
+      </div>
+      <div id="tab-qna-5" class="qna-section" style="display:none;">
+        <div class="qna-header">
+          <div class="qna-title">🤔 学生最可能追问的 5 个问题</div>
+          <button class="qna-refresh-btn" onclick="refreshQnA(5)">🔄 换一批</button>
+        </div>
+        <div class="qna-list" data-qna="5">
+          <div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="6">
+    <div class="card-q" onclick="toggleCard(this)">
+      <div class="card-num">6</div>
+      <div class="card-q-content">
+        <div class="card-q-text">解码时什么被重复计算了？</div>
+        <div class="card-q-hint">提示：看每一步都要用到前面哪些 token 的什么</div>
+      </div>
+      <span class="card-arrow">▾</span>
+      <input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完">
+    </div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>自回归</strong>（Autoregressive）含义：用过去值预测未来值。在语言模型中：P(w_t | w_1...w_{t-1})。从 n-gram（1950s）→ 神经语言模型（Bengio et al., 2003）→ GPT（2018）。所有 Decoder-only LLM（GPT、Llama、Claude、Gemini）都基于自回归生成——上一步输出成为下一步输入。</div>
+<div class="content-section">
+        <p>上一张卡片的多头结构意味着：<b>每个 head 一组 K/V</b> 都要各自算一份。进入生成阶段后，每一步都要用到前面所有 token 的 K/V——不缓存就得反复重算。</p>
+      </div>
+      <div class="calc-block">
+        <div class="label">🧮 完整走一遍：GPT 生成 "我爱吃苹果"</div>
+        <div class="step"><div class="step-title">初始：输入 = [BOS]</div>
+          <div class="step-desc">BOS = Begin of Sequence（开始符，告诉模型"从这儿开始生成"）；配套的 <strong>EOS</strong> = End of Sequence（结束符，模型输出它就表示"这句话说完了"）</div></div>
+        <div class="step"><div class="step-title">第1步：输入=[BOS] → 预测（以下概率为示意值）</div>
+          <div class="step-desc">候选：我(0.32), 今天(0.18), 请(0.09)... → 采样选中<strong>"我"</strong></div></div>
+        <div class="step"><div class="step-title">第2步：输入=[BOS,"我"] → 预测</div>
+          <div class="step-desc">候选：爱(0.41), 想(0.22), 喜欢(0.15)... → 选中<strong>"爱"</strong></div></div>
+        <div class="step"><div class="step-title">第3步：输入=[BOS,"我","爱"] → 选中<strong>"吃"</strong></div></div>
+        <div class="step"><div class="step-title">第4步：输入=[BOS,"我","爱","吃"] → 选中<strong>"苹果"</strong></div></div>
+        <div class="step"><div class="step-title">第5步：输入=[BOS,"我","爱","吃","苹果"] → 预测到 EOS → 停止</div>
+          <div class="step-desc" style="color:var(--success);font-weight:600;">✅ 输出："我爱吃苹果"</div></div>
+        <table style="margin-top:12px;"><tr><th>步数</th><th>当前输入</th><th>预测</th><th>概率</th><th>K/V 投影量（不含 Cache）</th></tr>
+        <tr><td>1</td><td>[BOS]</td><td>我</td><td>0.32</td><td>1×d</td></tr>
+        <tr><td>2</td><td>[BOS,我]</td><td>爱</td><td>0.41</td><td>2×d</td></tr>
+        <tr><td>3</td><td>[BOS,我,爱]</td><td>吃</td><td>—</td><td>3×d</td></tr>
+        <tr><td>4</td><td>[BOS,我,爱,吃]</td><td>苹果</td><td>—</td><td>4×d</td></tr>
+        <tr><td>5</td><td>[BOS,…,苹果]</td><td>EOS</td><td>—</td><td>5×d</td></tr></table>
+        <div class="step-desc" style="margin-top:6px;color:var(--text-secondary);">设 d = 算一个 token 的 K/V 投影的代价。无 KV Cache 时每步把输入里所有 token 的 K/V 重算一遍，总量 = (1+2+3+4+5)×d = 15d；有 KV Cache 后每步只算新 token，总量 = 5d。<strong>Cache 省了 67% 的 K/V 投影。</strong>（该比例随序列变长而升高：100 步时约 98%，见本卡追问 5）</div>
+      </div>
+      <div class="content-section">
+        <p><strong>关键洞察：</strong>每一步输入越来越长，但前面 token 的 K、V 每步都一样，可以算一次就存下来——这就是 <b>KV Cache</b>。它就像一张<b>草稿纸</b>：算过的 Key、Value 抄在纸上，下一步只算新 token 的。</p>
+        <p>这张草稿纸为什么一直有效？靠的是第 3 张卡片的 <b>Causal Mask</b>。每个词只看自己和左边，后来的词不会改动前面词的 K、V，所以存下来的值不会过期。</p>
+      </div>
+      <div class="highlight-box">
+        <div class="label">🎯 KV Cache 的代价：用显存换计算</div>
+        <p>每个 token 在每一层、每个 head 都要存一份 K 和一份 V：KV Cache 大小 = 2 × 层数 × head 数 × d_k × 序列长 × 每个数的字节数。</p>
+        <p>以 Llama 2 7B 为例（32 层；第 5 张卡片给过它的 32 头、每头 128 维；fp16 每个数 2 字节）：每个 token 要 2×32×32×128×2 = 524,288 字节 = <strong>512 KiB</strong>；序列长 4096 时 = <strong>2 GiB</strong>。不存就得每步重算，存了就要占显存——这也是第 5 张卡片里 GQA 让多个 Q 头共享 K/V 的原因。</p>
+      </div>
+      <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab(this,'ai',6)">💡 自定义问答</button>
+        <button class="tab-btn" onclick="switchTab(this,'qna',6)">🤔 你可能还想问</button>
+      </div>
+      <div id="tab-ai-6" class="llm-section">
+        <button class="llm-btn" onclick="startChat(6)">💡 对这张卡片有疑问？点我开始对话</button>
+        <div class="llm-chat" data-llm="6">
+          <div class="chat-toolbar">
+            <button onclick="copyChat(6)">📋 复制对话</button>
+            <button onclick="clearChat(6)">🗑 清空</button>
+            <button onclick="stopLLM(6)" id="stop-btn-6" style="display:none">⏹ 停止</button>
+            <button onclick="regenerateLLM(6)" id="regen-btn-6" style="display:none">🔄 重新生成</button>
+          </div>
+          <div class="chat-messages" data-chat="6">
+            <div class="chat-msg assistant">
+              <div class="role-label">AI 助教</div>
+              <div class="msg-content">👋 对自回归生成或 KV Cache 有疑问？比如"为什么只缓存 K/V、不缓存 Q？""采样和贪心解码有什么区别？"</div>
+            </div>
+          </div>
+          <div class="chat-input-row">
+            <textarea placeholder="例如：如果不用采样，直接选概率最高的，会有什么问题？" data-input="6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM(6)}" rows="1"></textarea>
+            <button onclick="sendLLM(6)">发送</button>
+          </div>
+        </div>
+      </div>
+      <div id="tab-qna-6" class="qna-section" style="display:none;">
+        <div class="qna-header">
+          <div class="qna-title">🤔 学生最可能追问的 5 个问题</div>
+          <button class="qna-refresh-btn" onclick="refreshQnA(6)">🔄 换一批</button>
+        </div>
+        <div class="qna-list" data-qna="6">
+          <div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<div class="footer-nav">
+    <p style="font-size:14px;">第 1 课完成 · 下一课：第 2 课「Transformer 模型结构全景」</p>
+    <a href="#" onclick="switchLesson(2);return false;">进入第 2 课：Transformer 模型结构全景 →</a>
+  </div></div>

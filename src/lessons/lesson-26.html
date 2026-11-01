@@ -1,0 +1,205 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 26 课：多智能体与协议</h2>
+    <p class="subtitle">紧接上一课（第 25 课《规划与反思》）——那一课把"想清楚再动手"讲透了，这一课只追一个问题：<strong>把任务交给多个 Agent，究竟是变强了，还是只是变贵了？</strong>我们从"多智能体不一定更强"的实测讲起，把收益/成本账、A2A 的能力发现、通信拓扑与消息设计、上下文工程，一路算到最底层的三笔账——token、延迟与失败率。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 用 token 账说明"为什么不一定更强"：单 Agent 一次任务约 80,000 token、多智能体约 15× 普通对话 = 300,000 token，换来约 90.2% 的相对提升（relative lift，不等于提高 90.2 个百分点）<br>② 用 N(N−1)/2 算通信规模：5 个 Agent 网状要 10 条通道、中心辐射只要 4 条；协议把集成复杂度从 O(N²) 压到 O(N)<br>③ 用连乘算多 Agent 串联的失败率：单点 0.9 的 4 个 Agent 只剩 0.9⁴ ≈ 0.656；再用摘要 + 检索把上下文从 20,000 压到 5,000（降 75%）</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步逻辑递进：从"多智能体不一定更强"到"账算清再挑框架"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要让 Agent 完成一个<strong>长任务</strong>而不是只回应一句，<strong>这就要求</strong>先问清：多个 agent 一起做，真的更强吗？它们各自持有 <b>context</b> 与 <b>token</b> 预算，得先摆上账。 <b class="rn-key">多智能体先算收益账</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然「<b>多智能体先算收益账</b>」，<strong>所以</strong>要先看任务能不能拆开——读多写少、线程独立才值得并行，要共享同一份 <b>context</b> 的任务则不然，否则协调成本会吃掉 <b>token</b> 红利。 <b class="rn-key">拆得开才并行</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然「<b>拆得开才并行</b>」，<strong>这就要求</strong> Agents 之间先能相互发现——先有 <b>AgentCard</b> 说清"我是谁、我能做什么"，彼此的 <b>context</b> 与任务才有地方对接。 <b class="rn-key">先有 AgentCard</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">既然「<b>先有 AgentCard</b>」，<strong>所以</strong>接下来要定它们怎么说话——选通信拓扑、设计结构化 <b>message</b>，只在必要时交换彼此的 <b>context</b> 与 <b>token</b>，否则多个 agent 会各改一份、互相打架。 <b class="rn-key">通信要有拓扑</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>通信要有拓扑</b>」，<strong>这就</strong>把压力推到每条链累积的 <b>context</b> 与 <b>token</b> 上——越长的任务越紧，只能靠摘要、检索与外置状态把轨迹压进窗口。 <b class="rn-key">上下文要工程化</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>上下文要工程化</b>」，<strong>所以</strong>最后把三笔账合起来——<b>token</b>、延迟、失败率，算清"贵在哪"之后才会发现：LangGraph / AutoGen / CrewAI 这些框架替你做的，正是前面这五件事。 <b class="rn-key">账算清再挑框架</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">多智能体</span><span class="meta-tag">Agent2Agent</span><span class="meta-tag">AgentCard</span><span class="meta-tag">通信拓扑</span><span class="meta-tag">上下文工程</span><span class="meta-tag">Token 成本</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="26-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">要让多个 Agent 协作真正划算，它的账单要怎么算？</div><div class="card-q-hint">提示：别急着下结论——先把"多几个人一起做"的收益，和它要花的 token 账单，放到同一个天平上看。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>两天内出了两篇针锋相对的文章：2025-06-12，Cognition 先发《Don't Build Multi-Agents》，主张"不看清场景就别上多智能体"；次日 2025-06-13，Anthropic 发表《How we built our multi-agent research system》，用"主 Agent 派活、子 Agent 并行搜索"做深度研究——多智能体（Opus 4 作主 + Sonnet 4 作子）在内部研究评测上比单智能体 Opus 4 <strong>相对提升约 90.2%</strong>；报告同时写明——单个 Agent 约用普通对话的 <strong>4×</strong> token，多智能体约 <strong>15×</strong>。（两文后来更多被视为互补而非对立：一篇讲适用边界，一篇给可行架构。）</div>
+      <div class="content-section"><p>上一部分我们讲过"想一步、做一步"的循环能靠外部观察纠错。这一课换一个问题：<strong>把任务交给多个 Agent 一起做，是不是就一定更强？</strong></p><p><strong>因为</strong>多智能体的收益（并行、互相纠错）要用 token 去买，而 token 账单会成倍放大——<strong>所以</strong>"更强"必须放到账上比，不能凭感觉。<strong>就像</strong>点外卖凑满减：多凑几单看似更划算，多付的配送费却可能把折扣吃回去。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：多智能体到底换来了什么</div>
+        <div class="step"><div class="step-title">Step 1：收益和账单是同一次实验里的两个读数</div>
+          <table><tr><th>指标</th><th>单智能体</th><th>多智能体（主 + 子）</th></tr><tr><td>内部研究评测</td><td>基线</td><td>相对提升约 <strong>90.2%</strong></td></tr><tr><td>相对普通对话的 token</td><td>约 4×</td><td>约 <strong>15×</strong></td></tr><tr><td>数据来源</td><td colspan="2">Anthropic《How we built our multi-agent research system》（2025）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">结构说明：这份实测里，多智能体把成绩<strong>相对</strong>抬升了约 90.2%（relative lift，不是"提高 90.2 个百分点"），同时把 token 从约 4× 提到约 15×。两个读数出自同一份报告，不是本课估算。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：换算成能对账的 token 数</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>一次任务的普通对话量（示意）</td><td>20,000 token</td></tr><tr><td>单 Agent ≈ 4× 普通对话</td><td>4 × 20,000 = <strong>80,000 token</strong></td></tr><tr><td>多智能体 ≈ 15× 普通对话</td><td>15 × 20,000 = <strong>300,000 token</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：以普通对话 20,000 token 为锚（示意），单 Agent 约 80,000、多智能体约 300,000；多智能体是单 Agent 的 300,000 ÷ 80,000 = <strong>3.75 倍</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：多花的 token 与"相对提升"的关系</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>多智能体比单 Agent 多花</td><td>300,000 − 80,000 = <strong>220,000 token</strong></td></tr><tr><td>内部评测相对提升</td><td>约 <strong>90.2%</strong>（relative lift，非"90.2 个百分点"）</td></tr><tr><td>能否折算成"每 1% 花多少 token"</td><td><strong>不能</strong>：相对提升与百分点不是同一口径</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：多花 220,000 token 换来的是约 90.2% 的<strong>相对提升</strong>（relative lift）——它不是"成功率提高 90.2 个百分点"，两者口径不同，<strong>不能直接相除</strong>得到"每 1% 的成本"。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>多智能体不是"更聪明的模型"，而是"允许花更多 token"的架构：Anthropic 自己分析发现，<strong>仅 token 用量一项就解释了 80% 的性能差异</strong>。先算账，再决定要不要上。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','26-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','26-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-26-1" class="llm-section"><button class="llm-btn" onclick="startChat('26-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="26-1"><div class="chat-toolbar"><button onclick="copyChat('26-1')">📋 复制对话</button><button onclick="clearChat('26-1')">🗑 清空</button><button onclick="stopLLM('26-1')" id="stop-btn-26-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('26-1')" id="regenerate-btn-26-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="26-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"多智能体为什么不一定更强"有疑问？比如「那个 90.2% 到底怎么测的」「15× 的 token 换成钱是多少」？<br><br>说清你的任务和预算，我帮你估这笔账划不划算。</div></div><div class="chat-input-row"><textarea data-input="26-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('26-1')}" rows="1" placeholder="例如：多智能体比单 Agent 贵多少？"></textarea><button onclick="sendLLM('26-1')">发送</button></div></div></div>
+      <div id="tab-qna-26-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('26-1')">🔄 换一批</button></div><div class="qna-list" data-qna="26-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="26-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">那什么时候该用多智能体、什么时候是自找麻烦？</div><div class="card-q-hint">提示：先别看模型能力，看任务结构——子任务之间要不要共享同一份东西？能拆开的才谈得上并行。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>CooperBench（Khatua 等，arXiv:2601.13295，斯坦福与 SAP 实验室，2026）让两个 Agent 在同一份代码里各改一个功能：单 Agent 独做时成功率约 <strong>50%</strong>，两个 Agent 协作时掉到约 <strong>25%</strong>（这是最强模型 GPT-5 / Claude Sonnet 4.5 一档的结果；论文全模型口径为平均下降约 <strong>30%</strong>），作者称之为"协调的诅咒"。Anthropic 也明确：需要所有 Agent 共享同一份 <b>context</b>、或彼此强依赖的任务，不适合今天的多智能体。</div>
+      <div class="content-section"><p>上一张卡片算清了多智能体的收益与账单。<strong>那么，什么任务该上、什么任务别上？</strong></p><p><strong>因为</strong>多智能体只在"任务能切成互不依赖的并行子任务"时才划算；一旦子任务要共享同一份上下文、互相依赖，协调成本（多出来的 token 与等待时间）就会盖过并行收益。<strong>就像</strong>装修：砌墙和铺砖互不干扰，可以两队并进；水电和墙面必须分先后，硬拆成两队只会互相等。<strong>所以</strong>先看任务结构，再决定拆不拆。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：拆得开才并行</div>
+        <div class="step"><div class="step-title">Step 1：任务形状决定值不值得</div>
+          <table><tr><th>任务形状</th><th>适合多智能体</th><th>为什么</th></tr><tr><td>广度研究（多来源、互不依赖）</td><td>是</td><td>线程独立，信息超一个窗口</td></tr><tr><td>同标准对比多个对象</td><td>是</td><td>每个对比独立跑、结果可合流</td></tr><tr><td>多个 Agent 改同一份代码</td><td><strong>否</strong></td><td>要共享上下文，改动互相冲突</td></tr><tr><td>串行流水线</td><td>否</td><td>没有可并行的部分</td></tr><tr><td>强延迟敏感</td><td>否</td><td>编排每波都要等最慢的 worker</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">结构说明：判据是"子任务之间要不要共享同一份状态"——不共享才谈得上并行。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：并行能快多少（示意）</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>4 个独立子任务，每个 10 秒</td><td>串行 4 × 10 = <strong>40 秒</strong></td></tr><tr><td>并行后关键路径</td><td>最慢子任务 10 秒 + 合并 2 秒 = <strong>12 秒</strong></td></tr><tr><td>加速比</td><td>40 ÷ 12 ≈ <strong>3.33 倍</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：4 个独立子任务（示意）每个 10 秒，串行 40 秒；并行后关键路径 = 最慢那条线程 10 秒 + 合并 2 秒 = 12 秒，加速约 3.33 倍。加速比的<strong>上限由最慢的线程决定，不由子任务个数决定</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：反过来，协调成本也会吃掉收益</div>
+          <table><tr><th>情形</th><th>观察</th></tr><tr><td>两个 Agent 改同一份共享代码</td><td>成功率约 50% → <strong>25%</strong>（CooperBench，2026；最强模型档）</td></tr><tr><td>必须共享同一份上下文</td><td>Anthropic：这类任务不适合今天的多智能体</td></tr><tr><td>只是"多采样几次"</td><td>与直接多采无本质区别，白付协调费</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：共享写场景下成功率从约 50% 掉到约 25%（约砍半）——这是最强模型 GPT-5 / Claude Sonnet 4.5 一档的结果，论文全模型口径平均下降约 30%。一句话判据：<strong>读多写少、线程独立 → 值得并行；写共享状态、强依赖 → 保持单线程。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>判据是任务结构：能切成独立、读多写少的线程，才上多智能体；子任务要共享同一份状态时，一个带规划的 Agent 往往更省更稳——<strong>并行省下的时间，要拿多出来的 token 去换。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','26-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','26-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-26-2" class="llm-section"><button class="llm-btn" onclick="startChat('26-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="26-2"><div class="chat-toolbar"><button onclick="copyChat('26-2')">📋 复制对话</button><button onclick="clearChat('26-2')">🗑 清空</button><button onclick="stopLLM('26-2')" id="stop-btn-26-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('26-2')" id="regenerate-btn-26-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="26-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 拿不准自己的任务该不该拆？比如「我的子任务要不要共享状态」「读多写少怎么判断」？<br><br>把你的任务流程说一遍，我帮你判断该上多智能体还是单 Agent。</div></div><div class="chat-input-row"><textarea data-input="26-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('26-2')}" rows="1" placeholder="例如：我的任务适合多智能体吗？"></textarea><button onclick="sendLLM('26-2')">发送</button></div></div></div>
+      <div id="tab-qna-26-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('26-2')">🔄 换一批</button></div><div class="qna-list" data-qna="26-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="26-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">两个 Agent 要协作，为什么必须先解决「我是谁、我能做什么」？</div><div class="card-q-hint">提示：想一次"把活派给别人"的完整过程——你得先知道对方的身份和能力，否则派出去会发生什么？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>A2A</strong>（Agent2Agent，Google 于 2025-04-09 发布，50+ 家厂商参与）是 Agent 之间的互操作协议：用 <strong>AgentCard</strong> 描述身份与能力，用 Task / Message / Artifact 交换任务与产物。官方把"能力发现"列为协议的第一项能力，并指出没有统一协议时，两两对接的集成成本按 O(N²) 增长。</div>
+      <div class="content-section"><p>上一张卡片说明要挑能拆开的任务。<strong>那拆完之后，两个 Agent 凭什么才能相互派活？</strong></p><p><strong>因为</strong>派活的前提是"可发现"与"可验证"：不知道对方能做什么就会派错活，不知道对方是谁就无法验证结果、也可能被冒名者接走。<strong>就像</strong>进公司找人办事：先看工牌（身份）和岗位（能力），再谈具体做什么，否则会把报销单交给实习生。<strong>所以</strong>协议要先解决"我是谁、我能做什么"。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：能力发现与它的规模效应</div>
+        <div class="step"><div class="step-title">Step 1：A2A 的四类核心对象</div>
+          <table><tr><th>对象</th><th>作用</th></tr><tr><td>AgentCard（智能体名片）</td><td>身份 + 能力清单，放在 /.well-known/agent-card.json（旧版曾用 agent.json）</td></tr><tr><td>Task（任务）</td><td>一次可跟踪、可回访的委派</td></tr><tr><td>Message / Part（消息 / 片段）</td><td>对话消息与其中的内容片段</td></tr><tr><td>Artifact（工件）</td><td>任务产物</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">结构说明：先在名片里完成"发现"（AgentCard），再派单（Task）、靠消息推进（Message）、用产物收尾（Artifact）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：没有协议时，通道数按 O(N²) 涨</div>
+          <table><tr><th>Agent 数 N</th><th>两两直连 N(N−1)/2</th><th>有统一协议后</th></tr><tr><td>3</td><td>3 × 2 ÷ 2 = 3</td><td>3</td></tr><tr><td>5</td><td>5 × 4 ÷ 2 = <strong>10</strong></td><td>5</td></tr><tr><td>10</td><td>10 × 9 ÷ 2 = <strong>45</strong></td><td>10</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：5 个 Agent 两两直连要 10 条通道、10 个要 45 条；有统一协议后，每个 Agent 只对自己的一张名片负责、彼此通过名片对接，<strong>描述复杂度降为 O(N)</strong>，因此通道数降回 N。协议把集成复杂度从 O(N²) 压到 O(N)——链上流动的其实是彼此的 <b>context</b> 与身份。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：AgentCard 里写什么</div>
+          <table><tr><th>字段</th><th>内容</th></tr><tr><td>身份与描述</td><td>我是谁、做什么</td></tr><tr><td>服务端点</td><td>到哪里找我</td></tr><tr><td>鉴权要求</td><td>怎么安全连接</td></tr><tr><td>能力（capabilities）</td><td>是否支持流式、推送</td></tr><tr><td>技能（skills）</td><td>我能接哪些活</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">结构说明：名片里"能力"与"鉴权"必须同时有——只写能力、不写鉴权，等于把门敞开。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>协议解决两件事：<strong>"能否互通"（发现与格式）与"敢不敢互通"（身份与权限）</strong>。AgentCard 是两件事的交汇点——它既是接线图，也是准入门槛。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','26-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','26-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-26-3" class="llm-section"><button class="llm-btn" onclick="startChat('26-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="26-3"><div class="chat-toolbar"><button onclick="copyChat('26-3')">📋 复制对话</button><button onclick="clearChat('26-3')">🗑 清空</button><button onclick="stopLLM('26-3')" id="stop-btn-26-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('26-3')" id="regenerate-btn-26-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="26-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 A2A / AgentCard 有疑问？比如「AgentCard 到底放什么」「它和工具协议差在哪」？<br><br>说清你要互通的系统，我帮你判断该用哪种协议。</div></div><div class="chat-input-row"><textarea data-input="26-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('26-3')}" rows="1" placeholder="例如：AgentCard 里应该写什么？"></textarea><button onclick="sendLLM('26-3')">发送</button></div></div></div>
+      <div id="tab-qna-26-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('26-3')">🔄 换一批</button></div><div class="qna-list" data-qna="26-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="26-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">分好角色之后，它们凭什么才能不互相打架？</div><div class="card-q-hint">提示：先想"消息走哪条路、谁负责收口"，再想"每次消息里到底该放全文，还是放个指针"。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>Anthropic 的编排者—工作者（orchestrator-worker）模式里，主 Agent 把任务与共享状态写进外部存储，子 Agent 各自在独立 <b>context</b> 里跑，<strong>结果写回文件系统、只把轻量引用回传编排者</strong>，而不是把全文塞进对话。这决定了通信既要解决"拓扑"问题，也要解决"消息放什么"的问题。</div>
+      <div class="content-section"><p>上一张卡片用 AgentCard 解决了"我是谁、我能做什么"。<strong>可角色分好之后，消息怎么走才不会互相打架？</strong></p><p><strong>因为</strong>通信拓扑（谁和谁连、消息怎么走）决定了"谁在等谁、谁和谁冲突"：中心辐射只有一个编排者收口，谁来合流很清楚；网状人人对话则容易两两改同一件事而打架。<strong>就像</strong>开会：主持人一个人收口，比分头两两私聊更容易达成一致。<strong>所以</strong>先定拓扑，再定消息里放什么。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：拓扑选谁、消息放什么</div>
+        <div class="step"><div class="step-title">Step 1：三种通信拓扑对比</div>
+          <table><tr><th>拓扑</th><th>通道数（N 个 Agent）</th><th>优点</th><th>风险</th></tr><tr><td>中心辐射（orchestrator-worker）</td><td>N − 1</td><td>好合流、易追踪</td><td>中心是单点</td></tr><tr><td>网状（peer-to-peer）</td><td>N(N−1)/2</td><td>无单点</td><td>易冲突、难追踪</td></tr><tr><td>黑板（shared state）</td><td>各写同一存储</td><td>解耦</td><td>要并发控制</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：5 个 Agent 时，中心辐射 5 − 1 = 4 条通道、网状 5 × 4 ÷ 2 = 10 条。通道越多，追踪与冲突的成本越高。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：消息传"全文"还是传"引用"</div>
+          <table><tr><th>做法</th><th>每次传递</th><th>5 个子产物合计（示意）</th></tr><tr><td>传全文</td><td>5,000 token</td><td>5 × 5,000 = <strong>25,000 token</strong></td></tr><tr><td>传引用（指针 + 摘要）</td><td>100 token</td><td>5 × 100 = <strong>500 token</strong></td></tr><tr><td>省下</td><td colspan="2">1 − 500 ÷ 25,000 = <strong>98%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：子产物（示意）每个 5,000 token，若把全文塞进每次消息，5 个就是 25,000；改成"写进外部存储、只传引用和摘要"，只花 500，省 98%。这正是 Anthropic 的做法。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：一条消息该带什么</div>
+          <table><tr><th>字段</th><th>作用</th></tr><tr><td>任务 id</td><td>同一件事的多次消息可归并</td></tr><tr><td>发送方 / 接收方</td><td>谁问谁、防串台</td></tr><tr><td>意图</td><td>派单 / 汇报 / 追问 / 收尾</td></tr><tr><td>产物引用</td><td>指向外部存储，不塞全文</td></tr><tr><td>状态</td><td>进行中 / 需要输入 / 完成</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">结构说明：消息是"结构化信封"而非聊天记录——带上任务 id 与状态，编排者才能在多线程里分清谁在汇报哪件事。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>拓扑的判据是"写操作是否单线程"：多个 Agent 只读、只有一个编排者合流就稳；多个 Agent 同时写共享状态就容易打架。消息则要"传引用不传全文"。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','26-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','26-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-26-4" class="llm-section"><button class="llm-btn" onclick="startChat('26-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="26-4"><div class="chat-toolbar"><button onclick="copyChat('26-4')">📋 复制对话</button><button onclick="clearChat('26-4')">🗑 清空</button><button onclick="stopLLM('26-4')" id="stop-btn-26-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('26-4')" id="regenerate-btn-26-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="26-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对通信拓扑有疑问？比如「中心辐射会不会单点挂掉」「消息里到底该放多少」？<br><br>说一下你的协作规模，我帮你选拓扑、设计消息。</div></div><div class="chat-input-row"><textarea data-input="26-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('26-4')}" rows="1" placeholder="例如：该用中心辐射还是网状？"></textarea><button onclick="sendLLM('26-4')">发送</button></div></div></div>
+      <div id="tab-qna-26-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('26-4')">🔄 换一批</button></div><div class="qna-list" data-qna="26-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="26-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">长任务跑到一半，上下文窗口塞满了怎么办？</div><div class="card-q-hint">提示：想一想"能不能少带一点"——哪些信息是这一步真正要看的，哪些可以先收起来、要用再取？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>上下文工程（context engineering）指的不是"写更好的提示词"，而是<strong>决定每一步把哪些 token 放进有限的上下文窗口</strong>。长轨迹会随步数线性增长，所以必须靠摘要、检索与外置状态来压缩——这和上一部分的记忆与检索工程是同一条线。</div>
+      <div class="content-section"><p>上一张卡片把通信拓扑和消息格式定了下来。<strong>可长任务跑到一半，上下文窗口塞满了怎么办？</strong></p><p><strong>因为</strong>轨迹会随步数线性增长，每多一步就多一段要带上，20 步就要占掉 128K 窗口的约 31%，很快逼近需要压缩的区间；硬塞只会让模型对中段信息的利用更差。<strong>就像</strong>出差装箱：不是把所有家当都带上，而是按行程挑必需品、其余寄存，要用再取。<strong>所以</strong>先算清轨迹怎么长，再看三种压缩各管什么。</p><p>最省事的做法是「窗口还能装就继续装」；但轨迹按步数线性长，每步 2,000 token，20 步就是 40,000，占 128K 窗口约 31%（与第 22 课同一窗口口径），继续下去很快逼近上限，而且模型对上下文中间部分的利用最差。<strong>所以</strong>长任务必须主动做上下文工程，而不是等它自己塞满。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：把长轨迹压进窗口</div>
+        <div class="step"><div class="step-title">Step 1：原始轨迹按步数线性增长</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>每步轨迹（示意）</td><td>2,000 token</td></tr><tr><td>10 步</td><td>10 × 2,000 = <strong>20,000 token</strong></td></tr><tr><td>20 步</td><td>20 × 2,000 = <strong>40,000 token</strong>（占 128K 窗口约 31%）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：每步 2,000 token（示意），10 步 20,000、20 步 40,000——20 步已占 128K 窗口的约 31%（与第 22 课同一窗口口径），不压缩的话，任务越长窗口越紧，很快逼近上限。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：三种压缩手段各管什么</div>
+          <table><tr><th>手段</th><th>做法</th><th>代价 / 风险</th></tr><tr><td>摘要（compaction）</td><td>把历史压成要点</td><td>信息有损</td></tr><tr><td>检索</td><td>按需取回相关片段</td><td>可能漏召</td></tr><tr><td>外置状态</td><td>文件 / 数据库存全量</td><td>多一层读写</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">分工：<strong>摘要管"方向"、检索管"细节"、外置状态管"全量"</strong>——三者配合，才能在有限窗口里长期运行。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：压缩后能省多少（示意）</div>
+          <table><tr><th>方案</th><th>进上下文窗口的量</th></tr><tr><td>不压缩</td><td>20,000 token</td></tr><tr><td>摘要 2,000 + 按需检索 3,000</td><td>2,000 + 3,000 = <strong>5,000 token</strong></td></tr><tr><td>降幅</td><td>1 − 5,000 ÷ 20,000 = <strong>75%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：摘要到 2,000、按需检索 3,000，进窗口从 20,000 降到 5,000，降幅 75%（示意）。判据不是"能塞多少塞多少"，而是"这一步真的需要看到哪些 token"。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>上下文工程不是"写更好的提示"，而是决定每一步把哪些 token 放进窗口：摘要给方向、检索给细节、外置状态兜住全量。这是多智能体能不能跑长大的最后一道工程约束。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','26-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','26-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-26-5" class="llm-section"><button class="llm-btn" onclick="startChat('26-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="26-5"><div class="chat-toolbar"><button onclick="copyChat('26-5')">📋 复制对话</button><button onclick="clearChat('26-5')">🗑 清空</button><button onclick="stopLLM('26-5')" id="stop-btn-26-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('26-5')" id="regenerate-btn-26-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="26-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对上下文工程有疑问？比如「摘要和检索怎么配」「外置状态放哪」？<br><br>说清你的任务步数与窗口大小，我帮你设计压缩方案。</div></div><div class="chat-input-row"><textarea data-input="26-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('26-5')}" rows="1" placeholder="例如：长任务的上下文该怎么压？"></textarea><button onclick="sendLLM('26-5')">发送</button></div></div></div>
+      <div id="tab-qna-26-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('26-5')">🔄 换一批</button></div><div class="qna-list" data-qna="26-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="26-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">多智能体到底贵在哪——为什么本课不教框架？</div><div class="card-q-hint">提示：把账拆成三笔分开算——多花了多少 token、编排要等多慢、串联起来失败率怎么变；再想框架替你做的到底是什么。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>LangGraph / AutoGen / CrewAI 是常见的多智能体框架，它们把"能力发现、任务委派、通信拓扑、消息格式、上下文压缩"固化成现成的壳。但 Anthropic 的实测提醒：这些机制背后是真实的代价——多智能体约 15× 普通对话的 token，编排者每波都要等最慢的 worker，而多个 Agent 串联会让整体失败率连乘上升。</div>
+      <div class="content-section"><p>上一张卡片把长轨迹压进了窗口。最后把三笔账合起来看，并回答一个绕不开的问题：<strong>为什么本课不教任何具体框架？</strong></p><p><strong>因为</strong>多智能体的代价分布在三处——token、延迟与失败率；而框架替你做的，正是前面五张卡片讲的事。<strong>就像</strong>学开车：先懂油门、刹车和路况判断，再挑哪款车，否则换个车型就不会开。<strong>所以</strong>先把三笔账算清，再谈工具。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：token、延迟、失败率</div>
+        <div class="step"><div class="step-title">Step 1：token 账</div>
+          <table><tr><th>口径</th><th>倍数（相对普通对话）</th><th>一次任务（示意）</th></tr><tr><td>普通对话</td><td>1×</td><td>20,000 token</td></tr><tr><td>单 Agent</td><td>约 4×</td><td>80,000 token</td></tr><tr><td>多智能体</td><td>约 15×</td><td><strong>300,000 token</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：多智能体是单 Agent 的 300,000 ÷ 80,000 = 3.75 倍（倍数由本课以 20,000 token 示意锚点推算；约 4× / 15× 才是 Anthropic 口径）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：延迟账</div>
+          <table><tr><th>做法</th><th>总时长（示意）</th></tr><tr><td>串行 4 步，每步 5 秒</td><td>4 × 5 = <strong>20 秒</strong></td></tr><tr><td>编排 + 4 个 worker 并行 + 合并 2 秒</td><td>5 + 2 = <strong>7 秒</strong></td></tr><tr><td>多波次任务</td><td>每波都要等最慢的 worker</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：并行把 20 秒压到 7 秒；但编排者每一波都阻塞在最慢的 worker 上——只要一个 worker 卡住，整波都等它，这是延迟的尾部风险。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：失败率账</div>
+          <table><tr><th>Agent 串联数</th><th>单点成功率 0.9</th><th>单点成功率 0.99</th></tr><tr><td>4</td><td>0.9⁴ ≈ <strong>0.656</strong></td><td>0.99⁴ ≈ <strong>0.961</strong></td></tr><tr><td>10</td><td>0.9¹⁰ ≈ <strong>0.349</strong></td><td>0.99¹⁰ ≈ <strong>0.904</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：多个 Agent 串起来，整体成功率是各自成功率的连乘——0.9 的 4 个串联只剩 0.656、10 个只剩 0.349。并行能省时间，但串联步骤越多、整体失败率越高，这与上一部分"步数越多越容易崩"是同一条规律。</div>
+        </div>
+      </div>
+      <div class="content-section"><p><strong>那为什么本课不教 LangGraph / AutoGen / CrewAI 这些框架？</strong>因为课程立场是<strong>先懂原理</strong>：框架替你做的，正是这 6 张卡讲的 6 件事——能力发现（AgentCard）、任务委派、通信拓扑、消息设计、上下文压缩、成本与失败率的账。等你清楚它们内部在干什么，用任何框架都只是 API 问题；反过来，只会调框架的人，一旦出问题就不知道该改拓扑还是改消息格式。</p></div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>收口：多智能体的完整链条是——先算收益账（不一定更强）→ 挑能拆开的任务 → 用 AgentCard 解决"我是谁" → 定通信拓扑与消息格式 → 做上下文工程把轨迹压进窗口 → 三笔账（token / 延迟 / 失败率）都算清。框架只是把这些固化下来的壳——<strong>先懂原理，再挑工具。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','26-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','26-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-26-6" class="llm-section"><button class="llm-btn" onclick="startChat('26-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="26-6"><div class="chat-toolbar"><button onclick="copyChat('26-6')">📋 复制对话</button><button onclick="clearChat('26-6')">🗑 清空</button><button onclick="stopLLM('26-6')" id="stop-btn-26-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('26-6')" id="regenerate-btn-26-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="26-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对三笔账有疑问？比如「我的任务该不该上多智能体」「框架到底省了什么」？<br><br>给我任务类型与预算，我帮你把 token、延迟、失败率一起估一遍。</div></div><div class="chat-input-row"><textarea data-input="26-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('26-6')}" rows="1" placeholder="例如：多智能体到底贵在哪？"></textarea><button onclick="sendLLM('26-6')">发送</button></div></div></div>
+      <div id="tab-qna-26-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('26-6')">🔄 换一批</button></div><div class="qna-list" data-qna="26-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 26 课完成 · 下一课：第 27 课「Agent 训练」</p>
+    <a href="#" onclick="switchLesson(27);return false;">进入第 27 课：Agent 训练 →</a>　·　<a href="#" onclick="switchLesson(25);return false;">← 上一课：规划与反思</a>
+  </div></div>

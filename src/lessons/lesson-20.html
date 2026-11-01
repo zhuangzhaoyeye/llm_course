@@ -1,0 +1,204 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 20 课：提示工程</h2>
+    <p class="subtitle">上一课我们学会了怎么「证明」一个模型变好了——用评测把分数拆成构念、污染、判官与噪声。这一课回到最日常、也最像玄学的动作：<strong>把话说给模型听</strong>。同一个模型、同一个问题，只是换个问法，结果为什么能差一大截？提示里给不给例子（<strong>zero-shot</strong> 零样本 / <strong>few-shot</strong> 少样本，即给 0 个还是几个示例）、要不要让它先一步步想（Chain-of-Thought 思维链）、输出怎么卡成 JSON（用键值对表示数据的文本格式）、调不好时该改提示还是改检索与微调、一个 Agent 的 prompt（提示词）到底由哪几块拼成——这一课把「提示工程」从手感变成可算的动作，也为下一课《从 Prompt 到 Agent》把最基础的接口讲清楚。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 用同一个模型的两个候选分数算清「换个问法」动了什么——logits（模型给每个候选 token 打出的原始分数）只挪 0.2，Top-1 就可能翻转（softmax(2.1, 2.0) 从 0.525/0.475 变成 0.4256/0.5744）<br>② 用 TriviaQA 的三个读数（64.3 / 68.0 / 71.2）算清 zero-shot→few-shot 的收益与 token 成本（给 5 个例子，prompt 膨胀 8.5 倍），并用 Binomial(40, 0.569) 算出「多条理由投票」把正确率抬到 76.56%<br>③ 用 8000 token 的窗口把 Agent 的 prompt 拆成 system prompt（系统提示）+ 角色 + context（上下文），并算出历史涨到 6000 token 时超支 400 token</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步逻辑递进：从一个「问法」的差异，推到 Agent 的 prompt 该怎么组装）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要让同一个模型在同一个<strong>任务</strong>上稳定交付，<strong>必须</strong>先把「提示」看成一次<strong>条件设定</strong>——换一句话，就是换了一套 <b>logits</b>（模型给每个候选 token 打出的原始分数）分布。<b class="rn-key">先看清提示改的是什么</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然「<b>先看清提示改的是什么</b>」，<strong>所以</strong>最省事的做法是把几个例子直接塞进 <b>context</b>（模型这一次能看到的全部输入）——不给、给一个、给几个，就是 zero-shot / one-shot / few-shot。这就<b class="rn-key">用例子把任务写进 context</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然「<b>用例子把任务写进 context</b>」，<strong>这就要求</strong>再往前一步：光给例子还不够，面对要推理的题，要让它把中间步骤也一起吐成 <b>tokens</b>（再采样多条投票）——这就是 Chain-of-Thought（思维链）与 Self-Consistency（自洽投票）。<b class="rn-key">推理时把步骤摊开</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">既然「<b>推理时把步骤摊开</b>」，<strong>于是</strong>输出会变成一大段自然语言——下游程序没法直接吃，<strong>所以</strong>还得让模型稳定吐出结构化 <b>JSON</b>（用键值对表示数据的文本格式）的 token 序列。<b class="rn-key">让输出能被程序解析</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>让输出能被程序解析</b>」这一层已用结构约束解决，那提示再调不好，剩下的病根只有两类，<strong>这就要求</strong>判断该换哪件武器——缺知识就把外部资料检索进来（RAG（检索增强生成），用 <b>embedding</b> 找到相关 <b>context</b>），缺行为才改模型权重（微调）。<b class="rn-key">先改提示再考虑检索与微调</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>先改提示再考虑检索与微调</b>」，<strong>这就要求</strong>把 prompt（发给模型的整段输入）组装成一个系统：system prompt（系统提示，最前面的角色与规则）+ 角色 + <b>context</b>（本轮拼进去的历史与资料），并用 <b>token</b> 预算管住它，才能交给第 21 课的 Agent 去循环。<b class="rn-key">把 prompt 组装成系统</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">提示工程</span><span class="meta-tag">zero-shot</span><span class="meta-tag">few-shot</span><span class="meta-tag">上下文学习</span><span class="meta-tag">思维链</span><span class="meta-tag">结构化输出</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="20-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">同一个模型、同一个问题，只是换个问法，结果为什么能差这么多？</div><div class="card-q-hint">提示：先把「模型回答」想成从一堆候选里挑一个（每个候选有个分数），再想换问法动的是不是这堆分数。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>你把整段发给模型的输入就叫 <strong>prompt</strong>（提示词）；专门琢磨怎么把它写好，就是 <strong>prompt engineering</strong>（提示工程）——不改模型的一个权重，只改你输入的文字。ICLR 2024 的《Quantifying Language Models' Sensitivity to Spurious Features in Prompt Design》（Sclar 等，arXiv:2310.11324）系统证明：只把标点、空格、分隔符换一换（含义完全不变），很多开源模型的分数就会大幅波动。NVIDIA 的 SCORE 评测（arXiv:2503.00137）也测到：仅仅把 MMLU-Pro 的题目换一种说法，准确率波动可达 <strong>10%</strong>。这说明 prompt 不是「随手写的说明」，而是模型这次作答的<strong>条件</strong>。</div>
+      <div class="content-section"><p>先澄清一个直觉误区：模型不是「听懂了你的意思」，而是「在你给的条件上，接着往下续写」。</p><p><strong>因为</strong>它每一步输出，都是从一张候选表里挑一个 token——而这张候选表（每个候选的分数叫 <b>logits</b>（模型给每个候选 token 打出的原始分数））完全由你这段 prompt 决定。prompt 里多一个词、少一个标点，候选表就会挪一挪。</p><p><strong>就像</strong>同一份外卖备注：写「不要辣」和写「少放辣椒、小孩吃」，厨师出餐很可能就是两道菜——你改的是备注，不是厨房。回到术语：能左右模型输出的这段输入，就是 prompt。<strong>所以</strong>下面用三笔账，把「换个问法」到底动了什么算出来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：换一个问法，动的是哪个量</div>
+        <div class="step"><div class="step-title">Step 1：只看两个候选，换问法前后各是多少分</div>
+          <table><tr><th>项</th><th>直接问</th><th>加一句限定后</th></tr><tr><td>候选 A 的 logits</td><td>2.1</td><td>1.9</td></tr><tr><td>候选 B 的 logits</td><td>2.0</td><td>2.2</td></tr><tr><td>A 的概率（softmax）</td><td><strong>0.525</strong></td><td><strong>0.4256</strong></td></tr><tr><td>B 的概率（softmax）</td><td><strong>0.475</strong></td><td><strong>0.5744</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：softmax（白话：把各候选的 logits 取 e 的幂再除以总和，变成加起来为 1 的概率，分数越高概率越大）(2.1, 2.0) = (e^2.1, e^2.0) ÷ (e^2.1 + e^2.0) = (8.166, 7.389) ÷ 15.555 = <strong>(0.525, 0.475)</strong>；换成限定问法后 softmax(1.9, 2.2) = (6.686, 9.025) ÷ 15.711 = <strong>(0.4256, 0.5744)</strong>。logits 只挪了 0.2，Top-1 就从 A 翻到 B——换个问法，动的就是这几个数。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：换措辞对整份卷子的影响有多大</div>
+          <table><tr><th>项</th><th>数值</th><th>来源 / 口径</th></tr><tr><td>示意基准正确率</td><td>70%</td><td>示意值</td></tr><tr><td>释义后最坏上浮</td><td>70 × (1 + 10%) = <strong>77%</strong></td><td>波动上限 10%（arXiv:2503.00137）</td></tr><tr><td>释义后最坏下探</td><td>70 × (1 − 10%) = <strong>63%</strong></td><td>同上</td></tr><tr><td>同一模型、同一批题的跨度</td><td>77 − 63 = <strong>14 分</strong></td><td>算术</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：若基准 70%，把「措辞波动 10%」按相对值套上去，最好与最坏能差 <strong>14 分</strong>。口径说明：SCORE（arXiv:2503.00137）原文只写 accuracy fluctuations of up to 10%，未言明相对还是绝对，本课按相对值处理（70 × 1.1 / 0.9 得 77 / 63），若按绝对百分点读（70 ± 10 → 80 / 60）则跨度为 20 分，70% 为示意基准。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：把波动落到「有多少题会改答案」</div>
+          <table><tr><th>情形</th><th>题数</th><th>答案改变的题数</th><th>占比</th></tr><tr><td>直接问 vs 换个说法</td><td>200</td><td>28</td><td>28 ÷ 200 = <strong>14%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术示意：200 道题里有 28 道（<strong>14%</strong>）会因为换措辞而改答案——对单次请求，这就是「同一模型答两次不一样」的来源。口径：200 与 28 为示意值，用来展示波动如何落到具体条数，非某篇论文读数。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>prompt 不是「说明」，而是模型这次作答的<strong>条件</strong>：你写下的每个词都会挪动候选表的 logits。所以「换个问法结果差这么多」不是模型不稳定，而是<strong>条件变了</strong>。提示工程的第一条纪律由此而来——<strong>把提示当成代码来对待：写清楚、固定住、可复现</strong>，而不是每次随口一说。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','20-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','20-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-20-1" class="llm-section"><button class="llm-btn" onclick="startChat('20-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="20-1"><div class="chat-toolbar"><button onclick="copyChat('20-1')">📋 复制对话</button><button onclick="clearChat('20-1')">🗑 清空</button><button onclick="stopLLM('20-1')" id="stop-btn-20-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('20-1')" id="regenerate-btn-20-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="20-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对「换个问法为什么差这么多」有疑问？比如「为什么多一个空格也会变」「提示工程是不是玄学」？<br><br>说出你的任务和两种写法，我帮你判断差异可能来自哪里。</div></div><div class="chat-input-row"><textarea data-input="20-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('20-1')}" rows="1" placeholder="例如：为什么改个标点结果就变了？"></textarea><button onclick="sendLLM('20-1')">发送</button></div></div></div>
+      <div id="tab-qna-20-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('20-1')">🔄 换一批</button></div><div class="qna-list" data-qna="20-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="20-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">一个例子都不给 vs 给几个例子——模型凭什么「看一眼就会」了？</div><div class="card-q-hint">提示：注意模型有没有「改过自己的参数」。如果没有，那它是拿什么在「学」？想一下这几句话到底放在了哪里。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>GPT-3 论文《Language Models are Few-Shot Learners》（Brown 等，arXiv:2005.14165，2020）提出了 <strong>in-context learning</strong>（上下文学习）：把任务说明和几个示例写进输入，模型<strong>不做任何梯度更新</strong>，就能完成没专门训练过的任务。按输入里放几个示例，分三档——<strong>zero-shot</strong>（零样本，一个例子都不给）、<strong>one-shot</strong>（单样本，给 1 个）、<strong>few-shot</strong>（少样本，给若干）。论文用 175B 参数的 GPT-3 在 TriviaQA 上报告了三个读数：64.3% / 68.0% / 71.2%。</div>
+      <div class="content-section"><p>上一张卡片看清了 prompt 是「条件」。这一张问：条件里放<strong>几个例子</strong>，为什么效果差这么多？</p><p><strong>因为</strong>模型读这几个例子时，<strong>参数一个都没变</strong>——它只是把例子当成了本轮 <b>context</b>（模型这一次能看到的全部输入）的一部分，在续写时照着格式与规律往下接。<strong>就像</strong>你临时给同事看三张填好的报销单：他没参加过培训、也没改自己的习惯，却照着样例把第四张填对了——他「会」的是当场照猫画虎，不是学会了新技能。这类「不改参数、只靠上下文里的例子当场学会」的能力，就叫 in-context learning。<strong>所以</strong>下面用 GPT-3 论文的三个真实读数，把「给例子」的收益和代价一起算。</p><p>更自然的做法是一个例子都不给（zero-shot）——模型只能靠指令本身去猜格式；GPT-3 在 TriviaQA 上从 zero-shot 的 64.3% 抬到 few-shot 的 71.2%，这 6.9 分就是「当场照抄示例格式」换来的。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：多给例子，赚多少、贵多少</div>
+        <div class="step"><div class="step-title">Step 1：TriviaQA 上，例子从 0 个加到「几个」</div>
+          <table><tr><th>设置</th><th>例子数</th><th>准确率</th><th>相对前档</th></tr><tr><td>zero-shot（不用示例）</td><td>0</td><td><strong>64.3%</strong></td><td>—</td></tr><tr><td>one-shot（1 个示例）</td><td>1</td><td><strong>68.0%</strong></td><td>68.0 − 64.3 = <strong>+3.7</strong></td></tr><tr><td>few-shot（若干示例）</td><td>K</td><td><strong>71.2%</strong></td><td>71.2 − 68.0 = <strong>+3.2</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：相对 zero-shot 基线，few-shot 共提升 (71.2 − 64.3) ÷ 64.3 = <strong>10.7%</strong>。数据来自 GPT-3 论文（arXiv:2005.14165）。口径：K 为放进 context 的示例个数，随任务不同而变化（论文里多数任务的 K 不超过 32，个别任务用到约 100）；本表只取论文报告的三个准确率读数。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：例子把 prompt 抬贵了多少（K = 5）</div>
+          <table><tr><th>组成</th><th>token 数</th></tr><tr><td>系统说明 + 问题</td><td>40</td></tr><tr><td>每个示例</td><td>60</td></tr><tr><td>K = 5 时 prompt = 40 + 5 × 60</td><td><strong>340</strong></td></tr><tr><td>相对不给例子（40）</td><td>340 ÷ 40 = <strong>8.5 倍</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：40 + 5 × 60 = <strong>340</strong> 个 token，是原来的 <strong>8.5 倍</strong>。口径：40 与 60 为示意值（示例长度随任务变化），倍数是按它们算的，用来演示「例子按条数线性抬价」。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：例子再多，成本继续线性涨</div>
+          <table><tr><th>K（示例数）</th><th>prompt token = 40 + 60K</th><th>相对零样本</th></tr><tr><td>1</td><td>100</td><td><strong>2.5 倍</strong></td></tr><tr><td>5</td><td>340</td><td><strong>8.5 倍</strong></td></tr><tr><td>32</td><td>1960</td><td><strong>49.0 倍</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：每加一条示例就线性多 60 个 token——K = 32 时 prompt 达 <strong>1960</strong> 个 token，是不给例子的 <strong>49 倍</strong>。也就是说，「照猫画虎」不是白来的：例子越多，每次请求要重读的 context 越长、越贵。这正是后面要讲「能不能把重复的例子换成检索或微调」（第 5 张卡）的动机。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>zero-shot / one-shot / few-shot 的区别<strong>只是 context 里放几个例子</strong>，模型权重自始至终不变。所以 few-shot 的收益来自「当场照抄格式与规律」，不是「训练」。代价是<strong>每个请求都要重读一遍例子</strong>（token 线性增长）。一句话：<strong>例子是放进 context 的，不是写进权重的</strong>——这条界线，正是后面「检索 vs 微调」选型的起点。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','20-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','20-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-20-2" class="llm-section"><button class="llm-btn" onclick="startChat('20-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="20-2"><div class="chat-toolbar"><button onclick="copyChat('20-2')">📋 复制对话</button><button onclick="clearChat('20-2')">🗑 清空</button><button onclick="stopLLM('20-2')" id="stop-btn-20-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('20-2')" id="regenerate-btn-20-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="20-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 few-shot 有疑问？比如「例子怎么挑」「给多了会不会更差」？<br><br>说清你的任务和我给的示例，我帮你判断例子的代表性够不够。</div></div><div class="chat-input-row"><textarea data-input="20-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('20-2')}" rows="1" placeholder="例如：给几个例子最合适？"></textarea><button onclick="sendLLM('20-2')">发送</button></div></div></div>
+      <div id="tab-qna-20-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('20-2')">🔄 换一批</button></div><div class="qna-list" data-qna="20-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="20-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">为什么让它「先一步步想、再回答」就对了？</div><div class="card-q-hint">提示：数一数模型为这道题「多花了多少步计算」，再想这些步骤是你改提示就能加上的，还是必须训练才有。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Chain-of-Thought</strong>（思维链，简称 CoT）出自 Wei 等《Chain-of-Thought Prompting Elicits Reasoning in Large Language Models》（arXiv:2201.11903，NeurIPS 2022）：只要在示例里把答案换成「带中间推理步骤」的版本，模型就会跟着分步推理。论文用 PaLM 540B 在数学应用题 GSM8K 上报告 17.9% → 56.9% 的提升。在此之上，Wang 等《Self-Consistency Improves Chain of Thought Reasoning in Language Models》（arXiv:2203.11171，ICLR 2023）又提出 <strong>Self-Consistency</strong>（自洽投票）：采样多条不同的推理链，对最终答案投票，取最一致的那个。</div>
+      <div class="content-section"><p>上一张卡片给的是「例子」。这一张问：对同样的题目，为什么让它<strong>先写推理步骤、再给答案</strong>，正确率就上去了？</p><p><strong>因为</strong>模型每多吐一个 <b>token</b>（它输出的最小文本单位）就多做一步计算——直接答只能一口气算完，先想再答等于把计算量摊开。<strong>就像</strong>让心算和列竖式比：题目不会变，但列了竖式就有草稿可对齐、可回看。这种做法叫 Chain-of-Thought。要特别划清一条线：<strong>CoT 是「推理时」的技巧——你改的是提示，模型权重一点没动</strong>；而「把推理能力直接训进权重」是另一条路，那是第 12 课（推理模型与 RLVR（用可验证的奖励把推理写进权重））的主题。<strong>所以</strong>下面把 CoT 的收益、代价，以及它的升级版 Self-Consistency 一起算。</p><p>更自然的做法是直接要答案——PaLM 540B 在 GSM8K 上直接答只有 17.9%，换成带步骤的示例后跳到 56.9%，这 39 分的差距全来自「把中间步骤也吐成 token」。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：多写几步推理，赚多少、贵多少</div>
+        <div class="step"><div class="step-title">Step 1：GSM8K 上，标准提示 vs 思维链</div>
+          <table><tr><th>提示方式</th><th>PaLM 540B 解得率</th></tr><tr><td>标准提示（直接给答案）</td><td><strong>17.9%</strong></td></tr><tr><td>思维链提示（带步骤的示例）</td><td><strong>56.9%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：绝对提升 56.9 − 17.9 = <strong>39.0 分</strong>，相对提升 (56.9 − 17.9) ÷ 17.9 = <strong>217.9%</strong>。数据来自 arXiv:2201.11903：同模型、同题目，只是把示例的答案换成了带步骤的版本。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：代价——思维链要多吐多少 token</div>
+          <table><tr><th>输出方式</th><th>大致 token 数</th><th>说明</th></tr><tr><td>直接给答案</td><td>5</td><td>只有一个结果</td></tr><tr><td>带步骤推理</td><td>120</td><td>几行推导 + 结论</td></tr><tr><td>倍数</td><td>120 ÷ 5 = <strong>24 倍</strong></td><td>时间与费用随之上升</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术示意：输出从 5 个 token 涨到 120 个，涨 <strong>24 倍</strong>——正确率换来的是延迟和费用。口径：5 与 120 是日常观测的示意量级（随题目长度变化），倍数按它们算，用来展示「想得越多、吐得越多」。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：升级版——多次采样再投票（Self-Consistency）</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>采样条数 n</td><td>40</td></tr><tr><td>单条正确率 p（沿用 56.9%）</td><td>0.569</td></tr><tr><td>40 条里正确票的期望</td><td>40 × 0.569 = <strong>22.76 票</strong></td></tr><tr><td>多数票落在正确项的概率</td><td>≈ <strong>76.56%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：Self-Consistency 让模型用较高 <b>temperature</b>（采样温度，越高越发散）采样出多条不同的推理链，再对最终答案投票。若单条正确率 p = 0.569、采样 n = 40，则多数票正确的概率 = Σ(k=21..40) C(40, k) × 0.569^k × 0.431^(40−k) ≈ <strong>0.7656</strong>，比单条的 0.569 高出约 20 个百分点。论文实测（arXiv:2203.11171）在 GSM8K 上把思维链再提升 <strong>17.9 个百分点</strong>（即从该论文自己的贪心 CoT 基线 56.5% 绝对提升到约 74.4%；与本卡 Step 1 引 CoT 论文的 56.9% 略差，属两篇口径不同），SVAMP +11.0 个百分点、AQuA +12.2 个百分点、StrategyQA +6.4 个百分点、ARC-c +3.9 个百分点。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>思维链把「一口气算」摊成多步，Self-Consistency 再把「一条链」变成「多条链投票」。两者的共同点是<strong>都在推理时发生，权重不变</strong>——这和第 12 课「把推理能力训进权重」是两条不同的路。记住这条界线：<strong>提示层面的技巧，改的是 context；训练层面的能力，改的是参数。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','20-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','20-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-20-3" class="llm-section"><button class="llm-btn" onclick="startChat('20-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="20-3"><div class="chat-toolbar"><button onclick="copyChat('20-3')">📋 复制对话</button><button onclick="clearChat('20-3')">🗑 清空</button><button onclick="stopLLM('20-3')" id="stop-btn-20-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('20-3')" id="regenerate-btn-20-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="20-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对思维链有疑问？比如「什么任务适合思维链」「投票要采几条」？<br><br>说出你的任务类型，我帮你判断该不该摊开步骤、要不要投票。</div></div><div class="chat-input-row"><textarea data-input="20-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('20-3')}" rows="1" placeholder="例如：思维链对哪些任务有用？"></textarea><button onclick="sendLLM('20-3')">发送</button></div></div></div>
+      <div id="tab-qna-20-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('20-3')">🔄 换一批</button></div><div class="qna-list" data-qna="20-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="20-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">怎样才能稳定拿到可被程序解析的 JSON，而不只是写一句「请输出 JSON」？</div><div class="card-q-hint">提示：想一下「生成」是逐 token 挑的——如果每一步都可能是任何一个字，你怎么保证最后拼出来的一定合法？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>早期做法是 <strong>JSON mode</strong>：只保证输出「是一段合法 JSON」，不保证符合你要的字段。<strong>Structured Outputs</strong>（结构化输出）进一步：把 <strong>JSON Schema</strong>（一份描述数据结构的声明）随请求一起发给模型，约束解码只能生成符合该结构的 token。OpenAI 官方文档《Structured outputs》明确对比了两者：JSON mode「保证是合法 JSON，但不能保证严格符合所提供的 Schema」；结构化输出则推荐用于函数调用、结构化抽取与多步工作流（platform.openai.com/docs/guides/structured-outputs）。</div>
+      <div class="content-section"><p>上一张卡片的思维链会吐出一大段自然语言。这一张问：当下游是一个程序时，怎么保证它收到的一定是<strong>能解析</strong>的结构？</p><p><strong>因为</strong>模型的输出是逐 <b>token</b> 采样出来的，每个位置都可能冒出任何字符——哪怕提示里写了「只输出 JSON」（<strong>JSON</strong>（用键值对表示数据的文本格式）），它也可能多一句「好的，这是结果：」，或漏掉一个括号，让整段解析失败。<strong>就像</strong>你要求实习生「只填表格」，他仍可能交回一张边角写了备注的纸——格式约束不能只靠口头叮嘱。<strong>所以</strong>行业给了两级做法：先是 JSON mode，再是 Structured Outputs。下面把「靠解析兜底」和「结构约束」的代价算出来。</p><p>更自然的做法是在提示里补一句「请只输出 JSON」——但生成是逐 token 采样的，模型仍可能多一句前缀或漏一个括号：示意算例里 15% 的输出格式不对，等于每次成功要多打约 1.176 次请求。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：让输出「可被程序接住」要花多少</div>
+        <div class="step"><div class="step-title">Step 1：自由文本 + 正则解析的返工率</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>单次调用解析失败率（示意）</td><td>15%</td></tr><tr><td>成功率</td><td>1 − 0.15 = 85%</td></tr><tr><td>每次成功平均需要的调用次数</td><td>1 ÷ 0.85 = <strong>1.176 次</strong></td></tr><tr><td>1000 次成功实际要调用</td><td>1000 ÷ 0.85 ≈ <strong>1176 次</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：若 15% 的输出格式不对、需要重试，那么「平均一次成功」要打 1 ÷ 0.85 ≈ <strong>1.176</strong> 次请求；要拿到 1000 次可用结果，实际发出约 <strong>1176</strong> 次，多花 17.6%。口径：15% 为示意值（随任务与提示质量变化），算式展示返工率如何变成额外成本。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：用结构化输出把「格式正确」变成硬约束</div>
+          <table><tr><th>项</th><th>自由文本 + 正则</th><th>结构化输出</th></tr><tr><td>格式合法率</td><td>85%（示意）</td><td>接近 <strong>100%</strong></td></tr><tr><td>要不要写正则兜底</td><td>要</td><td>不用（按 Schema 反序列化）</td></tr><tr><td>缺字段风险</td><td>有</td><td>由 Schema 的必填字段声明挡住</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">说明（非算术）：结构化输出把「字段必须有哪些、是什么类型」写成 JSON Schema，随请求一起发给模型（platform.openai.com/docs/guides/structured-outputs）。它与 JSON mode 的区别是：JSON mode 只保证「是合法 JSON」，结构化输出还保证「符合你给的 Schema」。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：结构化输出还帮你省了什么</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>用结构化输出后解析失败率</td><td>≈ 0</td></tr><tr><td>每次成功调用次数</td><td><strong>1.0 次</strong></td></tr><tr><td>比 Step 1 的 1.176 次省下</td><td>(1.176 − 1.0) ÷ 1.176 ≈ <strong>15%</strong></td></tr><tr><td>1000 次成功省下的调用</td><td>约 <strong>176 次</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：解析失败率压到接近 0 后，1000 次成功只需 1000 次调用，比自由文本的 1176 次少约 <strong>176 次</strong>（省 15% 的请求）。再加一层：把 <b>temperature</b>（采样温度，0 表示总取最大）设为 0，只去掉采样随机性、让同输入更趋同输出，但仍可能受批处理与浮点非确定性影响，不能承诺逐字可复现。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>让输出「可被程序接住」有三层，缺一层都不稳：<strong>① 说清要什么结构</strong>（提示里给 Schema）→ <strong>② 用结构约束解码</strong>（结构化输出，把非法 token 从候选里挡掉）→ <strong>③ 关掉随机性</strong>（temperature = 0）。这三层做完，「解析输出」才从「每次写正则兜底」变成「直接反序列化」。这也是第 22 课「工具调用」的地基：要调用工具，先得稳定拿到工具名和参数。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','20-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','20-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-20-4" class="llm-section"><button class="llm-btn" onclick="startChat('20-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="20-4"><div class="chat-toolbar"><button onclick="copyChat('20-4')">📋 复制对话</button><button onclick="clearChat('20-4')">🗑 清空</button><button onclick="stopLLM('20-4')" id="stop-btn-20-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('20-4')" id="regenerate-btn-20-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="20-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对结构化输出有疑问？比如「为什么写了只输出 JSON 还会错」「Schema 怎么写」？<br><br>说出你要的字段与用途，我帮你判断该用 JSON mode 还是结构化输出。</div></div><div class="chat-input-row"><textarea data-input="20-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('20-4')}" rows="1" placeholder="例如：怎么保证输出能被程序解析？"></textarea><button onclick="sendLLM('20-4')">发送</button></div></div></div>
+      <div id="tab-qna-20-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('20-4')">🔄 换一批</button></div><div class="qna-list" data-qna="20-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="20-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">提示词怎么写都调不好时，该继续改提示，还是该去改检索 / 微调？</div><div class="card-q-hint">提示：先分清模型「不知道」和「不会做」——没见过的事实，调提示没用；不熟练的动作，才可能靠数据固化。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>优化一个 LLM 应用有三条路，成本差一个量级：<strong>改提示</strong>（只改输入，零训练）、<strong>检索增强生成</strong>（RAG，检索增强生成：先从外部知识库检索相关文档，再塞进 context 让模型据此作答）、<strong>微调</strong>（用一批标注数据继续训练，改动模型权重）。RAG 由 Lewis 等《Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks》（arXiv:2005.11401，NeurIPS 2020）提出，专治「模型没记住的事实」。</div>
+      <div class="content-section"><p>上一张卡片让输出稳定了。这一张处理最现实的岔路：<strong>提示改到怀疑人生，是不是该换武器了？</strong>（承第 17 课 Card 6：那里从"选哪条路"入场，这里从"提示的边界"入场——两处侧重不同。）</p><p><strong>因为</strong>三条路的病根不同：提示只能改 <b>context</b>（这次输入里有什么），改不了模型没见过的事实；检索能把外部文档塞进 context，却改不了模型「不擅长某动作」；微调才动参数，能把风格与格式固化进权重。<strong>就像</strong>孩子考试：题目没见过 → 给他翻书（检索）；粗心算错 → 多练题型（微调）；只是没看清题干 → 重读一遍题干（改提示）——用错药都白费。判断标准很简单：<strong>「不知道」找检索，「不熟练」才考虑微调，「没说清」先好好写提示</strong>。<strong>所以</strong>下面用成本把三条路摆到同一口径上。</p><p>更自然的反应是「调不好就继续改提示」——但如果病根是模型没见过某条事实，改多少次措辞都补不进这条知识；这时该把资料检索进来（RAG），而不是在提示上继续打磨。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：三条路的成本摆到同一口径</div>
+        <div class="step"><div class="step-title">Step 1：提示（few-shot）每次请求的 token</div>
+          <table><tr><th>组成</th><th>token 数</th></tr><tr><td>系统说明 + 问题</td><td>40</td></tr><tr><td>5 个示例</td><td>5 × 60 = 300</td></tr><tr><td>合计 prompt</td><td><strong>340</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：40 + 5 × 60 = <strong>340</strong> 个 token。这条路零训练成本，但<strong>每个请求都要重读 340 个 token</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：检索（RAG）每次请求的 token</div>
+          <table><tr><th>组成</th><th>token 数</th></tr><tr><td>系统说明 + 问题</td><td>40</td></tr><tr><td>检索回来的资料（k = 5 段，每段约 500）</td><td>5 × 500 = 2500</td></tr><tr><td>合计 prompt</td><td><strong>2540</strong></td></tr><tr><td>是 few-shot 的</td><td>2540 ÷ 340 ≈ <strong>7.5 倍</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：40 + 2500 = <strong>2540</strong> 个 token，是 few-shot 的约 <strong>7.5 倍</strong>。但检索能带来提示里根本没有的<strong>外部事实</strong>——这是 few-shot 换不来的能力，所以要按「缺的是不是知识」来选，而不是只看 token。口径：k = 5、每段 500 为示意值。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：微调把重复的示例「固化」，省多少</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>微调后每次请求（不再塞示例）</td><td>40</td></tr><tr><td>相对 few-shot 的 340</td><td>(340 − 40) ÷ 340 ≈ <strong>88.2%</strong></td></tr><tr><td>月请求 100 万次时省下的 token</td><td>(340 − 40) × 1,000,000 = <strong>3 亿</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：把示例效果固化进权重后，请求从 340 个 token 回到 40 个，省 <strong>88.2%</strong>；按每月 100 万次请求算，省下 <strong>3 亿</strong> 个 token。但代价是一次性的：要准备标注数据、要跑训练，且模型换代时要重做——所以<strong>只有「这个格式/风格要长期高频重复」才值当</strong>。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>选型按「病根」走，而不是按手感：<strong>① 没说清 → 改提示</strong>（最便宜，先穷尽）；<strong>② 缺知识/缺事实 → 上检索</strong>（把文档塞进 context，后续有专门一课讲 RAG 工程化）；<strong>③ 不擅长固定动作 → 才考虑微调</strong>（动权重、要数据）。一条判据贯穿：能被「说清楚」的绝不先上微调，能靠「检索到」的绝不先上微调——因为改动成本差一个量级，越贵越难回滚。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','20-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','20-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-20-5" class="llm-section"><button class="llm-btn" onclick="startChat('20-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="20-5"><div class="chat-toolbar"><button onclick="copyChat('20-5')">📋 复制对话</button><button onclick="clearChat('20-5')">🗑 清空</button><button onclick="stopLLM('20-5')" id="stop-btn-20-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('20-5')" id="regenerate-btn-20-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="20-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对选型有疑问？比如「什么时候该微调」「检索会不会太贵」？<br><br>说清你的场景是缺知识还是缺格式，我帮你排优先级。</div></div><div class="chat-input-row"><textarea data-input="20-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('20-5')}" rows="1" placeholder="例如：我该改提示还是上检索？"></textarea><button onclick="sendLLM('20-5')">发送</button></div></div></div>
+      <div id="tab-qna-20-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('20-5')">🔄 换一批</button></div><div class="qna-list" data-qna="20-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="20-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">现在把零件装起来：一个 Agent 的 prompt 到底由哪几块拼成，为什么不能只是一句「你是个助手」？</div><div class="card-q-hint">提示：数一数一个 Agent 一次循环里，除了你的问题，还有哪些东西必须被塞进去；再把它们的 token 加总，看看窗口装不装得下。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>聊天接口把一次请求拆成几条带角色（role）的消息：<strong>system</strong>（系统角色，放角色设定与规则）、<strong>user</strong>（用户角色，放本轮问题）、<strong>assistant</strong>（助手角色，放模型上一轮的回答）。开头那段固定的 system 消息就叫 <strong>system prompt</strong>（系统提示）。在 Agent 里，每一轮还要把工具说明、长期记忆、历史对话和外部检索结果一起拼进 <strong>context</strong>——这套「把什么、以什么顺序、放多少」的动作，就是 <strong>上下文组装</strong>。</div>
+      <div class="content-section"><p>上一张卡片给定了一条选型线。这一张把整课的零件装起来：<strong>一个 Agent 的 prompt 到底由哪几块组成？</strong></p><p><strong>因为</strong>Agent 不会被只喂一句问题，它每一轮都要把「我是谁、有什么工具、记得什么、刚才发生了什么、现在要干嘛」一起递进去——这些拼起来就是它这一轮的 <b>context</b>。其中固定不变的那部分叫 system prompt，会变的（历史对话、检索结果、工具返回值）再逐轮拼上。<strong>就像</strong>给新员工的工牌背面：先印死「你是谁、能开哪些门」，每天再贴上当天任务便签——工牌是常量，便签是变量。把这层想清楚，「prompt 工程」就升级成了<strong>上下文组装</strong>。<strong>所以</strong>下面用 token 预算把这四块算一遍，看看什么时候会撑爆窗口。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：一个 Agent 的 prompt 预算</div>
+        <div class="step"><div class="step-title">Step 1：一轮请求里，context 都由什么拼成</div>
+          <table><tr><th>组成</th><th>token 数（示意）</th></tr><tr><td>system prompt（角色 + 规则）</td><td>400</td></tr><tr><td>工具说明（名称、参数、用途）</td><td>800</td></tr><tr><td>长期记忆 / 用户画像</td><td>1000</td></tr><tr><td>历史对话</td><td>3000</td></tr><tr><td>本轮问题</td><td>200</td></tr><tr><td>合计</td><td><strong>5400</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：400 + 800 + 1000 + 3000 + 200 = <strong>5400</strong> 个 token。这也解释了为什么在 Agent 里「prompt 工程」要改叫组装——你调的不再是一句话，而是这五块怎么拼、谁先谁后。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：窗口里还剩多少留给输出</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>模型上下文窗口</td><td>8000</td></tr><tr><td>已占（输入）</td><td>5400</td></tr><tr><td>留给输出</td><td>8000 − 5400 = <strong>2600</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：8000 − 5400 = <strong>2600</strong> 个 token 留给模型的输出与后续工具调用。窗口是「输入 + 输出」共享的，所以输入塞得越多，能写的东西越少（第 15 课讲过 KV Cache（推理时缓存已算过的键值，省重复计算）与内存的账，这里算的是窗口这一头）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：历史一涨，预算就爆</div>
+          <table><tr><th>项</th><th>历史 3000 时</th><th>历史 6000 时</th></tr><tr><td>输入合计</td><td>5400</td><td><strong>8400</strong></td></tr><tr><td>窗口 8000 下是否超支</td><td>否</td><td>超 8400 − 8000 = <strong>400</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：历史从 3000 涨到 6000，输入变 400 + 800 + 1000 + 6000 + 200 = <strong>8400</strong>，超出 8000 的窗口 <strong>400</strong> 个 token。这时必须做取舍——截断旧对话、把历史摘要成更短的文本，或只检索相关片段，否则请求直接失败。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>Agent 的 prompt = <strong>system prompt（常量）+ 角色 + 动态 context（历史 / 记忆 / 检索 / 工具返回）</strong>，而它天生受 token 预算约束。所以「会写 prompt」在 Agent 里变成了「<strong>会做上下文组装</strong>」：谁的优先级高、什么时候压缩、什么时候丢弃，都是可算的工程决策。带着这套组装方式，下一课《从 Prompt 到 Agent》就能进入真正的循环：让模型不只是回答一次，而是<strong>一边行动、一边把结果拼回 context</strong>。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','20-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','20-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-20-6" class="llm-section"><button class="llm-btn" onclick="startChat('20-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="20-6"><div class="chat-toolbar"><button onclick="copyChat('20-6')">📋 复制对话</button><button onclick="clearChat('20-6')">🗑 清空</button><button onclick="stopLLM('20-6')" id="stop-btn-20-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('20-6')" id="regenerate-btn-20-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="20-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对上下文组装有疑问？比如「system 和 user 怎么分」「窗口不够怎么办」？<br><br>说出你的 Agent 要装哪些东西，我帮你排 context 的优先级。</div></div><div class="chat-input-row"><textarea data-input="20-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('20-6')}" rows="1" placeholder="例如：Agent 的 prompt 该放哪几块？"></textarea><button onclick="sendLLM('20-6')">发送</button></div></div></div>
+      <div id="tab-qna-20-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('20-6')">🔄 换一批</button></div><div class="qna-list" data-qna="20-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 20 课完成 · 下一课：第 21 课「从 Prompt 到 Agent」</p>
+    <a href="#" onclick="switchLesson(21);return false;">进入第 21 课：从 Prompt 到 Agent →</a>　·　<a href="#" onclick="switchLesson(19);return false;">← 上一课：大模型评测</a>
+  </div></div>

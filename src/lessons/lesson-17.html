@@ -1,0 +1,208 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 17 课：微调工程</h2>
+    <p class="subtitle">前面几课我们一直在"把模型跑起来"——切分、省显存、量化。这一课换个目标：<strong>把通用模型调成你自己的助手</strong>。但全量微调在显存上先撞墙（7B 要 112 GB），于是有了 LoRA（即冻结基座、只训一对低秩矩阵）。这一课把 LoRA 的显存账、三个旋钮、QLoRA（即把冻结的基座也用低精度存、再训一小对适配器）的三件套算清，最后回答一个比"怎么调"更重要的问题：什么时候该微调、什么时候该用检索、什么时候改提示词就够了。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 拆开全量微调的 16 B/参数，说清为什么"贵在状态不贵在权重"<br>② 用 ΔW = BA 算出 LoRA 把参数量压到了几分之一，并理解 rank / alpha / target_modules 各在调什么<br>③ 算清 QLoRA 三件套各省多少，并给出"该微调、该 RAG（即检索增强，把外部资料检索出来塞进上下文）、还是该改提示"的判断</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步逻辑递进：从"显存账"到"三选一决策"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要把一个 7B 基座调成客服助手，<strong>必须</strong>先把全量微调的显存账算清——<strong>这就要求</strong>知道 16 B/参数里权重只占 2 B，其余全是 <b>gradients</b> 与优化器状态。<b class="rn-key">全量的成本在状态不在权重</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然「<b>全量的成本在状态不在权重</b>」，<strong>所以</strong>真正要砍的是"为每个参数维护的梯度与优化器状态"——<strong>于是</strong>LoRA 冻结基座、只训一对低秩 <b>projection</b>（低秩投影）矩阵 A 与 B，参数量因此降三个数量级。<b class="rn-key">只学低秩的增量</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然「<b>只学低秩的增量</b>」，<strong>所以</strong>能省多少、能学多少就取决于三个旋钮——<strong>因为</strong>rank 决定容量、alpha 决定更新幅度、而覆盖哪些 <b>attention</b> 层的投影决定能改多少行为。<b class="rn-key">覆盖面往往比 rank 更重要</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">「<b>覆盖面往往比 rank 更重要</b>」讲的是怎么调旋钮；但无论怎么调，LoRA 能省的始终只是「要更新的那一小部分」——被冻结的基座仍以 bf16 全量躺在显存里（65B 就是 130 GB）。<strong>这就要求</strong>连基座本身也别再占 bf16——<strong>于是</strong>QLoRA 把基座用 4-bit 存、仍用 16-bit 算，<b>gradients</b> 只回传给适配器。<b class="rn-key">基座也用低精度存</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>基座也用低精度存</b>」，<strong>所以</strong>还要追问这只够不够——<strong>因为</strong>低秩是结构性约束，在要"学新知识"的 <b>token</b> 规模任务上会输给全量微调。<b class="rn-key">低秩有能力的上界</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>低秩有能力的上界</b>」，<strong>这就要求</strong>在它够不到时先定位失败的原因——<strong>因为</strong>缺知识还是缺行为，决定了该换哪件武器：缺知识就交给检索（往 <b>context</b> 里塞资料），缺行为才动权重。<b class="rn-key">先分清缺知识还是缺行为</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">PEFT</span><span class="meta-tag">LoRA</span><span class="meta-tag">QLoRA / NF4</span><span class="meta-tag">rank / alpha</span><span class="meta-tag">Adapter 合并</span><span class="meta-tag">RAG vs 微调</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="17-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">想把 7B 调成客服助手，为什么"把全部参数都训一遍"在显存上就走不通？</div><div class="card-q-hint">提示：别只算权重——把训练时"每个参数要额外维护什么"也一起算进去，再乘上参数量。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>全量微调的显存账在第 14 课已经拆过：<strong>16 B/参数</strong> = 权重（bf16 2）+ 梯度（bf16 2）+ 优化器状态（fp32 master 4 + Adam 一阶 4 + 二阶 4 = 12）。LoRA（Hu 等，arXiv:2106.09685，2021）从这个账出发，指出"部署多个微调实例，每个都带全部参数，成本高得离谱"，于是<strong>冻结预训练权重、只注入可训练的低秩分解矩阵</strong>。QLoRA（Dettmers 等，arXiv:2305.14314，NeurIPS 2023）给了一个更极端的对照读数：<strong>16-bit 全量微调一个 65B 模型需要 >780 GB 显存</strong>。</div>
+      <div class="content-section"><p>前几课我们把模型"跑起来"了；从这一课开始，我们把它<strong>调成自己的</strong>。第一步不是讲方法，而是先把"为什么必须换方法"算成数字。</p><p>很多人的直觉是"微调要存模型权重，所以显存 ≈ 模型大小"——<strong>这个直觉错得很远</strong>。训练时每个参数要额外背两样东西：它的<strong>梯度 gradients</strong>，以及优化器为它维护的<strong>状态</strong>（Adam 有两份动量，再加一份高精度主权重）。三项加起来，一个参数在训练时要占 16 字节，而它本身只有 2 字节。这就像搬一次家：真正要带走的东西不多，但为了搬运，你得给每件家具都配一辆手推车和一个临时仓储位。</p><p>更自然的估法是只按权重算：7B 权重 7e9 × 2 B = <strong>14 GB</strong>，一张 80 GB 卡看着绰绰有余；可一旦把梯度与优化器状态算进来，同一个模型要 7e9 × 16 B = <strong>112 GB</strong>，比 80 GB 卡还多出 <strong>32 GB</strong>——「按权重估」这套更省事的算法，正是全量微调撞墙的第一个原因。</p><p>算出这笔账，才会明白"全量微调"三个字在显存上意味着什么。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：全量微调到底占多少</div>
+        <div class="step"><div class="step-title">Step 1：把一个参数的 16 字节拆开</div>
+          <table><tr><th>项</th><th>每参数字节</th><th>占比</th></tr><tr><td>权重（bf16）</td><td>2</td><td><strong>12.5%</strong></td></tr><tr><td>梯度 gradients（bf16）</td><td>2</td><td>12.5%</td></tr><tr><td>优化器状态（fp32 master 4 + Adam m 4 + v 4）</td><td>12</td><td><strong>75%</strong></td></tr><tr><td><strong>合计</strong></td><td><strong>16</strong></td><td>100%</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：2 + 2 + 12 = <strong>16 B/参数</strong>。权重本身只占 2 ÷ 16 = <strong>12.5%</strong>，优化器状态占了 <strong>75%</strong>——<strong>贵的是状态，不是权重</strong>。这句判断是整课的支点：要想省，就得少维护状态，而不是少存权重。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：乘上参数量，看它怎么撞墙</div>
+          <table><tr><th>模型</th><th>参数量</th><th>16 B 口径（本课）</th><th>12 B/参数（本课反推口径，非论文原文）</th></tr><tr><td>7B</td><td>7e9</td><td><strong>112 GB</strong></td><td>84 GB</td></tr><tr><td>13B</td><td>13e9</td><td><strong>208 GB</strong></td><td>156 GB</td></tr><tr><td>65B</td><td>65e9</td><td><strong>1,040 GB</strong></td><td><strong>780 GB</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：7e9 × 16 = 112e9 = <strong>112 GB</strong>；65e9 × 16 = 1,040 GB。QLoRA 论文只给出「65B 全量微调需 >780 GB」这个总量，未拆解每参数字节；按 <strong>12 B/参数</strong>（权重 2 + 梯度 2 + Adam 8，不含 fp32 master）反推恰好是 65e9 × 12 = 780 GB——<strong>这个拆解是本课的自洽反推，不是论文原文口径</strong>；两种口径都常见，引用时必须说明是哪种。无论哪种，结论一致：<strong>一张 80 GB 卡连 7B 的全量微调都装不下</strong>（112 GB > 80 GB）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：更贵的是"每个任务一份模型"</div>
+          <table><tr><th>项</th><th>数值</th><th>说明</th></tr><tr><td>175B 单份权重量</td><td>175e9 × 2 B = <strong>350 GB</strong></td><td>只算权重</td></tr><tr><td>10 个下游任务</td><td>350 × 10 = <strong>3,500 GB</strong></td><td>每个任务都要一份完整副本</td></tr><tr><td>权重占训练显存比例</td><td>2 ÷ 16 = <strong>12.5%</strong></td><td>训练贵、部署也贵</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：175e9 × 2 = 350e9 B = <strong>350 GB</strong>/份。全量微调的深层代价不是"训一次"，而是<strong>训完之后每个任务都要独立存一份完整模型</strong>——这也是 LoRA 论文开篇点出的部署困境。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>全量微调撞墙的根因有两层：<strong>训练时贵在状态（16 B/参数里 12 B 是优化器与 master）</strong>，<strong>部署时贵在副本（每个任务一份完整权重）</strong>。所以任何"省"的办法都必须同时回答这两问——下一张卡片的 LoRA，正是从<strong>砍掉大部分参数的梯度与优化器状态</strong>入手。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','17-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','17-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-17-1" class="llm-section"><button class="llm-btn" onclick="startChat('17-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="17-1"><div class="chat-toolbar"><button onclick="copyChat('17-1')">📋 复制对话</button><button onclick="clearChat('17-1')">🗑 清空</button><button onclick="stopLLM('17-1')" id="stop-btn-17-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('17-1')" id="regen-btn-17-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="17-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对全量微调的显存账有疑问？比如「ZeRO（即把优化器状态与梯度切分到多张卡上）能不能救它」「为什么推理比训练省这么多」？<br><br>报模型规模和卡型，我帮你把账算出来。</div></div><div class="chat-input-row"><textarea data-input="17-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('17-1')}" rows="1" placeholder="例如：7B 全量微调要几张 80 GB 卡？"></textarea><button onclick="sendLLM('17-1')">发送</button></div></div></div>
+      <div id="tab-qna-17-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('17-1')">🔄 换一批</button></div><div class="qna-list" data-qna="17-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="17-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">不学整个 ΔW，只学两个小矩阵相乘（ΔW = BA），凭什么不丢信息？</div><div class="card-q-hint">提示：先算全量更新矩阵有多少个数，再看 BA 这两个小矩阵能表示多少个方向。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>LoRA 的做法是：冻结 W₀，把更新写成低秩分解 <strong>W = W₀ + ΔW = W₀ + BA</strong>，其中 <strong>B ∈ R<sup>d×r</sup>、A ∈ R<sup>r×k</sup>、r ≪ min(d, k)</strong>。论文的两个实现细节很关键：<strong>B 初始化为 0、A 用随机高斯初始化</strong>——这样训练开始时 ΔW = BA = 0，模型行为与基座完全一致，不会一上来就被破坏。LoRA 论文还报告：在 GPT-3 175B 上，即使满秩高达 12,288，<strong>极低的秩（r = 1 或 2）就已足够</strong>；相比 Adam 全量微调，可训练参数减少 <strong>10,000 倍</strong>、显存需求减少 <strong>3 倍</strong>。</div>
+      <div class="content-section"><p>上一张卡片算清了全量微调为什么贵。这一张回答 LoRA 的核心疑问：<strong>既然要学"这个任务带来的改变"，为什么不直接学整个 ΔW</strong>？</p><p>关键在于"改变"这件事本身有多大。<strong>因为</strong>基座已经把语言能力学完了，微调要注入的往往只是<strong>少数几个方向上的调整</strong>——格式、语气、领域术语。这类改变不需要动用 4096 × 4096 那么大的自由度——就像调一张照片往往只用几个滑块（亮度、对比度、色温），而不是逐个像素去改；要注入的改变只落在少数几个方向上。用矩阵语言说，就是要求更新矩阵 ΔW 的秩很小。</p><p>直接学整个 ΔW 的代价是实打实的：一个 4096×4096 投影就有 <strong>16,777,216</strong> 个数，每个都要背梯度与优化器状态——这正是上一张卡片 112 GB 里最贵的那部分。低秩之所以「不丢信息」，不是因为压缩掉了精度，而是因为要注入的改变本来就只占少数几个方向；只有当任务本质上需要满秩改写时，低秩才会真的够不到——这条边界留到第 5 张卡片展开。</p><p>还有一个反直觉点：<strong>rank 不是越大越好</strong>。参数量随 rank 线性涨——同一个 4096×4096 投影，r=1 时 8,192 个、r=64 时 524,288 个（涨 <strong>64 倍</strong>）；而且低秩约束本身就是一种正则，盲目加大 rank 等于放大自由度、在数据有限时更容易过拟合（LoRA 综述 arXiv:2407.11046 明确「higher is not always better」，过大的 rank 会造成性能与效率双重退化）。</p><p>把"只沿少数方向走"写成矩阵语言，就是令 ΔW 的秩很小——下面把数字算出来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：低秩到底省了多少参数</div>
+        <div class="step"><div class="step-title">Step 1：全量要学多少个参数</div>
+          <table><tr><th>项</th><th>形状</th><th>参数量</th></tr><tr><td>全量更新 ΔW</td><td>4096 × 4096</td><td><strong>16,777,216</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：4096 × 4096 = <strong>16,777,216</strong> ≈ 16.8M 个参数——<strong>一个投影（projection）矩阵就要学这么多</strong>。7B 模型有 128 个这样的矩阵（32 层 × 4 个投影），全量微调要为每一个都维护梯度与优化器状态，这正是第 1 张卡片里 112 GB 的来源。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：ΔW = BA 只要学多少</div>
+          <table><tr><th>因子</th><th>形状</th><th>参数量（r = 8）</th></tr><tr><td>A（降维）</td><td>8 × 4096</td><td>32,768</td></tr><tr><td>B（升维）</td><td>4096 × 8</td><td>32,768</td></tr><tr><td><strong>合计</strong></td><td>—</td><td><strong>65,536</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：8 × 4096 = 32,768；两个因子合计 <strong>65,536</strong>。与全量相比：16,777,216 ÷ 65,536 = <strong>256 倍</strong>（可训练参数降到 <strong>0.39%</strong>）。A 把输入从 4096 维压到 8 维（降维），B 再把它升回 4096 维（升维）——<strong>中间那 8 维就是"要注入的方向数"</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：rank 是把"省多少"和"能学多少"连起来的旋钮</div>
+          <table><tr><th>rank r</th><th>ΔW = BA 参数量</th><th>相对全量</th><th>直觉</th></tr><tr><td>1</td><td>8,192</td><td><strong>1/2048</strong></td><td>只改一个方向</td></tr><tr><td>2</td><td>16,384</td><td>1/1024</td><td>论文里"对 175B 已够"的量级</td></tr><tr><td><strong>8</strong></td><td><strong>65,536</strong></td><td><strong>1/256</strong></td><td>实践最常见起点</td></tr><tr><td>16</td><td>131,072</td><td>1/128</td><td>任务更复杂时</td></tr><tr><td>64</td><td>524,288</td><td>1/32</td><td>接近全量的表达能力</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：r × (4096 + 4096) 即参数量；r = 1 → 8,192（1/2048）、r = 8 → 65,536（1/256）、r = 64 → 524,288（1/32）。<strong>rank 越大，可学的东西越多、但省得越少</strong>——这是第 3、第 5 张卡片要处理的取舍。另一个工程红利：部署时可以把 BA 加回基座（<strong>W<sub>merged</sub> = W₀ + BA</strong>），形状不变，<strong>推理零额外延迟</strong>。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>LoRA 不是"近似地学一遍全量"，而是<strong>换了一个受约束的参数空间</strong>：它假设"任务需要的改变落在少数方向上"。这个假设在指令微调上通常成立（所以能 256 倍地省），但它也是一个<strong>能力上界</strong>——改变如果本质上需要全秩，LoRA 就够不到（第 5 张卡片展开）。B 初始化为 0 这个细节也别忘了：它保证训练从"等于基座"出发，而不是从随机扰动出发。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','17-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','17-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-17-2" class="llm-section"><button class="llm-btn" onclick="startChat('17-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="17-2"><div class="chat-toolbar"><button onclick="copyChat('17-2')">📋 复制对话</button><button onclick="clearChat('17-2')">🗑 清空</button><button onclick="stopLLM('17-2')" id="stop-btn-17-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('17-2')" id="regen-btn-17-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="17-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 ΔW = BA 有疑问？比如「为什么 B 要初始化为 0」「r 到底选多大」？<br><br>报一个投影矩阵的维度，我帮你算参数量与压缩比。</div></div><div class="chat-input-row"><textarea data-input="17-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('17-2')}" rows="1" placeholder="例如：r=16 时，一个 4096×4096 投影要训多少参数？"></textarea><button onclick="sendLLM('17-2')">发送</button></div></div></div>
+      <div id="tab-qna-17-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('17-2')">🔄 换一批</button></div><div class="qna-list" data-qna="17-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="17-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">同样是 LoRA，为什么别人 r=8 就够、你的 r=64 还不如人家？</div><div class="card-q-hint">提示：别只盯着 rank——另外两个旋钮（更新的缩放、以及把 LoRA 加在哪些层上）常常影响更大。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>LoRA 的输出是 <strong>frozen_out + (α / r) × BA</strong>：α 是 lora_alpha，缩放因子取 <strong>α / r</strong>。常见实践默认把 LoRA 加在 <strong>Q、V 投影</strong>上、并以 <strong>rank = 8</strong> 为起点（PyTorch 的 torchtune LoRA 教程即以 lora_attn_modules=["q_proj","v_proj"]、r=8 举例；docs.pytorch.org/torchtune/stable/tutorials/lora_finetune.html）；而一些实验发现，<strong>把 LoRA 加到自注意力（attention）的所有线性层、并把 rank 提到 16 或 32 可能更有益</strong>（只要保持 rank 远小于嵌入维度，显存影响相对较小）。实践里 α = 2r 是常见基线（r=8 → α=16），dropout 常取 0.05 ~ 0.1。</div>
+      <div class="content-section"><p>上一张卡片把 LoRA 压缩到 256 倍；这一张回答一个更常见的困惑：<strong>为什么同样的 LoRA，别人调得动、你调不动</strong>。</p><p><strong>因为</strong>LoRA 不是一个参数，而是三个旋钮的组合：<strong>rank（多大容量）</strong>、<strong>alpha（更新缩放多大）</strong>、<strong>target_modules（改哪些层）</strong>。这三者的影响并不均等——只调 rank 而忽略另外两个，很容易出现"rank 翻了几倍、效果却没变"的情况。可以把它<strong>类比</strong>成调音台：推子（alpha）决定音量大小，通道数（rank）决定能同时处理多少路信号，而"接哪几路输入"（target_modules）决定你改的是主唱还是伴奏。</p><p>下面把三个旋钮各自在调什么、以及影响排序算清楚。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：三个旋钮的量化影响</div>
+        <div class="step"><div class="step-title">Step 1：alpha 不是"学习率"，而是更新的缩放</div>
+          <table><tr><th>rank r</th><th>alpha</th><th>实际缩放 α / r</th><th>含义</th></tr><tr><td>8</td><td>16</td><td><strong>2.0</strong></td><td>常见基线（α = 2r）</td></tr><tr><td>16</td><td>32</td><td><strong>2.0</strong></td><td>rank 翻倍、缩放不变</td></tr><tr><td>16</td><td>16</td><td>1.0</td><td>更新更保守</td></tr><tr><td>8</td><td>8</td><td>1.0</td><td>小 rank 时更稳</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：真正进入前向的是 α ÷ r，不是 α 本身。所以 <strong>α 和 r 要一起看</strong>：r 从 8 提到 16 时若 α 不变，缩放就从 2 掉到 1，更新被削弱一半——这就是"rank 调大了却没效果"的一个常见原因。α = 2r 之所以流行，是因为它让"每个 rank 维度的贡献"保持在 2 倍，换 rank 时不必重调学习率。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：target_modules 决定了"能改多少行为"</div>
+          <table><tr><th>覆盖范围（7B，r = 16）</th><th>可训练参数</th><th>占 7B 比例</th></tr><tr><td>只加在 Q、V 投影</td><td>8.4M</td><td>0.12%</td></tr><tr><td>Q、K、V、O 四个投影</td><td>16.8M</td><td>0.24%</td></tr><tr><td><strong>再加 MLP（gate / up / down）</strong></td><td><strong>40.0M</strong></td><td><strong>0.57%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（7B：32 层、隐维 4096、FFN 中间维 11008）：单个 4096×4096 投影在 r=16 时要 16 × (4096 + 4096) = <strong>131,072</strong> 个参数。<strong>Q、V</strong> 两个 × 32 层 = 262,144 × 32 = <strong>8.4M</strong>（0.12%）；<strong>Q、K、V、O</strong> 四个 × 32 层 = <strong>16.8M</strong>（0.24%，与第 10 课的常见口径一致）；<strong>再加 MLP</strong> 三个矩阵（16 × (4096 + 11008) = 241,664 每个）后每层 1,249,280，× 32 = <strong>约 40M</strong>（0.57%）。<strong>覆盖面从 0.12% 到 0.57%，效果差通常比 rank 从 8 到 64 更明显（工程经验，非论文定量结论）</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：dropout 与学习率是配套的</div>
+          <table><tr><th>旋钮</th><th>常见取值</th><th>作用</th></tr><tr><td>lora_dropout</td><td>0.05 ~ 0.1</td><td>防过拟合（小数据集尤其重要）</td></tr><tr><td>learning rate</td><td>1e-4 ~ 2e-4</td><td>比全量微调大（可训参数少，容忍更大步长）</td></tr><tr><td>训练轮数</td><td>1 ~ 3 轮</td><td>轮数一多，适配器就开始过拟合</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">这三项与第 10 课的"灾难性遗忘缓解手段"是同一套：<strong>LoRA + 低学习率 + 1~3 轮 + 混合通用数据重放</strong>。区别在于 LoRA 本来就限制了更新空间，所以它天然比全量微调更不容易把通用能力带偏。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>三个旋钮里，<strong>target_modules（覆盖面）与 alpha/r（缩放）常比 rank（容量）更值得先调</strong>——这是工程经验，不是 LoRA 论文的定量结论（论文消融里只加 Wq、Wv 已可得最佳）。只加 Q、V 与加全部线性层，差距往往比 rank 从 8 调到 64 更大——这也是"别人 r=8 就够"的原因：他们把 LoRA 铺得更广。调参顺序建议：先把覆盖面和 α/r 定下来，再按验证集曲线决定要不要加 rank。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','17-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','17-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-17-3" class="llm-section"><button class="llm-btn" onclick="startChat('17-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="17-3"><div class="chat-toolbar"><button onclick="copyChat('17-3')">📋 复制对话</button><button onclick="clearChat('17-3')">🗑 清空</button><button onclick="stopLLM('17-3')" id="stop-btn-17-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('17-3')" id="regen-btn-17-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="17-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对三个旋钮有疑问？比如「α 和 r 到底怎么配」「只加 Q、V 够不够」？<br><br>说清任务和数据量，我帮你定一组起点参数。</div></div><div class="chat-input-row"><textarea data-input="17-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('17-3')}" rows="1" placeholder="例如：7B 加全部线性层、r=16，可训练参数占比是多少？"></textarea><button onclick="sendLLM('17-3')">发送</button></div></div></div>
+      <div id="tab-qna-17-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('17-3')">🔄 换一批</button></div><div class="qna-list" data-qna="17-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="17-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">LoRA 已经把可训练参数压到千分之几，为什么 65B 还是训不动？</div><div class="card-q-hint">提示：省掉的只是"要更新的部分"——那些没被更新的参数，训练时还要不要占显存？占多少？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>QLoRA（Dettmers 等，arXiv:2305.14314，NeurIPS 2023）的三件套都有明确出处：① <strong>4-bit NormalFloat（NF4）</strong>——把 16 个量化档位放在标准正态分布的分位点上，对正态分布的权重是信息论最优的数据类型；② <strong>双重量化（Double Quantization）</strong>——把量化常数本身再量化一次，块大小 64、常数用 FP32 时是 32/64 = <strong>0.5 bit/参数</strong>，双重量化后降到 8/64 + 32/(64×256) ≈ <strong>0.127 bit/参数</strong>，平均省约 <strong>0.37 bit/参数</strong>（65B 约 <strong>3 GB</strong>）；③ <strong>分页优化器（Paged Optimizers）</strong>——用 NVIDIA 统一内存把优化器状态在显存吃紧时自动换到 CPU。结果：<strong>65B 从 >780 GB 降到 <48 GB</strong>，Guanaco 65B 在 Vicuna 基准上达到 ChatGPT 的 <strong>99.3%</strong>。</div>
+      <div class="content-section"><p>上一张卡片把 LoRA 调好了；这一张回到 65B 这个量级——<strong>为什么只训千分之几，还是训不动</strong>？</p><p><strong>因为</strong>LoRA 省掉的只是"要更新的那部分"，被冻结的基座仍然以 bf16 全量躺在显存里：65B × 2 B = <strong>130 GB</strong>，光基座就超过任何单卡。更自然的想法是「可训练参数都压到千分之几了，显存不该再是问题」——但可训练的那部分只有约 <strong>3.2 GB</strong>，真正压在显存上的是这 130 GB 冻结基座。所以 QLoRA 的思路是：<strong>让冻结的那部分也用低精度存</strong>。这不是新算法，而是"4-bit 存储 + 16-bit 计算 + LoRA 训练"的组合——权重存成 NF4，用到时反量化回 bf16 参与计算，梯度（gradients）只回传给适配器，基座始终保持冻结。这就像搬家时把不用的家具先压缩打包（4-bit 存），真正要用时再拆开还原（反量化回 bf16）——省的是存储空间，不是搬运精度。</p><p>三件套各自解决一个问题，下面逐件算账。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：QLoRA 三件套各解决什么</div>
+        <div class="step"><div class="step-title">Step 1：LoRA 之后，大头变成了基座</div>
+          <table><tr><th>项</th><th>65B 占用</th><th>说明</th></tr><tr><td>冻结基座（bf16）</td><td><strong>130 GB</strong></td><td>65e9 × 2 B</td></tr><tr><td>可训练适配器（r=16，全线性）</td><td>3.2 GB</td><td>2.0e8 × 16 B</td></tr><tr><td>合计</td><td><strong>约 133.2 GB</strong></td><td>适配器占比很小，瓶颈全在基座</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：65e9 × 2 = 130e9 B = <strong>130 GB</strong>；65B 的 r=16 全线性适配器约 2.0e8 个参数（80 层 × [4 × 16 × (8192 + 8192) + 3 × 16 × (8192 + 22016)] ≈ 2.0e8），× 16 B ≈ <strong>3.2 GB</strong>（约占 2.4%）。所以"把可训练参数压到千分之几"解决不了 65B——<strong>要压的是那 130 GB 的冻结权重</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：NF4 把基座从 2 字节压到半个字节</div>
+          <table><tr><th>基座精度</th><th>每参数字节</th><th>65B 基座</th><th>相对 bf16</th></tr><tr><td>bf16</td><td>2</td><td>130 GB</td><td>1.0×</td></tr><tr><td>int8</td><td>1</td><td>65 GB</td><td>2×</td></tr><tr><td><strong>NF4</strong></td><td><strong>0.5</strong></td><td><strong>32.5 GB</strong></td><td><strong>4×</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：65e9 × 0.5 = 32.5e9 B = <strong>32.5 GB</strong>。NF4 与普通 int4 的区别在<strong>档位怎么摆</strong>：int4 是等间距 16 档，NF4 的 16 档落在标准正态分布的分位点上（中心密、两端疏），而模型权重恰好近似零均值正态——所以同样的 4 bit，NF4 的量化误差更小。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：双重量化压的是"量化常数"这笔附加费</div>
+          <table><tr><th>方案</th><th>常数开销</th><th>65B 常数占用</th></tr><tr><td>普通块量化（块 64、常数 FP32）</td><td>32 / 64 = <strong>0.5 bit/参数</strong></td><td>65e9 × 0.5 ÷ 8 ≈ 4.06 GB</td></tr><tr><td><strong>双重量化（常数再量化为 FP8）</strong></td><td>8/64 + 32/(64×256) ≈ <strong>0.127 bit/参数</strong></td><td>65e9 × 0.127 ÷ 8 ≈ <strong>1.03 GB</strong></td></tr><tr><td>节省</td><td>0.5 − 0.127 = <strong>0.373 bit/参数</strong></td><td>65e9 × 0.373 ÷ 8 ≈ <strong>3.03 GB</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：块大小 64 时每个块要存一个 FP32 常数，摊到每个参数是 32 ÷ 64 = 0.5 bit，65B 上约占 4.06 GB；把常数本身用 FP8 再量化（每 256 个常数共享一个 FP32 的"超级块"常数），摊到每个参数降到 8 ÷ 64 + 32 ÷ (64 × 256) ≈ <strong>0.127 bit</strong>，占用降到约 <strong>1.03 GB</strong>，省下 <strong>3.03 GB</strong>（论文口径的"约 3 GB"指的就是这个节省量）。这 3 GB 在 7B 上不起眼，在 65B 上就是能不能塞进 48 GB 的差别。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 4：三件套合起来，各规模放得下了吗</div>
+          <table><tr><th>方案</th><th>7B</th><th>65B</th></tr><tr><td>全量微调（16 B/参数）</td><td>112 GB</td><td>1,040 GB</td></tr><tr><td>LoRA（基座 bf16）</td><td>14 + 0.64 ≈ <strong>14.6 GB</strong></td><td>130 + 3.2 ≈ 133.2 GB</td></tr><tr><td><strong>QLoRA（基座 NF4 + 双重量化）</strong></td><td>3.5 + 0.11 + 0.64 ≈ <strong>4.3 GB</strong></td><td>32.5 + 1.03 + 3.2 ≈ <strong>36.7 GB</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：7B 的 4-bit 基座 7e9 × 0.5 = 3.5 GB，常数 7e9 × 0.127 ÷ 8 = 0.11 GB，适配器 0.64 GB，合计 <strong>约 4.3 GB</strong>；65B 对应 32.5 + 1.03 + 3.2 ≈ <strong>约 36.7 GB</strong>，落在论文"<strong>&lt;48 GB 单卡可训</strong>"的结论内（口径提醒：此为<strong>训练侧</strong>算例，含适配器与优化器状态；QLoRA 论文里 7B 的"5 GB"指<strong>部署</strong>占用，两者口径不同）。第三件套"分页优化器"处理的是<strong>峰值抖动</strong>：长序列或大 batch 时激活会瞬时冲高，分页优化器把优化器状态临时换到 CPU 内存，避免 OOM 中断训练。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>QLoRA 的三件套分工很清楚：<strong>NF4 压基座（4×）、双重量化压常数（0.5 → 0.127 bit/参数）、分页优化器压峰值</strong>。它证明了一件重要的事——<strong>"4-bit 存储 + 16-bit 计算"可以在不牺牲训练质量的前提下把门槛降一个数量级</strong>（65B：>780 GB → &lt;48 GB）。但它只解决"放不下"；至于"该不该微调"，是下一张卡片和最后一张卡片的问题。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','17-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','17-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-17-4" class="llm-section"><button class="llm-btn" onclick="startChat('17-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="17-4"><div class="chat-toolbar"><button onclick="copyChat('17-4')">📋 复制对话</button><button onclick="clearChat('17-4')">🗑 清空</button><button onclick="stopLLM('17-4')" id="stop-btn-17-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('17-4')" id="regen-btn-17-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="17-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 QLoRA 有疑问？比如「NF4 和 int4 有什么不同」「双重量化省了多少」？<br><br>报模型规模和卡型，我帮你算三件套之后的总占用。</div></div><div class="chat-input-row"><textarea data-input="17-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('17-4')}" rows="1" placeholder="例如：QLoRA 训 7B，显存大概要多少？"></textarea><button onclick="sendLLM('17-4')">发送</button></div></div></div>
+      <div id="tab-qna-17-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('17-4')">🔄 换一批</button></div><div class="qna-list" data-qna="17-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="17-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">LoRA 这么省，是不是永远用它就行了？</div><div class="card-q-hint">提示：想一想第 2 张卡片里"低秩是能力上界"那句话——什么任务需要的改变，本质上不是低秩的？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>这个问题有直接的实证研究：<strong>LoRA Learns Less and Forgets Less</strong>（Biderman 等，arXiv:2405.09673，2024）。它的结论是——在<strong>代码与数学</strong>任务上，无论是继续预训练（CPT）还是指令微调（IFT），<strong>低秩的 LoRA 都不如全量微调</strong>；但在 <strong>Tülu-v2-mix</strong> 这类通用指令数据上，<strong>LoRA 与全量微调持平</strong>。同时它观察到：<strong>LoRA 的遗忘比全量微调更少</strong>，而且**遗忘程度与 rank 正相关**（rank 越大，学得越多、忘得也越多）。</div>
+      <div class="content-section"><p>上一张卡片解决了"放不下"；这一张回答一个更容易被忽略的问题：<strong>LoRA 省下来的那些能力，是不是真的没代价</strong>？</p><p><strong>因为</strong>LoRA 把更新限制在低秩子空间里，它就有一个天然的能力上界：如果某个任务需要的改变<strong>本质上不是低秩的</strong>，LoRA 再怎么调 rank 也够不到。这就像给房间重新刷墙——贴墙纸（低秩调整）很快，但要改承重结构（全秩改写）就不是贴纸能解决的了。Biderman 等的研究把这条界线画得很清楚：<strong>学"行为"（指令跟随、格式、语气）LoRA 够用；学"新知识"（代码、数学这类要在 token 规模上注入新知的继续预训练）全量更强</strong>。</p><p>更要紧的是第二半：LoRA 省的是"改变的幅度"，换来的恰恰是"<strong>不容易忘</strong>"。所以它不是一个纯粹的妥协，而是<strong>学习与遗忘的交换</strong>。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：LoRA 的能力上界与遗忘交换</div>
+        <div class="step"><div class="step-title">Step 1：任务类型决定 LoRA 够不够</div>
+          <table><tr><th>场景</th><th>LoRA（低秩）</th><th>全量微调</th></tr><tr><td>指令微调（通用数据，如 Tülu-v2-mix）</td><td><strong>持平</strong></td><td>持平</td></tr><tr><td>代码继续预训练（CPT）</td><td>不如全量</td><td><strong>更强</strong></td></tr><tr><td>数学继续预训练（CPT）</td><td>不如全量</td><td><strong>更强</strong></td></tr><tr><td>代码/数学的指令微调（IFT）</td><td>低 rank 时落后</td><td>更强</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">判据是任务性质：<strong>IFT 学的是"怎么答"（行为），CPT 学的是"知道什么"（知识）</strong>。行为通常是低秩的，知识不是——这就是同一篇论文里"通用 IFT 持平、代码/数学 CPT 落后"的原因。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：三个会让 LoRA 输掉的条件</div>
+          <table><tr><th>条件</th><th>为什么输</th><th>对策</th></tr><tr><td>rank 太小</td><td>容量不足，表达不了需要的改变</td><td>适度加大 rank 或扩大 target_modules</td></tr><tr><td>数据量大 / 要学新知识</td><td>低秩约束成为瓶颈</td><td>改用全量微调或继续预训练</td></tr><tr><td>要改写全秩表示</td><td>低秩子空间根本够不到</td><td>提高 rank 或换方法（DoRA 等）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">先排除前两条（多数"LoRA 不行"其实是 rank 太小或覆盖面太窄），只剩第三条时才说明"这个任务本质上不适合 LoRA"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：rank 越大，学得越多、忘得也越多</div>
+          <table><tr><th>rank</th><th>能学到的</th><th>对旧能力的遗忘</th></tr><tr><td>小（如 4 ~ 8）</td><td>少</td><td><strong>少</strong></td></tr><tr><td>中（16 ~ 32）</td><td>中</td><td>中</td></tr><tr><td>大（64+）</td><td>多</td><td><strong>多</strong>（但仍少于全量）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">所以"把 rank 调到 64 去追全量"这条路是自相矛盾的：<strong>你越接近全量的学习能力，也就越接近全量的遗忘代价</strong>——单个投影的 ΔW 参数量从 r=8 的 65,536 涨到 r=64 的 524,288（524,288 ÷ 65,536 = <strong>8 倍</strong>），而论文也观察到遗忘随 rank 上升。真正该问的是"这个任务需要多少学习、能容忍多少遗忘"——这正是第 10 课"用灾难性遗忘缓解手段（低学习率 + 1~3 轮 + 通用数据重放）"要联合考虑的事。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>LoRA 不是"更省的全量微调"，而是<strong>一次明确的交换</strong>：用"只能学低秩改变"换来"参数量降三个数量级 + 更不容易遗忘"。判据一句话——<strong>任务是学行为（IFT）还是学新知识（CPT）</strong>：前者 LoRA 通常够用甚至更好（还不容易忘）；后者全量微调明显更强，LoRA 调 rank 也只是逼近它的代价。别把"LoRA 更省"误读成"LoRA 更好"。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','17-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','17-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-17-5" class="llm-section"><button class="llm-btn" onclick="startChat('17-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="17-5"><div class="chat-toolbar"><button onclick="copyChat('17-5')">📋 复制对话</button><button onclick="clearChat('17-5')">🗑 清空</button><button onclick="stopLLM('17-5')" id="stop-btn-17-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('17-5')" id="regen-btn-17-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="17-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"LoRA 什么时候输"有疑问？比如「代码任务到底该不该用 LoRA」「rank 调大能追上全量吗」？<br><br>说清任务类型与数据量，我帮你判断该走哪条路。</div></div><div class="chat-input-row"><textarea data-input="17-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('17-5')}" rows="1" placeholder="例如：我要做金融领域的继续预训练，LoRA 够吗？"></textarea><button onclick="sendLLM('17-5')">发送</button></div></div></div>
+      <div id="tab-qna-17-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('17-5')">🔄 换一批</button></div><div class="qna-list" data-qna="17-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="17-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">模型答不对，第一反应总是"微调一下"——为什么这个直觉常常是错的？</div><div class="card-q-hint">提示：先分清"它不知道"还是"它不照你说的做"——这两件事，一个改资料、一个改权重。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>业界已形成一条分层的经验路径：<strong>先用提示词（改指令）→ 需要最新事实与可溯源就加检索（RAG，把资料塞进 context）→ 只有在需要"稳定的行为/格式/风格"时才微调</strong>。判据是"微调改变的是模型<strong>行为</strong>，而不是给它灌新知识"——想让模型知道最新价格，把价格表放进上下文通常就够了；想让它每次都输出固定 JSON 或固定语气，才需要动权重。另一头是部署：LoRA 论文指出部署时可把适配器<strong>合并</strong>进权重（无额外延迟），而多适配器场景有专门系统——<strong>S-LoRA</strong>（arXiv:2311.03285）报告可在单卡或多卡上同时服务<strong>上千个适配器</strong>，而朴素的"每适配器一份权重"方案受显存限制只能服务个位数。</div>
+      <div class="content-section"><p>前面五张卡片都在讲"怎么微调"；这一张回答更前面的问题：<strong>到底该不该微调</strong>。</p><p><strong>因为</strong>微调改变的是模型的<strong>行为</strong>（语气、格式、思维方式），而不是给它"查资料"的能力——所以"模型不知道我们公司的最新产品"这类问题，微调通常不是正确答案。这就像对待一个新员工：如果问题是"他不知道公司的最新制度"，你应该<strong>给他一份手册</strong>（把资料放进上下文）；如果问题是"他说话总是不符合客服规范"，那才需要<strong>培训他的表达习惯</strong>（动权重）。把这两件事弄混，常见的代价是花几个月微调一个本该用检索解决的系统。</p><p>更自然的反应是「答不对就补训练」，但先做一次最便宜的判别：把正确的资料放进上下文，它能答对吗？能——那缺的是知识，这是一道检索题；不能——才轮到微调。跳过这一步，就会用一次训练去解决一个检索当天就能解决的问题。</p><p>下面把三条路摆开，并回答"微调之后怎么服务"。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：三选一，以及微调之后怎么上线</div>
+        <div class="step"><div class="step-title">Step 1：三条路各改什么、花多少</div>
+          <table><tr><th>手段</th><th>改什么</th><th>成本量级（估算）</th><th>适合</th></tr><tr><td>提示（prompt）</td><td>指令本身</td><td>≈ 0（只花人力）</td><td>行为、格式、推理步骤</td></tr><tr><td>RAG（检索增强）</td><td>模型看到的 context</td><td>中（建索引 + 检索链路）</td><td>知识时效性、可溯源</td></tr><tr><td><strong>微调（LoRA）</strong></td><td>权重里的行为</td><td>低（一次训练）</td><td>稳定风格 / 固定格式 / 窄任务</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">成本一列是<strong>估算</strong>（各家报价口径差异很大，不要当精确值用）；真正好用的判据不是钱，而是<strong>改什么</strong>：改指令 → 提示；改"看到的资料" → RAG；改"行为习惯" → 微调。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：按症状选处方</div>
+          <table><tr><th>症状</th><th>处方</th><th>为什么</th></tr><tr><td>不知道最新政策 / 老答错事实</td><td><strong>RAG</strong></td><td>缺的是知识，塞进 context 即可</td></tr><tr><td>格式总不稳定、要重试多次</td><td><strong>微调</strong></td><td>缺的是行为一致性</td></tr><tr><td>语气/品牌口径不统一</td><td><strong>微调</strong></td><td>风格是权重层面的习惯</td></tr><tr><td>既要最新知识、又要固定格式</td><td><strong>RAG + 微调</strong></td><td>两者正交，可叠加</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">最常见的错误是"把知识问题当行为问题"：先花三个月微调，最后发现一开始把资料放进上下文就解决了。判断顺序建议固定为——<strong>先问"把正确资料给它，它能答对吗"</strong>？能，就是 RAG 的问题；不能，才考虑微调。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：微调之后，怎么服务（合并 vs 多适配器）</div>
+          <table><tr><th>方式</th><th>做法</th><th>存储 / 适用</th></tr><tr><td><strong>合并（merge）</strong></td><td>W<sub>merged</sub> = W₀ + BA，形状不变</td><td>单任务，<strong>零额外推理延迟</strong></td></tr><tr><td>多适配器共享基座</td><td>基座常驻，按请求切换适配器</td><td>S-LoRA 报告可服务<strong>上千个</strong>适配器</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：7B 上 LoRA（r=16、覆盖全部线性层）约 <strong>40M</strong> 个可训练参数，存成 bf16 只有 <strong>40e6 × 2 B = 80 MB</strong>/适配器（按部署存储 2 B/参数计，训练时的 16 B/参数占用见 Card 17-4）；而一份完整 7B 权重是 <strong>14 GB</strong>——<strong>适配器比整模型小约 175 倍</strong>（14e9 ÷ 80e6 = 175）。所以"基座共享 + 适配器切换"才能支撑"一人一个微调模型"的多租户场景。前提是同一基座——换基座就要重训适配器。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>这张卡片的决策顺序只有三步：<strong>① 先试提示；② 是"缺知识"就上 RAG（把资料塞进 context）；③ 是"缺行为"才微调</strong>——两者都有就叠加。微调内部再选型：<strong>要稳定行为且资源有限 → LoRA；要学新知识/大数据 → 全量；要服务很多租户 → 多适配器共享基座</strong>。到这里，"训练与推理工程"这条线就只剩最后一环——把这些模型真正装配成一个能扛并发的<strong>推理引擎</strong>，那是下一课的主题。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','17-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','17-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-17-6" class="llm-section"><button class="llm-btn" onclick="startChat('17-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="17-6"><div class="chat-toolbar"><button onclick="copyChat('17-6')">📋 复制对话</button><button onclick="clearChat('17-6')">🗑 清空</button><button onclick="stopLLM('17-6')" id="stop-btn-17-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('17-6')" id="regen-btn-17-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="17-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"该不该微调"有疑问？比如「我的场景该用 RAG 还是微调」「多个适配器怎么服务」？<br><br>描述一下症状，我帮你走一遍决策树。</div></div><div class="chat-input-row"><textarea data-input="17-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('17-6')}" rows="1" placeholder="例如：客服机器人总答错产品价格，该微调还是 RAG？"></textarea><button onclick="sendLLM('17-6')">发送</button></div></div></div>
+      <div id="tab-qna-17-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('17-6')">🔄 换一批</button></div><div class="qna-list" data-qna="17-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 17 课完成 · 下一课：第 18 课「推理引擎」</p>
+    <a href="#" onclick="switchLesson(18);return false;">进入第 18 课：推理引擎 →</a>　·　<a href="#" onclick="switchLesson(16);return false;">← 上一课：量化与压缩</a>
+  </div></div>

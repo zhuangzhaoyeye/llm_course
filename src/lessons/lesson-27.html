@@ -1,0 +1,205 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 27 课：Agent 训练</h2>
+    <p class="subtitle">上一课我们把"会用工具、会规划"交给提示与编排去实现。但编排改一次、生效一次，换个场景就得重写：<strong>怎么把会用工具训进权重？</strong>这一课从"提示做不到的事"讲起，把一次 Agent 执行变成可训练的信号（轨迹 → 奖励），再看只给结果奖励为什么会出问题、过程奖励与工具结果奖励怎么设计，最后回答一个成本问题——提示、工作流、微调、RL，到底该怎么选。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清"策略写进提示"与"写进权重"的分工，并判断哪些能力必须靠训练<br>② 把一次 Agent 执行变成可训练的轨迹与奖励信号，说出 ReTool / ToolRL 报告的效果与代价，并分清算法归属（<strong>ReTool 用 PPO、ToolRL 用 GRPO</strong>；GRPO 即「不用单独训练一个打分模型、直接拿一组采样答案的相对好坏当基准来更新策略」）<br>③ 解释结果奖励为什么会教坏模型、过程奖励与工具结果奖励怎么补，并解释训练循环为什么要盯稳定性与成本</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步逻辑递进：从"为什么要训练"到"四条路怎么选"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要让一个 Agent 记住"什么时候该用工具、什么时候不该"，<strong>这就要求</strong>先分清两种办法：把策略写进提示（prompt）还是写进权重（weights）——前者改一次就生效、但不稳定且占 <b>tokens</b>。<b class="rn-key">策略要么写提示要么写权重</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然「<b>策略要么写提示要么写权重</b>」，<strong>所以</strong>要动权重就得先有可学的信号——<strong>这就要求</strong>把一次任务变成一条可训练的轨迹（trajectory：写进 <b>context</b> 的思考、动作与观察序列），再给它打分。<b class="rn-key">轨迹要先能被打分</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然「<b>轨迹要先能被打分</b>」，<strong>那么</strong>最省事的打法是只看结果——<strong>这就要求</strong>正视它的代价：结果对了不代表过程对，长轨迹里每一步都写进 <b>context</b>、却分不清哪一步立了功、哪一步闯了祸。<b class="rn-key">只给结果奖励会分不清对错</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">既然「<b>只给结果奖励会分不清对错</b>」，<strong>所以</strong>要给每一步、每个工具参数单独打分——<strong>这就要求</strong>引入过程奖励（process reward）与工具结果奖励，而不是只看最终 <b>tokens</b> 序列答对没有。<b class="rn-key">过程奖励要标中间步</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>过程奖励要标中间步</b>」，那么给每一步都打分就意味着 rollout 里要真的执行工具、还要给每个中间步算奖励——<strong>这就要求</strong>整个训练循环跑得稳，否则工具执行慢会拖垮采样、奖励缝一多 <b>gradients</b> 就会学"怎么骗奖励"。<b class="rn-key">训练循环要稳</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>训练循环要稳</b>」，<strong>那么</strong>最后要回答一个成本问题：<strong>这就要求</strong>在提示、工作流、微调、RL 四条路里选——判据不是"越重越好"，而是"这条策略靠提示里的 <b>context</b> 能不能稳住"。<b class="rn-key">训练与提示要按场景选</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">Agentic RL</span><span class="meta-tag">轨迹与奖励</span><span class="meta-tag">结果 vs 过程奖励</span><span class="meta-tag">工具结果奖励</span><span class="meta-tag">GRPO</span><span class="meta-tag">训练选型</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="27-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">提示能改行为——那什么时候非动权重不可？</div><div class="card-q-hint">提示：比较"每次都要交代"和"练成习惯"两种做法的差别——哪一种更稳、更省、更能迁移到新场景？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>用监督微调（SFT，即拿一批带标准答案的示例、让模型照着模仿该怎么做）学工具调用，本质是<strong>模仿</strong>给定的轨迹；论文 ToolRL（Qian 等，arXiv:2504.13958）指出：SFT 常常只学到"表面像"，会过度解读工具、不会拒绝不合适的工具，泛化到新工具上就露馅；而基于强化学习（RL）的做法能在反馈中探索策略。该工作报告 RL 相比基座提升约 <strong>17%</strong>、相比 SFT 提升约 <strong>15%</strong>。</div>
+      <div class="content-section"><p>上一课我们把"会工具、会规划"交给提示与编排。这一张要问：<strong>既然提示能改行为，为什么还要动权重？</strong></p><p><strong>因为</strong>提示是"每次都要重新交代"的软约束：它占 <b>tokens</b>、随措辞漂移、换个场景就可能失效；而权重里的策略是<strong>默认行为</strong>，不占提示、无需每次交代、更容易迁移。<strong>就像</strong>教新人：口头交代一次（提示）能应付今天，反复练到成肌肉记忆（训练）才能在新情况下也做对。<strong>所以</strong>先分清两条路各自管什么。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：提示 vs 权重</div>
+        <div class="step"><div class="step-title">Step 1：两条路的性质对比</div>
+          <table><tr><th>维度</th><th>写进提示</th><th>写进权重</th></tr><tr><td>生效时机</td><td>改一次即生效</td><td>需一次训练</td></tr><tr><td>tokens 开销</td><td>每次请求都占</td><td>不占提示</td></tr><tr><td>稳定性</td><td>随措辞 / 场景漂移</td><td>成为默认行为</td></tr><tr><td>迁移性</td><td>换个场景要重写</td><td>泛化到相似场景</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条对比：提示适合"临时、多变、要立刻见效"的策略；权重适合"稳定、高频、要跨场景一致"的策略。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：SFT 的泛化缺口</div>
+          <table><tr><th>训练方式</th><th>擅长</th><th>短板</th></tr><tr><td>SFT（模仿轨迹）</td><td>复现见过的模式</td><td>遇到新工具 / 新场景就退化</td></tr><tr><td>RL（按反馈探索）</td><td>学会"何时用、何时不用"</td><td>需要可打的奖励与更多算力</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条判据：<strong>SFT 教"怎么做"，RL 教"该不该做"</strong>——这也是 ToolRL 报告 RL 优于 SFT 的原因。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：训练值不值（以 ToolRL 报告为例）</div>
+          <table><tr><th>对比</th><th>提升</th></tr><tr><td>RL 相比基座</td><td>约 <strong>+17%</strong></td></tr><tr><td>RL 相比 SFT</td><td>约 <strong>+15%</strong></td></tr><tr><td>能否直接相减</td><td>原文只说 +17% over base / +15% gain over SFT，<strong>未声明为同一基线的绝对百分点</strong>；若两者确为同一基线，才有 SFT ≈ 17 − 15 = <strong>+2</strong>（示意，非原文口径）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：报告口径下 RL 相对基座约 +17%、相对 SFT 约 +15%。<strong>两个数出自不同比较基准、原文未明示口径，不能简单相减</strong>；只有当二者都是"相对同一基线的百分点"时，才谈得上 SFT ≈ +2 个点（此处仅作示意）。<strong>结论不是"能训就训"，而是"当提示稳不住时才值得动权重"。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>提示与权重不是替代关系，而是<strong>分工</strong>：提示管"多变、临时、要立刻生效"，权重管"稳定、高频、要跨场景一致"。判断该不该训，只问一句——<strong>这条策略靠提示能不能长期稳住？</strong></p></div>
+      <div class="content-section"><p>这条路最早的标志性工作是 <strong>Toolformer</strong>（Meta, 2023, arXiv:2302.04761）：让模型在预训练阶段自己标注「这句话里该调哪个 API、参数填什么」，把工具用法直接写进权重。它证明了「会用工具」可以不完全依赖提示，而是训练出来的能力——这正是本课要走的那条路的起点。</p></div>
+    <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','27-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','27-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-27-1" class="llm-section"><button class="llm-btn" onclick="startChat('27-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="27-1"><div class="chat-toolbar"><button onclick="copyChat('27-1')">📋 复制对话</button><button onclick="clearChat('27-1')">🗑 清空</button><button onclick="stopLLM('27-1')" id="stop-btn-27-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('27-1')" id="regenerate-btn-27-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="27-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"提示还是训练"有疑问？比如「我的需求该不该训练」「SFT 够不够」？<br><br>说清你的场景与策略稳定性要求，我帮你判断该走哪条路。</div></div><div class="chat-input-row"><textarea data-input="27-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('27-1')}" rows="1" placeholder="例如：什么时候必须微调而不是改提示？"></textarea><button onclick="sendLLM('27-1')">发送</button></div></div></div>
+      <div id="tab-qna-27-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('27-1')">🔄 换一批</button></div><div class="qna-list" data-qna="27-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="27-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">一次 Agent 执行里那么多动作，怎么把它变成能训练的信号？</div><div class="card-q-hint">提示：把一次执行摊开看——模型每一步产出什么、环境回什么、最后怎么判对错？这些里哪些能当"分数"。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>ReTool</strong>（Feng 等，arXiv:2504.11536，字节 Seed）用"冷启动 SFT + RL"训练工具调用：先用合成数据教模型"边推理边写代码执行"，再让 RL 基于<strong>任务结果</strong>探索何时调用工具（RL 阶段用 PPO，Schulman 等，arXiv:1707.06347）。它在 AIME 上报告：32B 模型 400 步达到 <strong>67%</strong>，而纯文本 RL 基线 1080 步只有 <strong>40%</strong>；扩展设置下达到 <strong>72.5%</strong>。</div>
+      <div class="content-section"><p>上一张卡片说明策略该不该写进权重。要训练，就<strong>得先有可学的信号——一次执行怎么变成训练数据？</strong></p><p><strong>因为</strong>模型要学的是"在什么状态下、做什么动作"这个映射，所以需要把执行过程记录成一条<strong>轨迹</strong>（trajectory）：每一步的思考、动作、环境观察都写进 <b>context</b>，再对整条轨迹或某些步打分。<strong>就像</strong>教练看比赛录像：先把每个回合拆出来，再逐球点评，才知道哪一招该表扬、哪一招该改。<strong>所以</strong>先看一条轨迹的构成，再看它怎么被"打分"用起来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：从轨迹到可训练信号</div>
+        <div class="step"><div class="step-title">Step 1：一条轨迹由四类片段构成</div>
+          <table><tr><th>片段</th><th>内容</th><th>能否当信号</th></tr><tr><td>State 状态</td><td>任务 + 当前上下文</td><td>——</td></tr><tr><td>Thought 思考</td><td>模型的推理文本</td><td>难直接判对错</td></tr><tr><td>Action 动作</td><td>调用工具 + 参数</td><td><strong>可判格式 / 参数</strong></td></tr><tr><td>Observation 观察</td><td>工具返回值</td><td><strong>可判结果</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条结构说明：能直接当信号的是<strong>动作</strong>与<strong>观察</strong>；思考文本要靠"最终结果"或"过程奖励"间接判——这正是后面两张卡片的主题。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：ReTool 报告的训练效率</div>
+          <table><tr><th>方法</th><th>训练步数</th><th>AIME 准确率</th></tr><tr><td>纯文本 RL 基线</td><td>1080</td><td>40%</td></tr><tr><td>ReTool（工具+RL）</td><td><strong>400</strong></td><td><strong>67%</strong></td></tr><tr><td>步数比</td><td>1080 ÷ 400 = <strong>2.7×</strong></td><td>准确率 +27 点</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：ReTool 用 <strong>400</strong> 步到 <strong>67%</strong>，基线要 <strong>1080</strong> 步才 40%——步数比约 <strong>2.7×</strong>，准确率差 27 个点。说明"让模型学会调用工具"可能比"在文本里死磕"更省算力。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：扩展设置与对照</div>
+          <table><tr><th>设置</th><th>数值</th></tr><tr><td>ReTool 扩展设置</td><td><strong>72.5%</strong></td></tr><tr><td>相对 o1-preview 报告口径</td><td>+27.9 个百分点</td></tr><tr><td>关键副作用</td><td>出现"代码自我纠错"等涌现行为</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：72.5% 与 +27.9 个百分点是该论文的口径。<strong>值得记住的不是某个分数，而是机制：把工具结果接进训练信号，模型会自己学会"什么时候该调、错了怎么改"。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>把 Agent 训练起来的第一步不是"选算法"，而是<strong>把一次执行记录成能打分的轨迹</strong>：状态、思考、动作、观察。能直接打分的是动作与观察；思考要靠结果或过程奖励来间接监督。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','27-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','27-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-27-2" class="llm-section"><button class="llm-btn" onclick="startChat('27-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="27-2"><div class="chat-toolbar"><button onclick="copyChat('27-2')">📋 复制对话</button><button onclick="clearChat('27-2')">🗑 清空</button><button onclick="stopLLM('27-2')" id="stop-btn-27-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('27-2')" id="regenerate-btn-27-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="27-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"轨迹变信号"有疑问？比如「一条轨迹要多长」「冷启动数据从哪来」？<br><br>说一下你的任务与环境，我帮你设计轨迹采集与奖励信号。</div></div><div class="chat-input-row"><textarea data-input="27-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('27-2')}" rows="1" placeholder="例如：训练数据该怎么收集？"></textarea><button onclick="sendLLM('27-2')">发送</button></div></div></div>
+      <div id="tab-qna-27-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('27-2')">🔄 换一批</button></div><div class="qna-list" data-qna="27-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="27-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">只给最终答案一个分，模型会学到什么？</div><div class="card-q-hint">提示：想一个"答案蒙对、过程全错"的例子——如果奖励只看最终答案，模型会学到什么？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>结果奖励模型（ORM）</strong>只看最终结果对不对；<strong>过程奖励模型（PRM）</strong>给每一步打分。OpenAI 的《Let's Verify Step by Step》（Lightman 等，arXiv:2305.20050）在 MATH 上对比后报告：用 PRM 做 best-of-N 选择解出 <strong>78.2%</strong>，ORM 为 <strong>72.4%</strong>；并公开了 <strong>PRM800K</strong>（约 80 万条<strong>步级</strong>人工标注）。</div>
+      <div class="content-section"><p>上一张卡片说轨迹要能被打分。最容易实现的打分就是"看最后答对没有"——<strong>可为什么只看结果会把模型教坏？</strong></p><p><strong>因为</strong>长轨迹里"结果对"不等于"过程对"：模型可能用错误的推理蒙对答案，也可能在正确推理后算错最后一步。只看结果，奖励就分不清哪一步立了功、哪一步闯了祸——这就是<strong>信用分配</strong>（credit assignment）难题。<strong>就像</strong>只按期末总分表扬一个学生：他可能靠押题蒙对，真实能力并没提高。<strong>所以</strong>要看得更细。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：结果奖励 vs 过程奖励</div>
+        <div class="step"><div class="step-title">Step 1：结果奖励为什么分不清对错</div>
+          <table><tr><th>情形</th><th>结果</th><th>过程</th><th>结果奖励会给</th></tr><tr><td>推理全对、答案对</td><td>对</td><td>对</td><td>高分（应得）</td></tr><tr><td>推理错、蒙对答案</td><td>对</td><td>错</td><td><strong>高分（错奖）</strong></td></tr><tr><td>推理对、末步算错</td><td>错</td><td>基本对</td><td><strong>低分（误罚）</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条诊断：结果奖励既会<strong>错奖</strong>蒙对的轨迹，也会<strong>误罚</strong>末步手滑的轨迹——因为整条轨迹摊在同一个 <b>context</b> 里，模型看不出该在哪一步改。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：PRM 比 ORM 高多少</div>
+          <table><tr><th>奖励模型</th><th>MATH 子集（best-of-N）</th></tr><tr><td>ORM（只看结果）</td><td>72.4%</td></tr><tr><td>PRM（逐步打分）</td><td><strong>78.2%</strong></td></tr><tr><td>差值</td><td>78.2 − 72.4 = <strong>5.8 个百分点</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：过程监督比结果监督高 <strong>5.8 个百分点</strong>。原因是它提供了更精确的反馈——<strong>能指出错在第几步</strong>，而不是给整条结论一个笼统的分数。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：过程奖励的代价</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>公开的过程标注量</td><td>约 80 万条（PRM800K）</td></tr><tr><td>标注粒度</td><td>逐步（positive / negative / neutral）</td></tr><tr><td>代价</td><td>标数据贵、比结果奖励更难自动化</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：<strong>80 万条步级标注</strong>是过程奖励的门槛。所以工程上常见折中：先用结果奖励冷启动，再对关键步骤补过程奖励。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>结果奖励的问题不是"不准"，而是<strong>太粗</strong>——它把"整条轨迹"压成一个数，于是既奖错也罚错。过程奖励用 5.8 个点的优势换来了精确定位能力，代价是要标中间步。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','27-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','27-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-27-3" class="llm-section"><button class="llm-btn" onclick="startChat('27-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="27-3"><div class="chat-toolbar"><button onclick="copyChat('27-3')">📋 复制对话</button><button onclick="clearChat('27-3')">🗑 清空</button><button onclick="stopLLM('27-3')" id="stop-btn-27-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('27-3')" id="regenerate-btn-27-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="27-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对结果 / 过程奖励有疑问？比如「没有人工标注怎么办」「过程奖励怎么自动生成」？<br><br>说清你的任务与可用的判分方式，我帮你选奖励方案。</div></div><div class="chat-input-row"><textarea data-input="27-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('27-3')}" rows="1" placeholder="例如：过程奖励的数据怎么来？"></textarea><button onclick="sendLLM('27-3')">发送</button></div></div></div>
+      <div id="tab-qna-27-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('27-3')">🔄 换一批</button></div><div class="qna-list" data-qna="27-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="27-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">为什么只加一个"结果分"不够，还要给每一步、给工具参数单独打分？</div><div class="card-q-hint">提示：一次工具调用要同时满足哪些条件才算"对"？把一个笼统的"调用成功"拆开，能拆出几个彼此独立的判据？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>ToolRL</strong>（Qian 等，arXiv:2504.13958）系统研究了工具使用任务的奖励设计，指出粗粒度、只看答案匹配的奖励效果最差；它把奖励拆成<strong>格式奖励</strong>（特殊标记是否齐全、顺序对不对）与<strong>正确性奖励</strong>（工具名、参数名、参数值是否匹配），并用 GRPO 训练。报告称相比基座约 <strong>+17%</strong>、相比 SFT 约 <strong>+15%</strong>。</div>
+      <div class="content-section"><p>上一张卡片说过程奖励更细。落到工具调用上，<strong>为什么一个"结果分"还不够？</strong></p><p><strong>因为</strong>工具调用可能错在三个不同层次：格式（标记缺失）、选择（工具名错）、参数（名字对、值填错）。只给一个总分，模型不知道错在哪、也就无从改起。<strong>就像</strong>考试分步给分：过程分、结果分分开算，学生才知道是"思路错"还是"算错"；只给一个总分，改错题时两眼一抹黑。<strong>所以</strong>要把奖励拆细。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：把奖励拆成可归因的几项</div>
+        <div class="step"><div class="step-title">Step 1：工具调用的三层错误</div>
+          <table><tr><th>层次</th><th>典型错误</th><th>对应奖励项</th></tr><tr><td>格式</td><td>缺标记、顺序乱</td><td>格式奖励（0/1）</td></tr><tr><td>选择</td><td>工具名编造 / 选错</td><td>工具名匹配</td></tr><tr><td>参数</td><td>参数名或值不对</td><td>参数名 / 值匹配</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条拆解：奖励要能<strong>逐层归因</strong>——格式错就扣格式分、选错就扣选择分，模型才知道往哪改。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：乘性 vs 加性的差别</div>
+          <table><tr><th>组合方式</th><th>效果</th><th>出处 / 定位</th></tr><tr><td>加性（求和）</td><td>可用格式分"补偿"正确性，诱导刷格式</td><td>ToolRL 原文做法（R = R_format + R_correct）</td></tr><tr><td>乘性（相乘）</td><td>任一项为 0 则总分 0，<strong>堵住捷径</strong></td><td><strong>本课推荐的改进</strong>（非 ToolRL 口径）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条设计原则（<strong>本课推荐，非 ToolRL 口径</strong>）：把"格式"当<strong>门槛</strong>（乘性）而不是"加分项"（加性），否则模型会学会"格式写得很漂亮但答错"；ToolRL 原文用的是加性 R = R_format + R_correct。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：拆细后的效果（ToolRL 报告口径）</div>
+          <table><tr><th>对比</th><th>提升</th></tr><tr><td>相比基座</td><td>约 <strong>+17%</strong></td></tr><tr><td>相比 SFT</td><td>约 <strong>+15%</strong></td></tr><tr><td>训练稳定性</td><td>报告称训练更稳、可扩展</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：+17% / +15% 是该论文的口径。<strong>关键不是数字，而是"奖励拆得够细 → 奖励曲线更稳、泛化更好"这条因果链</strong>——代价是要重算的 <b>tokens</b> 变多。（注意：ToolRL 原文用的是加性奖励 R = R_format + R_correct；本卡推荐的<strong>乘性</strong>是对"刷格式"风险的改进，两者不是一回事。）</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>工具训练的奖励设计有一条铁律：<strong>把错误拆到"可归因"的粒度</strong>——格式、选择、参数各算各的；并且（<strong>本课推荐</strong>）用<strong>乘性</strong>把格式当门槛，防止模型用"格式漂亮"掩盖"答错"。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','27-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','27-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-27-4" class="llm-section"><button class="llm-btn" onclick="startChat('27-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="27-4"><div class="chat-toolbar"><button onclick="copyChat('27-4')">📋 复制对话</button><button onclick="clearChat('27-4')">🗑 清空</button><button onclick="stopLLM('27-4')" id="stop-btn-27-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('27-4')" id="regenerate-btn-27-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="27-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对奖励设计有疑问？比如「奖励要不要减分」「怎么防止刷分」？<br><br>说一下你的工具集与常见错误，我帮你拆奖励项。</div></div><div class="chat-input-row"><textarea data-input="27-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('27-4')}" rows="1" placeholder="例如：工具奖励怎么设计？"></textarea><button onclick="sendLLM('27-4')">发送</button></div></div></div>
+      <div id="tab-qna-27-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('27-4')">🔄 换一批</button></div><div class="qna-list" data-qna="27-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="27-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">强化学习训练 Agent，为什么经常训着训着就崩？</div><div class="card-q-hint">提示：Agent 的训练比纯文本训练多接了一条"真实世界"的链路——想想它多了什么、会带来什么麻烦。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>Agent 的 RL 训练循环是"采样轨迹（rollout）→ 执行工具 → 算奖励 → 更新参数"，常用 GRPO（Group Relative Policy Optimization，一种用一组采样估计基线的策略优化方法；Shao 等，arXiv:2402.03300）。与纯文本 RL 不同，<strong>工具执行会拖慢采样</strong>：VerlTool 等工程报告显示，把 rollout 做成异步可带来 1.22×–1.97× 的加速（arXiv:2509.01055）；同时，奖励设计不当会让模型学会"骗奖励"（reward hacking）。</div>
+      <div class="content-section"><p>上一张卡片把奖励拆细了。但拆得细不代表训得稳——<strong>为什么 Agent 的 RL 更容易训崩？</strong></p><p><strong>因为</strong>它比纯文本多了一条<strong>真实世界</strong>的链路：采样时要真的调工具、等返回，工具慢就把 GPU 晾在那里；同时奖励一旦有缝，<b>gradients</b>（梯度，即参数更新的方向）会顺着缝去"刷分"而不是学本事。<strong>就像</strong>开车时方向盘猛打——单步看着有效，跑一段就翻车；训练要的是<strong>可控、可复现</strong>的更新。<strong>所以</strong>要从循环、瓶颈、稳定性三处一起看。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：训练循环的三个坑</div>
+        <div class="step"><div class="step-title">Step 1：循环的四步与它们的时间占比</div>
+          <table><tr><th>环节</th><th>做什么</th><th>常见瓶颈</th></tr><tr><td>Rollout</td><td>采样轨迹</td><td><strong>工具执行最慢</strong></td></tr><tr><td>Tool exec</td><td>真实调用工具</td><td>受外部系统限制</td></tr><tr><td>Reward</td><td>打分</td><td>奖励设计易被钻空子</td></tr><tr><td>Update</td><td>更新参数</td><td>学习率 / 批大小不稳</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条诊断：Agent RL 与文本 RL 最大的不同是 <strong>rollout 里多了"等待真实世界"</strong>——它既是性能瓶颈，也是训练不稳定的来源之一。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：异步 rollout 能省多少</div>
+          <table><tr><th>场景</th><th>异步相对同步的加速</th></tr><tr><td>数学工具（Math-TIR）</td><td><strong>1.32×</strong></td></tr><tr><td>SQL</td><td><strong>1.22×</strong></td></tr><tr><td>深度搜索（DeepSearch）</td><td><strong>1.97×</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：异步采样在三个场景分别加速 <strong>1.32× / 1.22× / 1.97×</strong>（工程报告口径）。<strong>结论：Agent RL 的成本大头常在"等工具"，而不是"算梯度"。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：奖励被钻空子的三种典型</div>
+          <table><tr><th>漏洞</th><th>模型学到什么</th></tr><tr><td>只看格式</td><td>输出漂亮格式、内容乱写</td></tr><tr><td>只看答案匹配</td><td>记住答案、跳过推理</td></tr><tr><td>可被检索到的奖励</td><td>把奖励信号"抄"进回答</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条纪律：<strong>奖励里任何"可被直接写出来"的部分，都会被模型写出来</strong>——所以奖励要看模型<strong>行为的结果</strong>，而不是它能复述的文本。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>Agent RL 的稳定性来自两处：<strong>工程上把"等工具"异步掉</strong>（1.22×–1.97×），<strong>算法上让奖励不可钻空子</strong>。判据一句话：把奖励定在"行为造成的结果"上，而不是"模型能说出来的话"上。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','27-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','27-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-27-5" class="llm-section"><button class="llm-btn" onclick="startChat('27-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="27-5"><div class="chat-toolbar"><button onclick="copyChat('27-5')">📋 复制对话</button><button onclick="clearChat('27-5')">🗑 清空</button><button onclick="stopLLM('27-5')" id="stop-btn-27-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('27-5')" id="regenerate-btn-27-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="27-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对训练稳定性有疑问？比如「怎么发现模型在刷分」「rollout 太慢怎么办」？<br><br>说清你的训练循环与奖励，我帮你找不稳定的来源。</div></div><div class="chat-input-row"><textarea data-input="27-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('27-5')}" rows="1" placeholder="例如：怎么判断奖励被刷了？"></textarea><button onclick="sendLLM('27-5')">发送</button></div></div></div>
+      <div id="tab-qna-27-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('27-5')">🔄 换一批</button></div><div class="qna-list" data-qna="27-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="27-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">提示、工作流、微调、RL——这四条路怎么选才不浪费算力？</div><div class="card-q-hint">提示：给这四条路按"改动成本"排个序，再想每条路各自能解决什么问题、不能解决什么问题。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>第 20 课已给出"能简单就别复杂"的总原则（Anthropic《Building Effective Agents》）。把这条原则用到"训练 vs 提示"上：<strong>提示</strong>管临时多变、<strong>工作流</strong>管路径可写死、<strong>SFT</strong> 管稳定行为与格式、<strong>RL</strong> 管"要不要做 / 做得好不好"这类无法用示例写死的策略。</div>
+      <div class="content-section"><p>前面五张卡片把"训练"这条线讲完了。最后回到最实用的一问：<strong>四条路到底该怎么选？</strong></p><p><strong>因为</strong>四条路的成本大致差一个数量级（示意）：改提示几乎免费、写工作流要工程、SFT 要标数据、RL 要奖励与算力。用最重的手段去解决最轻的问题，就是浪费。<strong>就像</strong>出行选工具：三公里走路、三十公里地铁、三百公里高铁——不是越贵越好，而是匹配距离。<strong>所以</strong>用一张判据表把选择固化下来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：四条路的选型</div>
+        <div class="step"><div class="step-title">Step 1：四条路的成本与适用</div>
+          <table><tr><th>路径</th><th>成本量级</th><th>适合解决</th></tr><tr><td>提示</td><td>最低（改文本）</td><td>临时、多变、要立刻见效</td></tr><tr><td>工作流</td><td>低（写编排）</td><td>步骤可提前写死</td></tr><tr><td>SFT</td><td>中（标轨迹）</td><td>稳定行为 / 格式 / 风格</td></tr><tr><td>RL</td><td>高（奖励 + 算力）</td><td>策略写不进示例（该不该用工具）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条排序：<strong>提示 &lt; 工作流 &lt; SFT &lt; RL</strong>——永远优先用更轻的那条，只有它确实稳不住才升级。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：一句判据定分叉</div>
+          <table><tr><th>问题</th><th>答案</th><th>选</th></tr><tr><td>改提示能稳定解决吗</td><td>能</td><td>提示 / 工作流</td></tr><tr><td>只能用示例教、且要稳定</td><td>是</td><td>SFT</td></tr><tr><td>要学"该不该做"的取舍</td><td>是</td><td>RL</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条判据链：<strong>先问"能不能用 <b>context</b> 里的提示稳住"</strong>——能就停在这里；不能，再看是要"学会做"（SFT）还是"学会取舍"（RL）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：常见误配与代价</div>
+          <table><tr><th>误配</th><th>后果</th></tr><tr><td>能改提示却上 RL</td><td>多花数量级算力，收益不成比例</td></tr><tr><td>该学取舍却只做 SFT</td><td>新场景泛化差（ToolRL 报告的现象）</td></tr><tr><td>该写死流程却上 Agent</td><td>引入不确定性，得不偿失</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条收口：本课把"训进权重"讲清了，但结论仍然克制——<strong>训练是最后手段，不是默认选项。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>本课收口：Agent 训练的链条是<strong>先分清提示与权重的分工 → 把执行变成可打分的轨迹 → 用过程奖励修正结果奖励的粗糙 → 把工具奖励拆到可归因 → 把训练循环做稳 → 最后按成本选型</strong>。下一课收口全课程：<strong>怎么证明一个 Agent 真的能上生产</strong>——评测、可靠性、安全与发布门禁。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','27-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','27-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-27-6" class="llm-section"><button class="llm-btn" onclick="startChat('27-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="27-6"><div class="chat-toolbar"><button onclick="copyChat('27-6')">📋 复制对话</button><button onclick="clearChat('27-6')">🗑 清空</button><button onclick="stopLLM('27-6')" id="stop-btn-27-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('27-6')" id="regenerate-btn-27-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="27-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对训练选型有疑问？比如「我的场景该 SFT 还是 RL」「能不能都不做」？<br><br>说清你的策略稳定性与数据情况，我帮你选路。</div></div><div class="chat-input-row"><textarea data-input="27-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('27-6')}" rows="1" placeholder="例如：该 SFT 还是 RL？"></textarea><button onclick="sendLLM('27-6')">发送</button></div></div></div>
+      <div id="tab-qna-27-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('27-6')">🔄 换一批</button></div><div class="qna-list" data-qna="27-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 27 课完成 · 下一课：第 28 课「Agent 评测与生产化」</p>
+    <a href="#" onclick="switchLesson(28);return false;">进入第 28 课：Agent 评测与生产化 →</a>　·　<a href="#" onclick="switchLesson(26);return false;">← 上一课：多智能体与协议</a>
+  </div></div>

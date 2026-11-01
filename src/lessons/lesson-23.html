@@ -1,0 +1,204 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 23 课：MCP 协议</h2>
+    <p class="subtitle">紧接第 22 课《工具调用》：上一课我们讲透了「模型怎么调用一个函数」，也埋了一个伏笔——每个宿主都要为每个工具各写一套适配，接入量是 M×N。这一课把那个伏笔展开：MCP（Model Context Protocol）如何用一套协议把 M×N 压成 M+N，Host / Client / Server 三个角色怎么分工，Resources / Prompts / Tools 三类原语怎么选，怎么把一个内网系统包成 Server，传输与鉴权怎么配，以及 2026-07-28 版为什么把协议改成无状态、改完扩容简单在哪。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 算清接入量的账：5 个宿主 × 20 个工具的两两对接是 100 份，协议化后只需 5 + 20 = 25 份，省 75 份<br>② 说清 Host / Client / Server 三个角色的分工，以及一条 JSON-RPC 2.0 请求的关键字段（必填 jsonrpc / method，请求带 id；params 视方法可有；result 属响应）<br>③ 解释 2026-07-28 无状态化改了什么，并算出按 ttlMs 缓存 tools/list 把 1,000 次探测压到 1 次（省 999 次）</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：接入成本 → 角色与消息 → 三原语 → 包成 Server → 传输与鉴权 → 无状态化）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">先从课程主线最实际的约束出发：要让「5 个宿主 × 20 个工具 = 100 份适配」这件事不再成立，<strong>这就要求</strong>先把「每个宿主接每个工具都要各写一遍」这句乘法拆开看清楚——没有统一约定时，工具与 context 的接入量是消费方与提供方的<strong>乘积 M×N</strong>。<b class="rn-key">接入成本是乘法</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然「<b>接入成本是乘法</b>」，<strong>所以</strong>要有一个统一约定来替代两两私接；<strong>于是</strong> MCP 用三层角色把它拆开——Host（宿主）发起、Client（客户端）连接、Server（服务器）提供能力，消息走 JSON-RPC 2.0 交换 context。<b class="rn-key">三层角色各管一段</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然「<b>三层角色各管一段</b>」，<strong>所以</strong>下一步要看 Server 到底能提供什么；<strong>于是</strong>把它的三原语拆开——Resources 只读数据、Prompts 模板、Tools 可执行函数，按「谁控制」决定谁把它们注入 context。<b class="rn-key">三原语各有归属</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">既然「<b>三原语各有归属</b>」，<strong>于是</strong>可以动手把公司内网系统包成一个 Server：声明几个 tool、写好 schema，<strong>所以</strong>宿主不必改代码就能拿到 context 与能力。<b class="rn-key">把系统包成 Server</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>把系统包成 Server</b>」，<strong>所以</strong>紧接着要问谁能调什么：本地用 stdio、远程用 Streamable HTTP，再用 OAuth 的 token 与用户同意划清权限边界。<b class="rn-key">传输与鉴权配套</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然接入、原语、鉴权都已就位，「<b>传输与鉴权配套</b>」，<strong>所以</strong>最后看协议自身的可运维性：早期有状态会话要求粘性路由与共享存储，2026-07-28 版改成无状态，请求自带路由信息、列表结果可按 cache 的 ttlMs 缓存。<b class="rn-key">协议也要能横向扩</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">MCP</span><span class="meta-tag">JSON-RPC 2.0</span><span class="meta-tag">Host/Client/Server</span><span class="meta-tag">Tools·Resources·Prompts</span><span class="meta-tag">Streamable HTTP</span><span class="meta-tag">无状态化</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="23-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">每接一个新工具，就要为每个宿主各写一遍适配代码——这个乘法错在哪？</div><div class="card-q-hint">提示：数一数——M 个宿主、N 个工具，两两对接一共要写多少份？有没有办法把它从乘法变成加法？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>上一课《工具调用》把一次调用的四步走通了，但那是在<strong>一个</strong>宿主里。工程上还有一个乘法：没有统一约定时，M 个宿主（host，装了大模型、发起调用的 AI 应用）要为 N 个工具（tool，模型可调用的函数）各写一套适配代码，接入量是 M×N。<strong>MCP</strong>（Model Context Protocol，模型上下文协议，一个让 AI 应用与外部工具用统一格式对话的开放协议）就是为了消掉这个乘法；它明确<strong>借鉴 LSP</strong>（Language Server Protocol，语言服务器协议，把编辑器与编程语言解耦的同款思路），把两两适配变成统一约定。规范用 BCP 14（即 RFC 2119 / RFC 8174 那套 MUST / SHOULD 关键字约定）的 MUST / MUST NOT 定义硬性要求。</div>
+      <div class="content-section"><p>上一课我们把工具调用拆成了「定义 → 意图 → 执行 → 回填」四步。这一张先算最实际的一笔账：<strong>为什么每接一个新工具，就要为每个宿主各写一遍适配代码</strong>。</p><p><strong>因为</strong>工具调用依赖宿主自己的私有约定——A 应用写的工具，B 应用没法直接拿来用。<strong>就像</strong>每家门店都要为每个品牌的会员卡各装一台刷卡机：5 家店 × 20 个品牌 = 100 台，谁也统一不了，每加一个品牌每店都要再加一台。<strong>所以</strong>下面把 M×N 这笔乘法，与它被压成 M+N 之后的差距算出来。</p><p>更直接的做法是「谁要用谁自己接」——每个宿主单独为每个工具写一份适配。只有 1 个宿主时它也够用，但成本随规模平方涨：从 5×20 加到 10×50，两两对接的份数从 100 涨到 500（约 <strong>5 倍</strong>——宿主翻倍、工具数又增至 2.5 倍，乘法叠加；而协议化后份数只从 25 涨到 60，约 2.4 倍）；每新增一个工具，还要在全部宿主里各改一次。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：M×N 与 M+N 差多少</div>
+        <div class="step"><div class="step-title">Step 1：先把 M 与 N 定义清楚</div>
+          <table><tr><th>符号</th><th>含义</th><th>例子</th></tr><tr><td>M</td><td>宿主（host）数量</td><td>5 个（IDE、聊天、工单系统…）</td></tr><tr><td>N</td><td>工具（tool）数量</td><td>20 个（数据库、工单、日历…）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：没有统一约定时，第 m 个宿主想用第 n 个工具，就要写一份它俩之间的适配——所以总接入量是 M 与 N 的<strong>乘积</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：两两对接 = 100 份，协议化 = 25 份</div>
+          <table><tr><th>方案</th><th>要写多少份</th><th>计算</th></tr><tr><td>各自对接</td><td><strong>100</strong></td><td>M×N = 5 × 20</td></tr><tr><td>统一协议</td><td><strong>25</strong></td><td>M+N = 5 + 20</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：M=5、N=20 时，两两对接要 <strong>100</strong> 份，统一协议只要 <strong>25</strong> 份——省掉 100 − 25 = <strong>75</strong> 份。这就是协议的价值：把乘法变成加法。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：规模越大，差距越夸张</div>
+          <table><tr><th>规模</th><th>M×N</th><th>M+N</th><th>倍数</th></tr><tr><td>5 × 20</td><td>100</td><td>25</td><td>4.0×</td></tr><tr><td>10 × 50</td><td>500</td><td>60</td><td>≈ 8.3×</td></tr><tr><td>20 × 100</td><td><strong>2,000</strong></td><td><strong>120</strong></td><td><strong>≈ 16.7×</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：当 M、N 同步放大时，M×N 与 M+N 的差距从 4.0 倍拉到约 <strong>16.7</strong> 倍——乘法按规模平方涨、加法只线性涨。这正是 MCP 这类协议存在的理由。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>MCP 解决的<strong>不是</strong>模型能力问题，而是一个<strong>生态乘法</strong>：把 M×N 份点对点适配，换成 M+N 份对协议的实现。它借鉴 LSP 的成功经验——协议只规定「怎么交换 context」，不规定「交换什么业务」，所以既能接各类工具，也不会绑死在某一家。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','23-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','23-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-23-1" class="llm-section"><button class="llm-btn" onclick="startChat('23-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="23-1"><div class="chat-toolbar"><button onclick="copyChat('23-1')">📋 复制对话</button><button onclick="clearChat('23-1')">🗑 清空</button><button onclick="stopLLM('23-1')" id="stop-btn-23-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('23-1')" id="regenerate-btn-23-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="23-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 M×N 这笔账有疑问？比如「M+N 到底省了多少」「规模大了会怎样」？<br><br>告诉我你的宿主数与工具数，我帮你算这笔接入账。</div></div><div class="chat-input-row"><textarea data-input="23-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('23-1')}" rows="1" placeholder="例如：5 个宿主、20 个工具，能省多少份？"></textarea><button onclick="sendLLM('23-1')">发送</button></div></div></div>
+      <div id="tab-qna-23-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('23-1')">🔄 换一批</button></div><div class="qna-list" data-qna="23-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="23-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">MCP 到底是什么？Host、Client、Server 三个角色是怎么分工的，消息又是怎么走的？</div><div class="card-q-hint">提示：一个宿主可能同时连好几个服务器——先想「连接」这件事该由谁负责，再想一条请求要经过哪些角色。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>MCP 的三个角色：<strong>Host</strong>（宿主，装了大模型、发起连接的 AI 应用，如 IDE、聊天工具）、<strong>Client</strong>（客户端，宿主内部为每个服务器建的一个连接器，与服务器 1 对 1）、<strong>Server</strong>（服务器，对外提供 context 与能力的程序，可以是本地进程或远程服务）。三者之间用 <strong>JSON-RPC 2.0</strong>（一种用 JSON 表达请求/响应、带 method / params / id 字段的轻量远程调用格式）通信。设计原则里有一条硬性约定：服务器不应读到整段对话，也看不到别的服务器。</div>
+      <div class="content-section"><p>上一张卡片算清了 M×N 这笔乘法。这一张回答：MCP 到底是什么，三个角色怎么分工。</p><p><strong>因为</strong>一个宿主往往要同时连多个服务器，如果让应用自己记住每条连接的细节，它会越写越重，所以要把「连接」从应用里拆出来，交给一个专门的角色 Client。<strong>就像</strong>一家公司要对接多个供应商，会给每个供应商配一个专门的对接人，而不是让老板自己记所有细节。<strong>所以</strong>一次 tools/call 的请求，走的是「宿主 → 客户端 → 服务器」这条固定的路。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：三个角色与一条请求</div>
+        <div class="step"><div class="step-title">Step 1：谁是谁、数量怎么算</div>
+          <table><tr><th>角色</th><th>是什么</th><th>数量</th></tr><tr><td>Host</td><td>发起连接、负责编排的 AI 应用</td><td>1 个宿主</td></tr><tr><td>Client</td><td>宿主内为每个服务器建的连接器</td><td>= 服务器数</td></tr><tr><td>Server</td><td>提供 context 与能力的程序</td><td>2 个（如工单 + 日历）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：1 个宿主接 2 个服务器，就要有 2 个 Client（与服务器 1 对 1）；宿主管编排与安全，客户端只管把这一条连接维护好。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：一条 JSON-RPC 2.0 请求长什么样</div>
+          <table><tr><th>字段</th><th>取值</th><th>含义</th></tr><tr><td>jsonrpc</td><td>"2.0"</td><td>版本必须是 2.0</td></tr><tr><td>method</td><td>tools/call</td><td>要调的方法</td></tr><tr><td>params</td><td>{name, arguments}</td><td>传什么参数</td></tr><tr><td>id</td><td>1</td><td>请求与响应的配对号</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：这条 <b>tools/call</b> 请求里 jsonrpc、method、params、id 都在，但它们的「必需性」并不一样——按 JSON-RPC 2.0 规范，<strong>jsonrpc 与 method 必填</strong>，<strong>params 可省略</strong>（MAY be omitted），<strong>id 只在「需要响应」的请求里才必填</strong>（不带 id 即为通知 notification）；MCP 又在协议层规定请求 MUST 带 id。服务器回一条响应，也带 result（或 error）与同一个 id，客户端据此把结果对上号。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：一条请求其实是 2 条消息</div>
+          <table><tr><th>动作</th><th>消息数</th><th>说明</th></tr><tr><td>请求</td><td>1</td><td>客户端 → 服务器</td></tr><tr><td>响应</td><td>1</td><td>服务器 → 客户端</td></tr><tr><td>合计</td><td><strong>2</strong></td><td>一次调用 2 条消息</td></tr><tr><td>连调 3 个工具</td><td><strong>6</strong></td><td>2 × 3</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：一次工具调用最少 2 条消息（请求 + 响应），连调 3 个工具就是 6 条。注意「消息数」是协议层的计数，<strong>不等于</strong>进模型 <b>context</b> 的 token——真实会话在 tools/call 前通常还有 initialize、tools/list 等消息，而真正进 context 的是工具返回的结果，两者别混为一谈。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>MCP 是一个「宿主—客户端—服务器」三层协议：<strong>宿主管编排、客户端管连接、服务器管能力</strong>。消息走 JSON-RPC 2.0（请求必填 jsonrpc / method，且带 id；params 视方法可有），每个响应用 id 配对——理解这条固定的路，后面所有工程问题（原语、鉴权、扩容）都会落到某一个角色身上。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','23-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','23-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-23-2" class="llm-section"><button class="llm-btn" onclick="startChat('23-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="23-2"><div class="chat-toolbar"><button onclick="copyChat('23-2')">📋 复制对话</button><button onclick="clearChat('23-2')">🗑 清空</button><button onclick="stopLLM('23-2')" id="stop-btn-23-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('23-2')" id="regenerate-btn-23-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="23-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对三个角色有疑问？比如「Host 和 Client 为什么要拆开」「一条请求走几步」？<br><br>说清你的应用形态，我帮你对应到 Host / Client / Server。</div></div><div class="chat-input-row"><textarea data-input="23-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('23-2')}" rows="1" placeholder="例如：一个宿主连多个服务器，要几个 Client？"></textarea><button onclick="sendLLM('23-2')">发送</button></div></div></div>
+      <div id="tab-qna-23-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('23-2')">🔄 换一批</button></div><div class="qna-list" data-qna="23-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="23-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">Resources、Prompts、Tools——服务器能暴露的三类东西，各自解决什么、什么时候该用哪个？</div><div class="card-q-hint">提示：先别记名字，先问一句——这三类东西，分别由「谁」决定要不要用？模型、应用，还是人？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>服务器能暴露三类<strong>原语</strong>（primitive，协议里最基本的可操作单元）：<strong>Resources</strong>（资源，只读的数据，如文件、日志、数据库记录，由宿主应用决定怎么注入 context）、<strong>Prompts</strong>（提示模板，可复用的工作流模板，通常由用户显式触发，如斜杠命令）、<strong>Tools</strong>（工具，模型可执行的函数）。区分三者的关键不是数据形态，而是<strong>谁控制</strong>：Tools 由模型选、Resources 由应用注、Prompts 由用户挑。</div>
+      <div class="content-section"><p>上一张卡片看到 Server 通过「原语」对外提供能力。这一张把三类原语拆开，回答各自解决什么、什么时候用哪个。</p><p><strong>因为</strong>三类原语的控制方不同，混用会让模型做出越权的事，所以要先按「谁控制」把边界划清。<strong>就像</strong>一个抽屉柜：Resources 是别人直接放进你桌面的资料（应用决定给什么）、Prompts 是你自己挑的模板卡（用户决定用哪张）、Tools 是给助手的一把钥匙（模型决定什么时候用）。<strong>所以</strong>下面用一笔 token 账，看把太多东西当 Tools 会付什么代价。</p><p>更省事的做法是「把服务器能提供的东西全写成 Tool」，反正模型都能调。但 Tool 的 schema 每次都常驻上下文：12 个能力全做成 Tool 就是 12 × 200 = 2,400 token，其中不少是只读资料，本该由应用按需注入。分出 Resources / Prompts 后，常驻的只剩 3 个 Tool = 600 token，省 1,800 token（每次请求都省）。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：三类原语怎么选、代价差多少</div>
+        <div class="step"><div class="step-title">Step 1：三类原语一张表看清</div>
+          <table><tr><th>原语</th><th>谁控制</th><th>典型方法</th><th>场景</th></tr><tr><td>Resources</td><td>宿主应用</td><td>resources/list、resources/read</td><td>把资料注入 context</td></tr><tr><td>Prompts</td><td>用户</td><td>prompts/list、prompts/get</td><td>斜杠命令</td></tr><tr><td>Tools</td><td>模型</td><td>tools/list、tools/call</td><td>执行函数</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">区分标准只有一条：<strong>谁决定它被使用</strong>。控制方错了，轻则浪费 context 窗口，重则让模型越权去读或去写。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：一个服务器暴露 12 个能力，不代表要变成 12 个 Tool</div>
+          <table><tr><th>做法</th><th>暴露给模型的 tool 数</th><th>其余怎么给</th></tr><tr><td>全部当 Tool</td><td>12</td><td>全部常驻 context</td></tr><tr><td>分好类</td><td><strong>3</strong></td><td>其余 9 个按需注入</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：12 个能力若都写成 Tool，就有 12 份 schema 常驻 context；只把 3 个写成 Tool，另外 9 个按需注入，常驻量从 12 份降到 3 份。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：token 成本差多少</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>每个 tool 定义（示意）</td><td>≈ 200 token</td></tr><tr><td>12 个 Tool</td><td>12 × 200 = <strong>2,400 token</strong></td></tr><tr><td>3 个 Tool</td><td>3 × 200 = <strong>600 token</strong></td></tr><tr><td>省下</td><td><strong>1,800 token</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：按每个 tool 定义约 200 token 估（示意），12 个占 <strong>2,400</strong> token，收成 3 个只占 <strong>600</strong> token，省 <strong>1,800</strong> token——而且每次请求都要带。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>三类原语的分水岭是<strong>「谁控制」</strong>：Resources 应用控制、Prompts 用户控制、Tools 模型控制。选错控制方，付出的代价是 token 与安全边界，而不是功能缺失——这也是为什么「只把该给模型的做成 Tool」既是设计原则，也是成本纪律。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','23-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','23-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-23-3" class="llm-section"><button class="llm-btn" onclick="startChat('23-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="23-3"><div class="chat-toolbar"><button onclick="copyChat('23-3')">📋 复制对话</button><button onclick="clearChat('23-3')">🗑 清空</button><button onclick="stopLLM('23-3')" id="stop-btn-23-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('23-3')" id="regenerate-btn-23-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="23-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对三类原语有疑问？比如「同一个数据做成 Resource 还是 Tool」「Prompt 和系统提示啥区别」？<br><br>说清你的场景，我帮你判断该用哪一类原语。</div></div><div class="chat-input-row"><textarea data-input="23-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('23-3')}" rows="1" placeholder="例如：日志该做成 Resource 还是 Tool？"></textarea><button onclick="sendLLM('23-3')">发送</button></div></div></div>
+      <div id="tab-qna-23-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('23-3')">🔄 换一批</button></div><div class="qna-list" data-qna="23-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="23-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">动手：怎么把一个公司内部系统（比如工单查询）包成一个 MCP Server？</div><div class="card-q-hint">提示：先想清楚「对外要提供哪几个动作」，再想每个动作模型需要哪些输入——描述和参数 schema 就是模型看到的全部。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>把内部系统包成 Server，代码上往往很小：用官方 SDK 声明几个 tool 函数、写好描述与 JSON Schema，SDK 负责 JSON-RPC 收发、能力协商与错误处理。Anthropic 在 2024-11-25 发布 MCP 时，同时给出了 Google Drive、Slack、GitHub、Git、Postgres、Puppeteer 等参考服务器（见官方公告《Introducing the Model Context Protocol》）。约定是：<strong>工具名、描述、参数 schema 就是模型看到的全部</strong>——服务器不参与对话编排，只负责把能力摆出来。</div>
+      <div class="content-section"><p>上一张卡片把三类原语分清了。这一张动手，把一个公司内网系统（工单查询）包成 Server。</p><p><strong>因为</strong>服务器只需要把能力声明出来、把编排交给宿主，所以一个 server 常常只有几十行。<strong>就像</strong>给新同事做一张「工作说明卡」：写清他能做什么、要什么输入、返回什么，剩下该调谁、什么时候调，由主管来定。<strong>所以</strong>下面用四个工具把工单系统的 Server 走一遍，并算一下工作量。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：工单 Server 的四个工具</div>
+        <div class="step"><div class="step-title">Step 1：先定四个 tool</div>
+          <table><tr><th>工具名</th><th>输入</th><th>作用</th></tr><tr><td>get_ticket</td><td>id</td><td>查一张工单</td></tr><tr><td>list_tickets</td><td>status、limit</td><td>按状态列工单</td></tr><tr><td>create_ticket</td><td>title、desc</td><td>建工单</td></tr><tr><td>update_status</td><td>id、status</td><td>改状态</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：4 个工具就覆盖了工单的查、列、建、改；每个工具都要写清 name、description 与参数 schema，这三样是模型能看到的全部。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：Server 的工作量（示意口径）</div>
+          <table><tr><th>做法</th><th>工作量</th></tr><tr><td>包 1 个 Server：4 个工具 × ≈ 30 行</td><td><strong>≈ 120 行</strong></td></tr><tr><td>为 5 个宿主各写一套：4 × 5 = 20 个适配函数</td><td>20 × 30 = <strong>600 行</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：按每个工具约 30 行估，包一个 Server 约 <strong>120</strong> 行；若为 5 个宿主各写一套就是 <strong>600</strong> 行，省下 <strong>480</strong> 行。这是「示意」口径，具体随实现而异。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：这 4 个工具占多少 context</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>每个 tool 定义（示意）</td><td>≈ 200 token</td></tr><tr><td>4 个工具</td><td>4 × 200 = <strong>800 token</strong></td></tr><tr><td>发送时机</td><td>每次请求都带进 context</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：4 个工具约 <strong>800</strong> token，每次请求都带进 context；这也是为什么前面强调「工具要少而精」——它直接是每次调用的固定成本。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>包一个 Server 的套路只有三步：<strong>选好对外暴露的 tool、给每个 tool 写清描述与 schema、把真实系统的调用接进去</strong>。宿主那边一行都不用改，这就是 M+N 的好处——接入成本从「每个宿主一套」变成「一个 Server 一份」。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','23-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','23-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-23-4" class="llm-section"><button class="llm-btn" onclick="startChat('23-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="23-4"><div class="chat-toolbar"><button onclick="copyChat('23-4')">📋 复制对话</button><button onclick="clearChat('23-4')">🗑 清空</button><button onclick="stopLLM('23-4')" id="stop-btn-23-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('23-4')" id="regenerate-btn-23-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="23-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对包 Server 有疑问？比如「一个 Server 要写多少代码」「工具描述怎么写」？<br><br>贴出你的内网接口，我帮你拆成几个 tool。</div></div><div class="chat-input-row"><textarea data-input="23-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('23-4')}" rows="1" placeholder="例如：工单系统该暴露哪几个工具？"></textarea><button onclick="sendLLM('23-4')">发送</button></div></div></div>
+      <div id="tab-qna-23-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('23-4')">🔄 换一批</button></div><div class="qna-list" data-qna="23-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="23-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">谁能调什么？认证、权限与传输方式（stdio 还是 HTTP）该怎么选？</div><div class="card-q-hint">提示：先看服务器跑在哪——同一台机器的进程里，还是外面的网络里？信任边界不同，选法就不同。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>传输有两种：<strong>stdio</strong>（标准输入输出，服务器作为宿主的子进程、走本机管道的本地传输）与 <strong>Streamable HTTP</strong>（一种可流式返回的 HTTP 传输，服务器是远程服务，用 SSE 把结果增量推给客户端）。安全上：工具代表<strong>任意代码执行</strong>，工具描述不可全信（除非来自可信服务器）；远程服务器用 OAuth 2.1（一套授权协议）鉴权，请求带 access token（访问令牌）；宿主在调用任何工具前必须取得用户同意。2026-07-28 版还强化了授权侧：新增 RFC 9207 的发行方（issuer）校验，并以 CIMD（客户端元数据文档）取代 DCR（动态客户端注册）。</div>
+      <div class="content-section"><p>上一张卡片把工单 Server 跑起来了。这一张处理「谁能调什么」，也就是传输与鉴权的配套选择。</p><p><strong>因为</strong>本地与远程的信任边界不同，所以传输方式与鉴权强度要一起选，不能只看方便。<strong>就像</strong>同一栋楼的门禁：本楼员工刷工牌就进（本地 stdio 直接继承宿主进程的权限），外来访客要登记换证（远程 HTTP 走 OAuth token）。<strong>所以</strong>下面用一笔账，比较两种传输的成本。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：stdio 还是 HTTP</div>
+        <div class="step"><div class="step-title">Step 1：两种传输的适用面</div>
+          <table><tr><th>维度</th><th>stdio</th><th>Streamable HTTP</th></tr><tr><td>服务器位置</td><td>本机子进程</td><td>远程服务</td></tr><tr><td>信任边界</td><td>继承宿主权限</td><td>需独立鉴权</td></tr><tr><td>常见场景</td><td>文件、Git</td><td>日历、SaaS</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">选择标准是「服务器在哪、归不归你管」——本机的直接用，远程的先建立信任。归属不同，传输与鉴权都要跟着变。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：鉴权成本（示意）</div>
+          <table><tr><th>传输</th><th>每次调用的鉴权次数</th><th>1,000 次调用</th></tr><tr><td>stdio</td><td>0（继承进程权限）</td><td>0</td></tr><tr><td>Streamable HTTP</td><td>1（校验 token）</td><td><strong>1,000</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：本地继承权限，额外鉴权 0 次；远程每次请求都要校验一次 access token，1,000 次调用 = <strong>1,000</strong> 次校验（示意，可用连接复用或缓存降低）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：往返与权限最小化</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>stdio 的网络往返</td><td>0 次</td></tr><tr><td>HTTP 每请求往返</td><td>1 次</td></tr><tr><td>1,000 次调用多出</td><td><strong>1,000 次</strong></td></tr><tr><td>权限最小化</td><td>只授予该工具必需的范围</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：stdio 无网络往返（0 次），HTTP 每请求 1 次，1,000 次调用就多 <strong>1,000</strong> 次。权限上再叠加一条铁律：最小权限——远程 Server 只拿它那个工具必需的范围。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>传输与鉴权是一对：<strong>本地 stdio 靠进程权限、几乎零额外成本；远程 Streamable HTTP 必须配 OAuth token、最小权限与用户同意</strong>。工具即任意代码执行，这一层不能省——描述不可全信，调用前必须取得用户同意。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','23-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','23-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-23-5" class="llm-section"><button class="llm-btn" onclick="startChat('23-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="23-5"><div class="chat-toolbar"><button onclick="copyChat('23-5')">📋 复制对话</button><button onclick="clearChat('23-5')">🗑 清空</button><button onclick="stopLLM('23-5')" id="stop-btn-23-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('23-5')" id="regenerate-btn-23-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="23-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对传输与鉴权有疑问？比如「什么时候必须上 HTTP」「本地 Server 还要不要沙箱」？<br><br>说清你的部署环境，我帮你定传输与鉴权方案。</div></div><div class="chat-input-row"><textarea data-input="23-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('23-5')}" rows="1" placeholder="例如：远程 Server 怎么做鉴权？"></textarea><button onclick="sendLLM('23-5')">发送</button></div></div></div>
+      <div id="tab-qna-23-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('23-5')">🔄 换一批</button></div><div class="qna-list" data-qna="23-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="23-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">MCP 早期要维护「会话」，为什么 2026-07-28 版把它改成无状态？改完部署和扩容变简单在哪？</div><div class="card-q-hint">提示：先想「有会话」在部署上意味着什么，再想实例从 1 台加到 10 台时，会多出哪些麻烦。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>早期 MCP 走 HTTP+SSE（2024-11-05 版）；2025-03-26 版起改用 Streamable HTTP，并且是<strong>有状态</strong>的：连接先做 initialize / initialized 握手、协商能力，服务器再发一个 Mcp-Session-Id，后续每个请求都必须带上它——于是客户端被<strong>钉在</strong>发会话的那台实例上，横向扩容要粘性路由加共享会话存储。2026-07-28 版把核心改成<strong>无状态</strong>：移除握手与会话，每个请求自带 protocolVersion、clientInfo 与 clientCapabilities（放在 _meta 里），方法名与工具名走 Mcp-Method / Mcp-Name 头、便于网关路由与鉴权，新增 server/discover，tools/list 等列表结果可按服务器给的 ttlMs 缓存（cache）。同时 roots / sampling / logging 被正式弃用（deprecated，仍可用，至少 12 个月过渡期）。</div>
+      <div class="content-section"><p>上一张卡片解决了「谁能调什么」。这一张看协议自己的演进：为什么要无状态化。</p><p><strong>因为</strong>有状态要求请求必须回到原来那台实例、状态还要外置到共享存储，所以实例一多，扩容就卡在这两件事上。<strong>就像</strong>一家店要求「必须找上次接待你的那个店员」：人一多，排班和交接全乱了；改成「谁都能接」，才排得开班。<strong>所以</strong>下面用一笔账对比两种部署方式，并看缓存能省多少探测。</p><p>更直接的做法是「保留会话、用粘性路由把请求钉回原实例」。单实例时没问题，但实例从 1 台加到 10 台，就要求负载均衡记住每个会话落在哪台、并把会话状态外置到共享存储——扩容从「加机器」变成「迁会话」。无状态化把这两条约束都去掉，所以加实例不再需要迁移。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：有状态 vs 无状态</div>
+        <div class="step"><div class="step-title">Step 1：有状态强加两条约束</div>
+          <table><tr><th>约束</th><th>含义</th><th>后果</th></tr><tr><td>粘性路由</td><td>请求必须回到原实例</td><td>负载不均、扩容要迁会话</td></tr><tr><td>共享会话存储</td><td>状态外置到统一存储</td><td>多一层组件与故障点</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：这两条把「加机器」从插上就能用，变成要迁移、要同步；实例翻倍时，会话重分布与共享存储的压力都随之上升。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：无状态后，扩容变成「加实例」</div>
+          <table><tr><th>项</th><th>有状态</th><th>无状态（2026-07-28）</th></tr><tr><td>路由依据</td><td>会话 ID（粘性）</td><td><strong>Mcp-Method / Mcp-Name 头</strong></td></tr><tr><td>负载均衡</td><td>需粘性</td><td>普通轮询即可</td></tr><tr><td>tools/list</td><td>每次会话拉取</td><td>可按 ttlMs 缓存（cache）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：请求自带路由信息，一台普通轮询负载均衡就能分发；tools/list 还能按服务器给的 ttlMs 缓存复用——扩容从「迁移会话」变成「直接加实例」。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：缓存 tools/list 省掉多少次往返</div>
+          <table><tr><th>项</th><th>每次调用都拉</th><th>按 ttlMs 缓存（cache）</th></tr><tr><td>1,000 次工具调用</td><td><strong>1,000</strong> 次额外 tools/list</td><td><strong>1</strong> 次</td></tr><tr><td>额外往返占比</td><td>每次多 1 次</td><td>几乎为 0</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意：假设客户端每次都重新探测一次列表）：若每次调用都探测一次列表，1,000 次调用就多 <strong>1,000</strong> 次往返；按 ttlMs 缓存后只需 <strong>1</strong> 次（1,000 → 1，省 999 次）。无状态让任意实例都能答，可缓存让重复探测不再重复。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>无状态化<strong>不是功能缩水，而是把可扩展性从应用层挪回协议层</strong>：协议无状态、应用仍可有状态。配套三件事同向——请求自带路由头（Mcp-Method / Mcp-Name）、列表结果可缓存（ttlMs）、正式弃用政策。注意：roots / sampling / logging 在 2026-07-28 版被弃用，其中 <strong>Sampling</strong>（客户端的「服务器反过来请客户端调模型」能力）官方建议迁移到<strong>直接对接 LLM provider API</strong>；原先「服务端发起请求」这类机制则改由 Multi Round-Trip Requests（MRTR）承载。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','23-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','23-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-23-6" class="llm-section"><button class="llm-btn" onclick="startChat('23-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="23-6"><div class="chat-toolbar"><button onclick="copyChat('23-6')">📋 复制对话</button><button onclick="clearChat('23-6')">🗑 清空</button><button onclick="stopLLM('23-6')" id="stop-btn-23-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('23-6')" id="regenerate-btn-23-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="23-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对无状态化有疑问？比如「无状态了上下文放哪」「ttlMs 缓存会不会不新鲜」？<br><br>说清你的部署方式，我帮你判断该走有状态还是无状态。</div></div><div class="chat-input-row"><textarea data-input="23-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('23-6')}" rows="1" placeholder="例如：无状态化之后上下文放哪？"></textarea><button onclick="sendLLM('23-6')">发送</button></div></div></div>
+      <div id="tab-qna-23-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('23-6')">🔄 换一批</button></div><div class="qna-list" data-qna="23-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 23 课完成 · 下一课：第 24 课「记忆与 RAG 工程化」</p>
+    <a href="#" onclick="switchLesson(24);return false;">进入第 24 课：记忆与 RAG 工程化 →</a>　·　<a href="#" onclick="switchLesson(22);return false;">← 上一课：工具调用</a>
+  </div></div>

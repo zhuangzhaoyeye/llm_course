@@ -1,0 +1,224 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 4 课：Tokenization 机制</h2>
+    <p class="subtitle">模型不识字，只看数字。把"我爱吃苹果"这五个汉字变成模型能理解的数字序列——这一步叫 Tokenization。不同的切法直接影响模型的理解力、推理速度和显存开销。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 亲手推演 BPE 算法的合并过程，说出"为什么 lo 要和 w 合并"<br>② 算出中文比英文多多少 token，解释"多语言税"的来源<br>③ 说出词表从 32K 扩大到 152K 的 Embedding 层代价，判断值不值得</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：从「词表有限 + 要能表示任何字符串」逼出子词切分）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text"><strong>为什么要切？</strong> — 从「我爱吃苹果」出发：模型只吃整数 ID，而「什么算一个词」没有共识——切太粗会撞生词（[UNK]），切太细序列又太长，于是要找一种「有限词表内、可复现」的 <strong>token</strong> 单元</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text"><strong>切法怎么学到？</strong> — 规则靠人工拍脑袋定不下来，所以要让它从语料里长出来：反复合并最高频的相邻符号对，这就是 BPE，每个合并出的新符号也是一个 <strong>token</strong></span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text"><strong>为什么中文更费 token？</strong> — 词表容量有限、训练语料却英文占多数，所以同样的意思中文要更多 <strong>token</strong>（多语言税），代价落在上下文窗口和成本上</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text"><strong>词表多大才划算？</strong> — token 越少推理越省，但词表越大 <strong>Embedding</strong> 参数越多，所以要在「省 token」和「省参数」之间算一笔账（32K vs 152K）</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text"><strong>不出 [UNK] 就没问题了吗？</strong> — 切出来的单元得是训练里见过的，所以见得极少的「幽灵 token」会让输出失控（重复、乱码），逼出词表清洗与重复抑制</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text"><strong>把口径冻结成一份词表，链路才闭合</strong> — 幽灵 token 说明「切出来的必须是训练里见过的」，<strong>因此</strong>词表一旦冻结就不能随意新增；<strong>于是</strong>训练 tokenizer、编码、推理、解码四步必须共用同一份词表，整条链路才自洽</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">BPE</span><span class="meta-tag">Byte-Pair Encoding</span><span class="meta-tag">Subword</span><span class="meta-tag">Vocab Size</span><span class="meta-tag">Multilingual</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="4-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">"我爱吃苹果"五个汉字——模型是怎么把它们变成一串数字的？</div><div class="card-q-hint">提示：模型内部只有矩阵乘法，只能吃数字。中文不像英文可以按空格分——"吃"和"苹果"之间没有天然的分隔符。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a"><div class="card-bg"><div class="bg-label">知识背景</div><strong>Tokenization</strong> 是人类文本与模型数学之间的桥梁——模型只吃数字，不吃字符。子词分词（Subword Tokenization）在 2016 年左右成为标准（Sennrich et al.），替代了词级分词（OOV 问题）和字符级分词（序列过长）。BPE（GPT 系列）、WordPiece（BERT）、Unigram（T5 采用的算法）是三大主流子词算法；它们常由 SentencePiece 这类分词库实现——SentencePiece 是库（支持 BPE 与 unigram 两种算法），本身不等于某一种算法。</div><div class="content-section"><p>Transformer 的输入不是文字，是<strong>一组整数 ID</strong>。把文本切成 token、再映射到 ID 的过程就是 <strong>Tokenization</strong>。不同切法天差地别：</p><p>按字切 — "我/爱/吃/苹/果" 5 个 token，信息太散<br>按词切 — "我/爱/吃/苹果" 4 个 token，但"苹果"要事先在词表里<br>按子词切 — "我/爱/吃/苹果"（中文可能是 1-2 字一组），这是现代大模型的主流方案</p><p><strong>Tokenization</strong> 就像给一本没有目录的书编页码：页码（token）编得太细，翻页次数暴增；编得太粗，一页里混着好几件事。模型的上下文窗口就是这本书能翻的页数——所以「页码怎么编」直接决定它一次能读多少内容。</p><p>为什么不直接用「整词表」或「单字符表」？两头都会撞墙：按单字符切，英文「I love apples」会变成 11 个 token（而按词只要 3 个），序列一长注意力计算量按长度平方增长；按整词切，只要遇到没进词表的「apples」，就直接变成 [UNK]、信息全丢。子词是唯一能同时躲开这两头的切法。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 同一个句子，三种切法产出的 token 序列完全不同</div>
+        <div class="step"><div class="step-title">Step 1：按字符切 — 最细粒度</div>
+          <table><tr><th>原始文本</th><th>切分结果</th><th>token 数</th><th>问题</th></tr><tr><td>我爱吃苹果</td><td>我 / 爱 / 吃 / 苹 / 果</td><td><strong>5</strong></td><td>每个字的语义太孤立，"苹果"两个字的信息被拆开了</td></tr><tr><td>I love apples</td><td>I / l / o / v / e / a / p / p / l / e / s</td><td><strong>11</strong></td><td>英文按字母切比中文更糟——"love"被拆成 4 个字母</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：按词切 — 理想但不可行</div>
+          <table><tr><th>原始文本</th><th>切分结果</th><th>token 数</th><th>问题</th></tr><tr><td>我爱吃苹果</td><td>我 / 爱 / 吃 / 苹果</td><td><strong>4</strong></td><td>"苹果"要提前在词表里——但中文词表动辄数万词起步（估算），且永远有没见过的新词</td></tr><tr><td>I love apples</td><td>I / love / apples</td><td><strong>3</strong></td><td>"apples" 和 "apple" 算两个词——"apples" 不在词表就变 [UNK]</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 3：子词切分（BPE）— 大模型的实际做法</div>
+          <table><tr><th>原始文本</th><th>BPE 切分结果</th><th>token 数</th></tr><tr><td>我爱吃苹果</td><td>我 / 爱吃 / 苹果</td><td><strong>3</strong>（示意：常见双字词可能已被合并成 1 个 token）</td></tr><tr><td>I love apples</td><td>I / love / apple / s</td><td><strong>4</strong>（"apples" 没见过，但 "apple"+"s" 能拼出来）</td></tr></table>
+          <div class="step-desc" style="color:var(--success);font-weight:600;margin-top:6px;">子词的妙处：没见过"apples"也能用 "apple" + "s" = "apples"（2 个 token）拼出来——永远不会输出 [UNK]。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 核心矛盾</div><p>切太细（按字符/字节）→ token 序列太长，Attention 复杂度 O(n²) 受不了；切太粗（按词）→ 词表爆炸，新词变 [UNK]。<strong>BPE 的子词方案是这两者的平衡点——用高频子词覆盖常见表达，用低频组合拼出新词。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','4-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','4-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-4-1" class="llm-section"><button class="llm-btn" onclick="startChat('4-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="4-1"><div class="chat-toolbar"><button onclick="copyChat('4-1')">📋 复制对话</button><button onclick="clearChat('4-1')">🗑 清空</button><button onclick="stopLLM('4-1')" id="stop-btn-4-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('4-1')" id="regen-btn-4-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="4-1"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 Tokenization 的基础概念有疑问？比如"为什么不能直接用 Unicode 码点？""字符、子词、词这三种粒度各有什么优劣？"<br><br>我会用具体数字帮你算。</div></div></div><div class="chat-input-row"><textarea data-input="4-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('4-1')}" rows="1" placeholder="例如：BERT 也用的是子词吗？和 GPT 有什么不同？"></textarea><button onclick="sendLLM('4-1')">发送</button></div></div></div>
+      <div id="tab-qna-4-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('4-1')">🔄 换一批</button></div><div class="qna-list" data-qna="4-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+  <div class="card" data-card="4-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">BPE 是怎么从一堆文本里"学"出一个分词器的？</div><div class="card-q-hint">提示：BPE 是一步一步"合并"出来的——每一步，谁和谁会被选中合并？依据是什么？先自己想 30 秒。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>BPE</strong> = Byte Pair Encoding。最初由 Gage（1994）用于数据压缩，Sennrich et al.（2016）引入 NLP。核心：迭代合并最频繁相邻符号对，从字符（byte-level 实现则从 256 个字节）开始逐步构建子词，最终形成词表。GPT-2/3/4、Llama、RoBERTa 均使用 BPE。SentencePiece 和 HuggingFace Tokenizers 是主流实现。</div>
+<div class="content-section"><p>上一张卡片我们理解了为什么需要 tokenization——把文本切成 token 再映射到整数 ID。BPE 是最主流的子词切分算法：<strong>从字符级开始，反复合并最频繁的相邻符号对</strong>。下面从零推导一遍它的合并过程。</p><p><strong>BPE</strong> 好比整理一堆积木：先按字母把积木摊开，然后每次都把「挨在一起、出现最多」的两块粘成一整块，直到词表装满——没见过的「apples」也能用粘好的「apple」加「s」拼出来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 完整走查：语料 = "low lower lowest"，目标词表大小 = 12</div>
+        <div class="step"><div class="step-title">Step 0：初始化 — 每个字符是一个独立符号</div>
+          <table><tr><th>文本</th><th>初始切分（按字符拆开）</th></tr><tr><td>low</td><td>l · o · w</td></tr><tr><td>lower</td><td>l · o · w · e · r</td></tr><tr><td>lowest</td><td>l · o · w · e · s · t</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">初始词表 7 个符号：{l, o, w, e, r, s, t}，距离目标 12 还差 5 次合并。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 1：数相邻对频率 — (l, o) 出现了 3 次，最高</div>
+          <table><tr><th>符号对</th><th>出现次数</th><th>来源</th></tr><tr><td style="color:var(--success);font-weight:600;">(l, o)</td><td style="color:var(--success);font-weight:600;">3</td><td>每个词都以 "lo" 开头</td></tr><tr><td>(o, w)</td><td>3</td><td>low / lower / lowest</td></tr><tr><td>(w, e)</td><td>2</td><td>lower / lowest</td></tr><tr><td>(e, r)</td><td>1</td><td>lower</td></tr><tr><td>(e, s)</td><td>1</td><td>lowest</td></tr><tr><td>(s, t)</td><td>1</td><td>lowest</td></tr></table>
+          <div class="step-desc" style="color:var(--success);font-weight:600;margin-top:6px;">第一轮合并：lo → "lo"，新符号加入词表。词表 = {l, o, w, e, r, s, t, lo}，8/12。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：合并 lo 后重新数对 — (lo, w) 出现了 3 次</div>
+          <table><tr><th>文本</th><th>当前切分</th></tr><tr><td>low</td><td>lo · w</td></tr><tr><td>lower</td><td>lo · w · e · r</td></tr><tr><td>lowest</td><td>lo · w · e · s · t</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">(lo, w) 出现 3 次 → 合并 low。词表 = {..., lo, low}，9/12。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：合并 low 后 — (low, e) 出现了 2 次</div>
+          <table><tr><th>文本</th><th>当前切分</th></tr><tr><td>lower</td><td>low · e · r</td></tr><tr><td>lowest</td><td>low · e · s · t</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">(low, e) 出现 2 次 → 合并 lowe。词表 10/12。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 4：合并 lowe 后 — (lowe, r) 和 (lowe, s) 各 1 次</div>
+          <table><tr><th>文本</th><th>当前切分</th></tr><tr><td>lower</td><td>lowe · r</td></tr><tr><td>lowest</td><td>lowe · s · t</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">平局时选哪个？原始 BPE 论文只规定"取最高频对"，平局规则由具体实现决定（如取字典序最小）。这里假设 r 先行 → 合并 lower。词表 11/12。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 5：最后一轮 — (s, t) 出现 1 次，合并 st</div>
+          <div class="step-desc">合并 st → 词表达到 12，停止。最终词表 = {l, o, w, e, r, s, t, lo, low, lowe, lower, st}。</div>
+          <div class="step-desc" style="color:var(--success);font-weight:600;margin-top:6px;">现在训练完成。新词 "lowest" 怎么切？按学到的合并规则依次作用（lowest 先合并出 lowe，剩下 st）→ lowe · st = 2 个 token。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 为什么 BPE 优于固定词表？</div><p>本卡语料只有 low / lower / lowest，但测试时遇到 "lowers" 也能切：BPE 会把它切成 lower + s（lower 和 s 都在最终词表里）。<strong>只要能拼出没见过的新词，就永远不会输出 [UNK]。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','4-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','4-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-4-2" class="llm-section"><button class="llm-btn" onclick="startChat('4-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="4-2"><div class="chat-toolbar"><button onclick="copyChat('4-2')">📋 复制对话</button><button onclick="clearChat('4-2')">🗑 清空</button><button onclick="stopLLM('4-2')" id="stop-btn-4-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('4-2')" id="regen-btn-4-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="4-2"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 BPE 算法细节有疑问？比如"为什么用频率而不是互信息？""BPE 和 WordPiece、Unigram 有什么区别？"<br><br>我会用具体例子帮你推演。</div></div></div><div class="chat-input-row"><textarea data-input="4-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('4-2')}" rows="1" placeholder="例如：如果两对频率相同，BPE 怎么选？"></textarea><button onclick="sendLLM('4-2')">发送</button></div></div></div>
+      <div id="tab-qna-4-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('4-2')">🔄 换一批</button></div><div class="qna-list" data-qna="4-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+  <div class="card" data-card="4-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">中文"我喜欢吃苹果"和英文"I like eating apples"——同样意思，中文要多花多少 token？</div><div class="card-q-hint">提示：先数一数——一个中文字在 UTF-8 里占几个字节？一个英文字母占几个字节？训练语料里哪种语言占多数，会不会影响合并的机会？先自己想 30 秒。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>BPE 天然适应空格分隔的语言（英文）。中文无自然词边界 + 每个字 3 字节 UTF-8 编码 → 同样语义下中文 token 数比英文多 50%-80%（依 tokenizer 而异，估算）。这是 tokenization 领域的持续争议：统一算法 vs 语言定制。<strong>Qwen</strong>（通义千问）通过大词表（152K）+ 显著提高的中文语料比例大幅缓解了这一问题。</div>
+<div class="content-section"><p>上一张卡片我们走通了 BPE 从字符开始合并出子词的完整过程。现在看看这种机制对不同语言的影响：<strong>同样的意思，中文消耗的 token 通常比英文多 50%-80%。</strong>这是因为 BPE 训练数据以英文为主，"apple" 被合并成了一个 token，而"苹果"的两个字可能还没被合并——或者更糟，被拆成字节级碎片。</p><p>想象一下用一本只收英文词的小字典查中文——「苹果」查不到，只能一个字一个字（甚至一个字节一个字节）地翻。这就是中文在英文优先 tokenizer 下的处境，也是<strong>多语言税</strong>的来源。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 中英文 tokenization 实测对比（以 Llama 2 tokenizer 为例）</div>
+        <div class="step"><div class="step-title">Step 1：英文句子 — 常见词已被合并成大 token</div>
+          <table><tr><th>文本</th><th>Token 切分</th><th>token 数</th></tr><tr><td>I like eating apples</td><td>I / like / eating / apples</td><td><strong>4</strong></td></tr><tr><td>The weather is nice today</td><td>The / weather / is / nice / today</td><td><strong>5</strong></td></tr><tr><td>Machine learning is fun</td><td>Machine / learning / is / fun</td><td><strong>4</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">英文平均每个词 ≈ 1-1.3 个 token（估算；"I like eating apples" 4 token ÷ 4 词 = 1.0）。因为训练数据约 90% 是英文（Llama 2 报告 89.7%），常见英文词早已被合并成完整 token。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：中文句子 — 每个字通常是独立 token，甚至被拆成字节</div>
+          <table><tr><th>文本</th><th>可能切分（英文优先 tokenizer）</th><th>token 数</th></tr><tr><td>我喜欢吃苹果</td><td>我 / 喜欢 / 吃 / 苹果</td><td><strong>4</strong></td></tr><tr><td>今天天气不错</td><td>今天 / 天气 / 不错</td><td><strong>3</strong></td></tr><tr><td>机器学习很有趣</td><td>机器 / 学习 / 很 / 有趣</td><td><strong>4</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">中文 token 数波动大——常见双字词（"天气""学习"）可能已合并，但低频汉字仍是独立 token。且中文没有空格，tokenizer 需要额外判断边界。</div>
+          <div class="step-desc" style="margin-top:4px;">注意：上面两组示例都是<strong>极高频词</strong>（"喜欢""天气""学习"已被合并），中英 token 数才会接近；换成生僻字或不常见表达，中文 token 会明显多于英文——溢价要用整段文本才看得出来，单看一两个高频词会低估它（见下一步整段对比）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：量化"多语言税"——同样意思，token 差多少？</div>
+          <table><tr><th>内容</th><th>英文 token 数</th><th>中文 token 数</th><th>中文 "溢价"</th></tr><tr><td>一段 100 词的短文</td><td>~130 token</td><td>~200 token</td><td style="color:#ef4444;">+54%</td></tr><tr><td>一篇 500 词的说明</td><td>~650 token</td><td>~1100 token</td><td style="color:#ef4444;">+69%</td></tr><tr><td>一次 4096 context 的对话</td><td>可放 ~3000 词</td><td>只能放 ~1800 词（≈2200 汉字，单位换算见本课 Card 4）</td><td style="color:#ef4444;">内容容量 -40%</td></tr></table>
+          <div class="step-desc" style="color:#ef4444;font-weight:600;margin-top:6px;">多语言税的直接后果：同样的 4096 token 上下文窗口，中文用户能塞进去的实际信息比英文用户少 40%。144K token 的上下文窗口，中文实际可用约 85K 英文等效 token。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 为什么中文 tokenizer 普遍更差？</div><p>因为 BPE 是在训练数据上统计的——训练数据里英文占绝对多数。英文的 "the" 出现了几百万次，早就被合并成一个 token；中文的"的"虽然频率也高，但因为 UTF-8 编码占 3 字节，BPE 可能需要先合并字节再合并字再合并词——层级更多、合并更慢。<strong>这就是为什么 Qwen 要专门为中文训练自己的 tokenizer，把词表做到 152K（相比 Llama 的 32K 大近 5 倍）——就是为了减少中文的"多语言税"。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','4-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','4-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-4-3" class="llm-section"><button class="llm-btn" onclick="startChat('4-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="4-3"><div class="chat-toolbar"><button onclick="copyChat('4-3')">📋 复制对话</button><button onclick="clearChat('4-3')">🗑 清空</button><button onclick="stopLLM('4-3')" id="stop-btn-4-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('4-3')" id="regen-btn-4-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="4-3"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对多语言 tokenization 有疑问？比如"中文 tokenizer 能专门优化吗？""除了中英文，其他语言（日语、阿拉伯语）的表现如何？"<br><br>我会用具体数据帮你分析。</div></div></div><div class="chat-input-row"><textarea data-input="4-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('4-3')}" rows="1" placeholder="例如：如果把词表扩大到 50 万，中文 token 能降到和英文一样吗？"></textarea><button onclick="sendLLM('4-3')">发送</button></div></div></div>
+      <div id="tab-qna-4-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('4-3')">🔄 换一批</button></div><div class="qna-list" data-qna="4-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+  <div class="card" data-card="4-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">词表从 32K 扩到 152K——Embedding 层大了近 5 倍，这买卖划算吗？</div><div class="card-q-hint">提示：Embedding 层的参数量 = 词表大小 × d_model。把词表放大几倍，最直接的变化落在哪一层的参数上、值多少钱？先自己想 30 秒。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Qwen</strong>（通义千问，阿里巴巴，2023）采用约 151,851 的大词表（用 tiktoken 库实现，相比 Llama 的 32K 大近 5 倍，显著提高中文/多语言覆盖率）。Embedding 参数从 131M → 622M（多了 491M），中文 token 效率提升约 33%-44%（估算）。Qwen 2（2024）进一步优化了多语言均衡。这代表"大词表"路线：用 Embedding 参数换 token 效率。</div>
+<div class="content-section"><p>上一张卡片我们测量了中文的 token 额外开销（+50%-80%）。解决方案之一：扩大词表。Llama 用 32K 词表，Qwen 用 152K 词表。词表越大，每个 token 覆盖的文本越多 → 推理更快。但代价是 <strong>Embedding 矩阵疯了似的膨胀。</strong></p></div>
+      <div class="calc-block">
+        <div class="label">🧮 词表 32K vs 152K，Embedding 层到底差多少参数？</div>
+        <div class="step"><div class="step-title">Step 1：参数计算 — Token Embedding（输入）+ LM Head（输出），通常共享权重</div>
+          <table><tr><th>模型</th><th>词表大小 V</th><th>d_model</th><th>Embedding 参数</th><th>占 7B 总参数比</th></tr><tr><td>Llama 2 7B</td><td>32,000</td><td>4096</td><td>32K × 4096 = <strong>131M</strong></td><td>131M / 7B = <strong>1.9%</strong></td></tr><tr><td>Qwen 7B</td><td>152,000</td><td>4096</td><td>152K × 4096 = <strong>622M</strong></td><td>622M / 7B = <strong>8.9%</strong></td></tr></table>
+          <div class="step-desc" style="color:#ef4444;font-weight:600;margin-top:6px;">Qwen 的 Embedding 层比 Llama 多了 491M 参数——输入侧是查表、输出侧 LM Head 参与每次前向（二者通常共享权重，合计算 131M）。对于 7B 模型，近 9% 的参数都花在了这上面。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：那好处是什么？— 同样的文本消耗更少 token</div>
+          <table><tr><th>文本</th><th>Llama 32K tokenizer</th><th>Qwen 152K tokenizer</th><th>节省（估算）</th></tr><tr><td>今天天气真好，我们出去走走吧</td><td>~18 token</td><td>~12 token</td><td style="color:var(--success);">-33%</td></tr><tr><td>请帮我写一段关于机器学习的介绍</td><td>~25 token</td><td>~15 token</td><td style="color:var(--success);">-40%</td></tr><tr><td>一篇 1000 字中文文章</td><td>~1800 token</td><td>~1000 token</td><td style="color:var(--success);">-44%</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">token 数减少 → 推理时少做 Attention（O(n²)）、少读 KV Cache（把已算过的键和值存下来复用）→ <strong>同样长度的回复，推理速度快 30-50%（估算），显存省相应比例。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：所以到底值不值？——算一笔总账</div>
+          <table><tr><th>维度</th><th>Llama 32K 词表</th><th>Qwen 152K 词表</th></tr><tr><td>Embedding 参数</td><td>131M（轻）</td><td>622M（重，但加载一次）</td></tr><tr><td>中文平均 token/字（估算）</td><td>~1.8</td><td>~0.6-0.7（Qwen 官方口径：1 token ≈ 1.5-1.8 汉字）</td></tr><tr><td>4096 token 能读的中文</td><td>~2200 字（≈1800 词）</td><td>~6100 字（约 2.7 倍）</td></tr><tr><td>推理延迟（同等文本）</td><td>基准</td><td>快 30-50%（估算）</td></tr><tr><td>训练数据效率</td><td>中文浪费 token</td><td>每个 token 承载更多信息</td></tr></table>
+          <div class="step-desc" style="color:var(--success);font-weight:600;margin-top:6px;">结论：对中文为主的场景，152K 词表明显划算——多出的 491M Embedding 参数是一次性加载成本，但推理时每个请求都快 30-50%，吞吐量直接提升。这就像仓库大一点多占点地，但进出货快了三成。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 为什么不是越大越好？</div><p>词表 152K 再往上扩，边际收益递减——常见词汇已经被覆盖了，新加入的都是极低频的碎片，几乎用不到（经验观察：词表实际利用率低、存在大量近似重复 token；无一手来源，需人工核实）。而且 Embedding 矩阵太大了会挤占其他层的参数预算（7B 模型 9% 给 Embedding 已经很高）。<strong>152K 是 Qwen 团队在中文效率上的一个工程甜点。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','4-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','4-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-4-4" class="llm-section"><button class="llm-btn" onclick="startChat('4-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="4-4"><div class="chat-toolbar"><button onclick="copyChat('4-4')">📋 复制对话</button><button onclick="clearChat('4-4')">🗑 清空</button><button onclick="stopLLM('4-4')" id="stop-btn-4-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('4-4')" id="regen-btn-4-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="4-4"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对词表大小的 tradeoff 有疑问？比如"如果我有 100B 参数，词表多大合适？""Embedding 层的参数能不能压缩？"<br><br>我会用具体数字帮你算。</div></div></div><div class="chat-input-row"><textarea data-input="4-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('4-4')}" rows="1" placeholder="例如：能不能把 Embedding 层单独压缩，比如用低秩分解？"></textarea><button onclick="sendLLM('4-4')">发送</button></div></div></div>
+      <div id="tab-qna-4-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('4-4')">🔄 换一批</button></div><div class="qna-list" data-qna="4-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+  <div class="card" data-card="4-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">为什么模型有时候会"卡壳"——不停重复同一个词、或者在句子末尾加上无意义的标点？</div><div class="card-q-hint">提示：模型是一个 token 一个 token 地往下写的——如果某个 token 恰好是高频单字或符号，它会不会被反复选中？先自己想 30 秒。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>文本退化</strong>（Text Degeneration）由 Holtzman et al.（2019，"The Curious Case of Neural Text Degeneration"）系统记录。现象：模型在长文本生成中陷入重复循环。根因是<strong>解码策略</strong>——贪心地逐 token 取最高概率（或 beam search 最大化似然）会把分布长尾排除掉，生成因此陷入高概率循环；tokenization 与 Attention 会放大这一现象，但不是根因。解决：nucleus sampling（top-p）、temperature scaling、repetition_penalty——已成为 LLM 推理标准配置。</div>
+<div class="content-section"><p>前面我们讨论了 tokenization 的效率（token 数量）和代价（Embedding 参数）。但它还有一个更隐蔽的影响：<strong>某些 token 的编码方式会让模型陷入「退化循环」——不停重复同一个词或符号。</strong></p><p>这就像一列火车在环形轨道上跑——只要某个高频 token 让上下文又回到「和刚才几乎一样」的状态，模型就会沿着同一条轨道再跑一圈，于是重复同一个词。这种循环在论文里叫<strong>文本退化</strong>（text degeneration）。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 高频 token 与解码策略如何共同导致生成退化</div>
+        <div class="step"><div class="step-title">Step 1：重复词陷阱 — "的"被编码为单独 token</div>
+          <table><tr><th>场景</th><th>中文输入</th><th>Token 切分</th><th>为什么危险</th></tr><tr><td>正常</td><td>这本书的内容很有意思</td><td>这本 / 书的 / 内容 / 很 / 有意思</td><td>"的"是独立 token，在语料中出现了几百万次</td></tr><tr><td>退化</td><td>这本书的的的的的的</td><td>这本 / 书的 / 的 / 的 / 的 / 的 / 的 / 的</td><td>模型输出一个"的"后，下一个 token 的上下文和上一个几乎一样→又输出"的"→循环</td></tr></table>
+          <div class="step-desc" style="color:#ef4444;font-weight:600;margin-top:6px;">这本 / 书的 / 的×6 → 2 + 6 = 8 个 token。根本原因：高频单字 token 的 Embedding 在训练时见过无数次"独立出现"的模式，模型学会了"看到我就输出我"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：标点陷阱 — 空格和换行被编码为独立 token</div>
+          <table><tr><th>Token</th><th>Llama tokenizer ID</th><th>问题</th></tr><tr><td>空格 (▁)</td><td>29871（示例）</td><td>英文开头的空格被编码为独立 token——模型可能无休止输出空格+token 的组合</td></tr><tr><td>换行 (\n)</td><td>13（示例）</td><td>独立编码→模型可能在不该换行的地方疯狂换行</td></tr><tr><td>逗号 (,)</td><td>29892（示例）</td><td>逗号后跟空格是两个 token→"hello, world" 被切成 3 个 token 而不是直觉的 2 个</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">上表 ID 为 Llama 2 词表的<strong>示意口径</strong>，用于说明"标点被编成独立 token"，具体数值以对应 tokenizer 实测为准。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：SolidGoldMagikarp 现象 — 词表里的"幽灵 token"</div>
+          <table><tr><th>现象</th><th>说明</th><th>后果</th></tr><tr><td>训练集不均衡</td><td>某些 token 只在特定数据集出现（如 Reddit 用户名 "SolidGoldMagikarp"）</td><td>模型记住了这个 token 但几乎没学过它的语义——一旦触发，输出不可控</td></tr><tr><td>空白/特殊字符 token</td><td>词表里保留了 <|endoftext|>、<|padding|> 等特殊 token</td><td>如果用户输入里碰巧触发了这些 token ID → 模型提前终止或输出乱码</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">2023 年（Rumbelow & Watkins，LessWrong 报告）发现的 "SolidGoldMagikarp" 问题：Reddit 用户名被 tokenizer 单独编码，但训练数据里只出现几次——模型对这个 token 的理解是"随机噪声"。只要你输入这个用户名，模型就会产生不可预测的输出。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 怎么缓解？</div><p>现代 tokenizer 的改进方向：① 增加词汇表大小（让常见组合被合并，减少单字 token）；② 训练时加入更多样化的数据（避免某个 token 只在窄领域出现）；③ 推理时加 repetition_penalty（对已出现的 token 降权，打断重复循环）。<strong>注意：①② 在 token 侧减少诱因，③ 直接作用在解码上；而重复循环的根因是解码策略，所以 ③ 类手段最直接对症。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','4-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','4-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-4-5" class="llm-section"><button class="llm-btn" onclick="startChat('4-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="4-5"><div class="chat-toolbar"><button onclick="copyChat('4-5')">📋 复制对话</button><button onclick="clearChat('4-5')">🗑 清空</button><button onclick="stopLLM('4-5')" id="stop-btn-4-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('4-5')" id="regen-btn-4-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="4-5"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 tokenization 导致的模型行为问题有疑问？比如"repetition_penalty 具体怎么算？""有没有不用 tokenizer 的模型架构？"<br><br>我会用具体例子解释。</div></div></div><div class="chat-input-row"><textarea data-input="4-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('4-5')}" rows="1" placeholder="例如：MegaByte 这种 byte-level 模型能解决这些问题吗？"></textarea><button onclick="sendLLM('4-5')">发送</button></div></div></div>
+      <div id="tab-qna-4-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('4-5')">🔄 换一批</button></div><div class="qna-list" data-qna="4-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+  <div class="card" data-card="4-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">你和模型聊一轮，真正被计费的 token 里，有多少根本不是你自己打的字？</div><div class="card-q-hint">提示：先想想你发出的那句「你好」，在送进模型之前被包进了哪些你看不见的字符——它们算不算钱？先自己想 30 秒。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>ChatML</strong>（Chat Markup Language，对话标记语言，OpenAI 2023 年为 ChatGPT 类接口设计）用 <code>&lt;|im_start|&gt;</code> / <code>&lt;|im_end|&gt;</code> 这对特殊 token（special token，词表里被预留、普通文本切不出来的记号），把「角色名 + 内容」包成一轮对话；Meta 的 <strong>Llama 2</strong>（2023）则用 <code>[INST] … [/INST]</code> 包裹用户指令。痛点：这些标记和系统提示都由系统自动拼接，用户看不见，却同样送去分词、同样按 token 计费、同样占上下文窗口。</div>
+<div class="content-section"><p>上一张卡片我们看到，词表里被预留的特殊 token 一旦被误触发，会让模型「鬼畜」——但特殊 token 还有另一面：它们是每一轮对话都要固定付出的成本。</p><p>先把两个词说清。<strong>特殊 token</strong>（special token，词表里被预留、普通文本切不出来的记号）不由你的字切分而来，而是由<strong>对话模板</strong>（chat template，把系统提示、角色名和内容拼成模型预期格式的那套规则）自动插入。你发出的只是「你好」，模型实际收到的却是一整段带标记的文本——系统提示、角色名、分隔符一个都不少。</p><p>关键在于：token 同时是<strong>钱</strong>（按量计费）和<strong>上下文窗口</strong>（额度有限）。这些你看不见的标记照样被计费、照样挤占窗口。这就像寄快递——你写的信只占包裹一角，面单、填充物、封条都是系统加的，但它们一样要称重、一样算运费。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 算一笔账：10 轮对话里，有多少 token 根本不是你自己打的字</div>
+        <div class="step"><div class="step-title">Step 1：一轮对话在 ChatML 里被拼成了什么</div>
+          <table><tr><th>片段</th><th>内容（示意）</th><th>是你打的字吗</th><th>token</th></tr><tr><td>系统提示</td><td>You are a helpful assistant.</td><td>否，系统注入</td><td>6</td></tr><tr><td>&lt;|im_start|&gt;</td><td>轮次开始特殊 token</td><td>否</td><td>1</td></tr><tr><td>user</td><td>角色名</td><td>否</td><td>1</td></tr><tr><td>换行</td><td>格式控制符</td><td>否</td><td>1</td></tr><tr><td>你好，帮我写封邮件</td><td>用户输入</td><td>是</td><td>6</td></tr><tr><td>&lt;|im_end|&gt;</td><td>轮次结束特殊 token</td><td>否</td><td>1</td></tr></table>
+          <div class="step-desc">一轮 user 的模板骨架 = <strong>&lt;|im_start|&gt; + 角色名 + 换行 + &lt;|im_end|&gt; = 4 个特殊 token</strong>（示意口径，按整数近似）。除你自己打的字之外，模型还要多收 6 个 token 的系统提示。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：模板开销累积成多少 token？</div>
+          <table><tr><th>项目</th><th>每轮 token</th><th>10 轮累计</th></tr><tr><td>user 轮的 4 个角色标记</td><td>4</td><td>40</td></tr><tr><td>assistant 轮的 4 个角色标记</td><td>4</td><td>40</td></tr><tr><td>角色标记小计</td><td>8</td><td>80</td></tr><tr><td>系统提示（内容固定，但每轮都要重发）</td><td>500</td><td>5000</td></tr><tr><td>看不见的开销合计</td><td>—</td><td>5080</td></tr></table>
+          <div class="step-desc">一轮对话 = user 轮 + assistant 轮 = 4 + 4 = <strong>8 个</strong>角色标记 token；10 轮就是 8 × 10 = <strong>80 个</strong>；系统提示内容固定却每轮都要重发，10 轮累计 500 × 10 = <strong>5000 个</strong>；两者相加 = 5000 + 80 = <strong>5080 个</strong>（这还没算正文）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：这些开销占总 token 的百分之几？</div>
+          <table><tr><th>组成</th><th>10 轮累计 token</th><th>占总 token</th></tr><tr><td>系统提示</td><td>5000</td><td>82.2%</td></tr><tr><td>角色标记（模板开销）</td><td>80</td><td>1.3%</td></tr><tr><td>用户 + 助手正文</td><td>1000</td><td>16.4%</td></tr><tr><td>合计</td><td>6080</td><td>100%</td></tr></table>
+          <div class="step-desc">设每轮正文 user 20 + assistant 80 = 100 token（示意），10 轮正文 = 1000；系统提示每轮重发，10 轮 = 5000；总 token = 5000 + 80 + 1000 = <strong>6080</strong>；模板开销 80 / 6080 ≈ <strong>1.3%</strong>；把系统提示也算进「看不见的开销」，则是 5080 / 6080 ≈ <strong>83.6%</strong>。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>token 有两重身份：<strong>一是钱</strong>（按量计费），<strong>二是上下文窗口</strong>（额度有限）。系统提示与角色标记都由系统自动拼接，用户看不见，却一样计费、一样占额度——上面的示意口径里，看不见的开销约占总 token 的 <strong>83.6%</strong>。</p><p>一个反直觉点：<strong>结构化格式（JSON、键值对）有时比等义的自然语言更省 token</strong>，因为自然语言带着大量连接词、语气词等冗余。经验观察：一段 400 词的散文指令通常能压成 8–12 条要点、降到 100 token 以内，压缩比高正是因为散文带着模型不需要的「连接组织」。但要注意：JSON 自身也有括号、引号、重复键的开销——同一份数据里 JSON 比更紧凑的写法多约 2 倍 token。<strong>以上均为经验判断（无一手来源），需人工核实。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','4-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','4-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-4-6" class="llm-section"><button class="llm-btn" onclick="startChat('4-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="4-6"><div class="chat-toolbar"><button onclick="copyChat('4-6')">📋 复制对话</button><button onclick="clearChat('4-6')">🗑 清空</button><button onclick="stopLLM('4-6')" id="stop-btn-4-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('4-6')" id="regen-btn-4-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="4-6"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对整个 tokenization 链路有疑问？我会用<strong>具体数字和计算例子</strong>来回答。</div></div></div><div class="chat-input-row"><textarea data-input="4-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('4-6')}" rows="1" placeholder="输入你的问题…"></textarea><button onclick="sendLLM('4-6')">发送</button></div></div></div>
+      <div id="tab-qna-4-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('4-6')">🔄 换一批</button></div><div class="qna-list" data-qna="4-6">
+        <div class="qna-item">
+          <div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">1.</span><span class="q-text">特殊 token 在普通文本里为什么切不出来？如果我直接把 &lt;|im_start|&gt; 打进输入框会怎样？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('4-6-0', this)" title="标记已学透"><span class="q-arrow">▾</span></div>
+          <div class="qna-item-a"><p>结论：切不出来，因为特殊 token 是词表里<b>被预留的整体记号</b>，普通子词合并不生成它。</p><p>依据：以 ChatML 为例，切分器看到 <code>&lt;|im_start|&gt;</code> 这段字符时直接吐出它固定的那个 ID，而不是拆成 &lt;、|、im 这些普通子词。示意对比：</p><table><tr><th>输入文本</th><th>切法</th><th>token 数</th></tr><tr><td>&lt;|im_start|&gt;</td><td>整体命中预留 ID（示意 32000）</td><td>1</td></tr><tr><td>拆散写成的 &lt; | im _ start | &gt;</td><td>逐子词合并</td><td>5–6</td></tr><tr><td>你好</td><td>普通子词</td><td>1</td></tr></table><p>正因为它「整体」且「预留」，若你在输入框里原样打出这串字符，多数服务端会在编码前把它清洗掉——否则用户就能伪造「assistant 说话」。<br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('4-6-0')">💡 咨询 AI</button><div class="qna-inline-chat" id="qna-chat-4-6-0" onclick="event.stopPropagation()"><div class="chat-toolbar"><button onclick="copyQnAChat('4-6-0')">📋 复制</button><button onclick="clearQnAChat('4-6-0')">🗑 清空</button><button onclick="stopQnAChat('4-6-0')" id="qna-stop-4-6-0" style="display:none">⏹ 停止</button><button onclick="regenerateQnA('4-6-0')" id="qna-regen-4-6-0" style="display:none">🔄 重新生成</button></div><div class="qna-chat-msgs" id="qna-msgs-4-6-0"></div><div class="chat-input-row"><textarea id="qna-input-4-6-0" placeholder="基于以上内容，继续提问…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQnAChat('4-6-0')}" rows="1"></textarea><button onclick="sendQnAChat('4-6-0')">发送</button></div></div></div>
+        </div>
+        <div class="qna-item">
+          <div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">2.</span><span class="q-text">系统提示每一轮都要重新发送吗？为什么不能只发一次？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('4-6-1', this)" title="标记已学透"><span class="q-arrow">▾</span></div>
+          <div class="qna-item-a"><p>结论：要重发。模型本身没有记忆，每一轮都靠把「系统提示 + 历史 + 新问题」整段重新喂进去。</p><p>依据：所以那 500 token 的系统提示会在每一轮各出现一次。累计如下：</p><table><tr><th>轮数</th><th>该轮系统提示 token</th><th>系统提示累计</th></tr><tr><td>第 1 轮</td><td>500</td><td>500</td></tr><tr><td>第 5 轮</td><td>500</td><td>2500</td></tr><tr><td>第 10 轮</td><td>500</td><td>5000</td></tr></table><p>500 × 10 = 5000：同一个系统提示，你为它付了 10 次钱。这正是「缓存命中」（把不变的前缀缓存起来复用）能省钱的原理。<br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('4-6-1')">💡 咨询 AI</button><div class="qna-inline-chat" id="qna-chat-4-6-1" onclick="event.stopPropagation()"><div class="chat-toolbar"><button onclick="copyQnAChat('4-6-1')">📋 复制</button><button onclick="clearQnAChat('4-6-1')">🗑 清空</button><button onclick="stopQnAChat('4-6-1')" id="qna-stop-4-6-1" style="display:none">⏹ 停止</button><button onclick="regenerateQnA('4-6-1')" id="qna-regen-4-6-1" style="display:none">🔄 重新生成</button></div><div class="qna-chat-msgs" id="qna-msgs-4-6-1"></div><div class="chat-input-row"><textarea id="qna-input-4-6-1" placeholder="基于以上内容，继续提问…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQnAChat('4-6-1')}" rows="1"></textarea><button onclick="sendQnAChat('4-6-1')">发送</button></div></div></div>
+        </div>
+        <div class="qna-item">
+          <div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">3.</span><span class="q-text">ChatML 和 Llama 2 的 [INST] 模板，哪个每轮更省 token？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('4-6-2', this)" title="标记已学透"><span class="q-arrow">▾</span></div>
+          <div class="qna-item-a"><p>结论：只看每轮角色标记，Llama 2 的写法更少；但它还要额外的句首/句尾标记，整体差距不大。</p><p>依据（均为示意口径）：</p><table><tr><th>模板</th><th>每轮角色标记</th><th>10 轮累计</th></tr><tr><td>ChatML（&lt;|im_start|&gt;角色…&lt;|im_end|&gt;）</td><td>4</td><td>40</td></tr><tr><td>Llama 2（[INST] … [/INST]）</td><td>2</td><td>20</td></tr><tr><td>Llama 2 额外句标记（&lt;s&gt; / &lt;/s&gt;，整个序列各一次）</td><td>+2</td><td>+2</td></tr></table><p>ChatML 每轮 4 个：开始标记 1 + 角色名 1 + 换行 1 + 结束标记 1，10 轮即 40 个；Llama 2 每轮 2 个，10 轮 20 个，加句标记约 22 个。要精确比较还得用各自 tokenizer 现算。<br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('4-6-2')">💡 咨询 AI</button><div class="qna-inline-chat" id="qna-chat-4-6-2" onclick="event.stopPropagation()"><div class="chat-toolbar"><button onclick="copyQnAChat('4-6-2')">📋 复制</button><button onclick="clearQnAChat('4-6-2')">🗑 清空</button><button onclick="stopQnAChat('4-6-2')" id="qna-stop-4-6-2" style="display:none">⏹ 停止</button><button onclick="regenerateQnA('4-6-2')" id="qna-regen-4-6-2" style="display:none">🔄 重新生成</button></div><div class="qna-chat-msgs" id="qna-msgs-4-6-2"></div><div class="chat-input-row"><textarea id="qna-input-4-6-2" placeholder="基于以上内容，继续提问…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQnAChat('4-6-2')}" rows="1"></textarea><button onclick="sendQnAChat('4-6-2')">发送</button></div></div></div>
+        </div>
+        <div class="qna-item">
+          <div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">4.</span><span class="q-text">JSON 真的比自然语言省 token 吗？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('4-6-3', this)" title="标记已学透"><span class="q-arrow">▾</span></div>
+          <div class="qna-item-a"><p>结论：不一定。结构化能去掉语言冗余，但 JSON 自身的括号、引号、重复键也在烧 token，往往不如更紧凑的写法。</p><p>依据：</p><table><tr><th>写法</th><th>例（同一份数据）</th><th>相对 token</th></tr><tr><td>散文</td><td>用户叫张三，今年三十岁</td><td>基准</td></tr><tr><td>JSON</td><td>{&quot;name&quot;:&quot;张三&quot;,&quot;age&quot;:30}</td><td>约为紧凑写法的 2 倍（实测口径）</td></tr><tr><td>紧凑键值 / TSV</td><td>张三　30</td><td>最少</td></tr></table><p>所以「换成 JSON 就省 token」是错的：JSON 赢在等义散文（散文带连接词、语气词），却输给更紧凑的格式。这条直接比较属经验判断，需人工核实。<br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('4-6-3')">💡 咨询 AI</button><div class="qna-inline-chat" id="qna-chat-4-6-3" onclick="event.stopPropagation()"><div class="chat-toolbar"><button onclick="copyQnAChat('4-6-3')">📋 复制</button><button onclick="clearQnAChat('4-6-3')">🗑 清空</button><button onclick="stopQnAChat('4-6-3')" id="qna-stop-4-6-3" style="display:none">⏹ 停止</button><button onclick="regenerateQnA('4-6-3')" id="qna-regen-4-6-3" style="display:none">🔄 重新生成</button></div><div class="qna-chat-msgs" id="qna-msgs-4-6-3"></div><div class="chat-input-row"><textarea id="qna-input-4-6-3" placeholder="基于以上内容，继续提问…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQnAChat('4-6-3')}" rows="1"></textarea><button onclick="sendQnAChat('4-6-3')">发送</button></div></div></div>
+        </div>
+        <div class="qna-item">
+          <div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">5.</span><span class="q-text">我怎么知道自己这一轮对话被算了多少 token？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('4-6-4', this)" title="标记已学透"><span class="q-arrow">▾</span></div>
+          <div class="qna-item-a"><p>结论：用对应模型的 tokenizer 现算，别拿字数硬估；中文和英文的换算率差很多。</p><p>依据（Qwen 官方口径）：</p><table><tr><th>文本</th><th>换算口径</th><th>示例 token</th></tr><tr><td>中文</td><td>1 token ≈ 1.5–1.8 汉字</td><td>100 汉字 ≈ 56–67</td></tr><tr><td>英文</td><td>1 token ≈ 3–4 字符</td><td>400 字符 ≈ 100–133</td></tr><tr><td>ChatML 每轮模板</td><td>角色标记合计</td><td>约 8（示意）</td></tr></table><p>先用 tokenizer 把「系统提示 + 历史 + 本轮问题」整体编码，再对照账单或用量面板；只看自己打的字数会系统性低估。<br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('4-6-4')">💡 咨询 AI</button><div class="qna-inline-chat" id="qna-chat-4-6-4" onclick="event.stopPropagation()"><div class="chat-toolbar"><button onclick="copyQnAChat('4-6-4')">📋 复制</button><button onclick="clearQnAChat('4-6-4')">🗑 清空</button><button onclick="stopQnAChat('4-6-4')" id="qna-stop-4-6-4" style="display:none">⏹ 停止</button><button onclick="regenerateQnA('4-6-4')" id="qna-regen-4-6-4" style="display:none">🔄 重新生成</button></div><div class="qna-chat-msgs" id="qna-msgs-4-6-4"></div><div class="chat-input-row"><textarea id="qna-input-4-6-4" placeholder="基于以上内容，继续提问…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQnAChat('4-6-4')}" rows="1"></textarea><button onclick="sendQnAChat('4-6-4')">发送</button></div></div></div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 4 课完成 · 下一课：第 5 课「逐层解剖一个模型」</p>
+    <a href="#" onclick="switchLesson(5);return false;">进入第 5 课：逐层解剖一个模型 →</a>　·　<a href="#" onclick="switchLesson(3);return false;">← 上一课：现代 Transformer 的五大改造</a>
+  </div></div>

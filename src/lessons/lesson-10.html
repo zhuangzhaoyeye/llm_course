@@ -1,0 +1,207 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 10 课：SFT 微调</h2>
+    <p class="subtitle">SFT（监督微调）就是——用人工写好的问答样例继续训练模型，让它学会按指令回答。上一课我们把模型训出来了，但它只会"续写文本"，不会"回答问题"。这一课讲清这条最短的路径：数据要多好、loss 该算在哪、多轮对话怎么拼、显存不够怎么办、训完怎么知道没学坏。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清 SFT 与预训练的唯一区别（目标函数相同、数据不同）<br>② 判断一份指令数据的质量，并解释 loss masking 为什么必须<br>③ 会算全参、LoRA（低秩适配：冻结原模型权重，只在少数层插入一组很小的可训练矩阵）、QLoRA（把冻结的基座权重进一步压到低比特表示，再训练上述那些很小的矩阵）三种方案的显存，并给出选型</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：从"基座为什么不会听话"到"怎么知道没学坏"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要让一个只会预测下一个 <b class="rn-key">token</b> 的基座变成助手，<strong>必须先回答</strong>"它到底缺什么"——<strong>因为</strong>它缺的不是知识而是"把用户输入当成任务"的行为模式，<strong>所以</strong>要用指令-回答对做一次极小的继续训练，也就是 SFT。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然只用几万条样本就能改变行为，<strong>这就要求</strong>样本本身足够好——<strong>因为</strong>少量低质样本会把模型的风格带偏，<strong>于是</strong>要按"人类撰写 / 强模型蒸馏 / 社区采集"三类来源权衡质量与成本，而不是只看 <b class="rn-key">token</b> 总量。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">数据对了，但目标函数还要改——<strong>因为</strong>如果对问题部分也算损失，模型就会学着去"生成问题"而不是"回答问题"，<strong>因此</strong>必须把问题部分的 <b class="rn-key">logits</b>（模型对词表里每个 token 打出的原始分数）排除在损失之外（loss masking）。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">把问题部分从损失里摘掉之后，剩下的文本仍是多角色、多轮次混在一起的一长串，<strong>这就要求</strong>用显式分隔符标出"谁在说话、说到哪停"，<strong>于是</strong>出现 chat template 与特殊 <b class="rn-key">token</b>（如 Llama 3 的 <code>&lt;|eot_id|&gt;</code>），否则模型分不清"谁在说话"。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">样本与模板都定了，但全参微调要存完整的权重、<b class="rn-key">gradient</b> 与优化器状态，<strong>因此</strong>显存成为瓶颈，<strong>这就要求</strong>按模型大小在"全参 / LoRA / QLoRA"之间选型。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text"><strong>【支链 · 评估维度】</strong>最后要回答一个反向问题：微调会不会把原来的能力弄丢——<strong>因此</strong>必须在微调前后都测一遍基座能力（用 <b class="rn-key">perplexity</b> 与通用基准），<strong>于是</strong>才能区分"学会了新格式"和"忘掉了旧知识"。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">SFT</span><span class="meta-tag">Instruction Tuning</span><span class="meta-tag">Loss Masking</span><span class="meta-tag">Chat Template</span><span class="meta-tag">LoRA</span><span class="meta-tag">QLoRA</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="10-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">一个知识齐全的基座模型，为什么你问它问题，它却在"续写"？</div><div class="card-q-hint">提示：先想"续写文本"和"回答问题"是不是同一件事。如果问一个只会续写的系统"某国首都是哪"，它会补出什么？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>指令微调（Instruction Tuning）</strong>由 FLAN 命名并推广（Wei et al., arXiv:2109.01652）：把一个 137B 模型在 60+ 个改写为自然语言指令的任务上微调后，在 <strong>25 个评测中的 20 个</strong>上超过了零样本的 175B GPT-3。<strong>InstructGPT</strong>（Ouyang et al., arXiv:2203.02155）进一步用约 <strong>13,000 条人类撰写的示范</strong>做 SFT，得到的 1.3B 模型被人类标注者<strong>偏好于 175B 的基座 GPT-3</strong>——参数量只有约 1/135。</div>
+      <div class="content-section"><p>上一课我们把预训练跑完了。但跑出来的模型只会做一件事：<strong>预测下一个 token</strong>。所以问它"法国首都是哪"，它可能续写出"德国首都是哪？意大利首都是哪？"——<strong>为什么？</strong></p><p><strong>因为</strong>它学到的是"文本如何接续"，而不是"请求需要被执行"，<strong>所以</strong>必须补一次行为层面的训练。可以把这<strong>类比</strong>成请来一位读过全图书馆的学者：知识都在，但没人告诉他"有人提问时要回答"——SFT 就是那场入职培训。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 差距账：知识够了，行为没教</div>
+        <div class="step"><div class="step-title">Step 1：两个模型的差别在哪</div>
+          <table><tr><th>维度</th><th>基座模型</th><th>SFT 之后</th></tr><tr><td>训练目标</td><td>预测下一个 token</td><td><strong>完全相同</strong>（仍是预测下一个 token）</td></tr><tr><td>训练数据</td><td>万亿级网页</td><td>数万条指令-回答对</td></tr><tr><td>数据量级</td><td>15.6T token</td><td>约几十 M token（小 5~6 个数量级）</td></tr><tr><td>行为</td><td>续写文本</td><td>把输入当任务执行</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">关键点：<strong>SFT 不改目标函数，只改数据</strong>——这是本课最容易被忽略的一条。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：为什么"行为"比"规模"更划算</div>
+          <table><tr><th>对照实验</th><th>参数量</th><th>结果</th></tr><tr><td>InstructGPT</td><td>1.3B</td><td><strong>人类偏好优于 175B 基座 GPT-3</strong></td></tr><tr><td>参数量对比</td><td>1.3B vs 175B</td><td>约 <strong>1/135</strong></td></tr><tr><td>SFT 数据量</td><td>约 13,000 条示范</td><td>相对预训练语料可忽略</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">用 1/135 的参数量 + 几万条样本，换来人类更喜欢的输出——<strong>说明"会不会听指令"与"知道多少"是两个可以分开投资的维度</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：换个角度理解 SFT 的"小"</div>
+          <table><tr><th>阶段</th><th>数据量</th><th>耗时</th><th>学到了什么</th></tr><tr><td>预训练</td><td>15.6T token</td><td>数月、上万卡</td><td>语言与知识</td></tr><tr><td>SFT</td><td>约 10M~100M token</td><td><strong>小时到天</strong>、少量卡</td><td>回答的格式与风格</td></tr><tr><td>量级比</td><td colspan="2">15.6T ÷ 约 50M ≈ <strong>3 × 10⁵ 倍</strong></td><td>——</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">SFT 之所以这么便宜，是因为<strong>它不注入新知识，只调整表达方式</strong>——把已有的能力"对齐"到用户期待的输出形态上。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>SFT 的第一性认识是：<strong>它和预训练用的是同一个目标函数，唯一区别是数据</strong>。所以"模型答不好问题"不是知识不够，而是<strong>行为没被教过</strong>——用 1/135 的参数、约 1/3×10⁵ 的数据量就能补上。这也解释了为什么 SFT 通常只跑 1~3 轮、几小时就结束。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','10-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','10-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-10-1" class="llm-section"><button class="llm-btn" onclick="startChat('10-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="10-1"><div class="chat-toolbar"><button onclick="copyChat('10-1')">📋 复制对话</button><button onclick="clearChat('10-1')">🗑 清空</button><button onclick="stopLLM('10-1')" id="stop-btn-10-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('10-1')" id="regen-btn-10-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="10-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 SFT 的定位有疑问？比如"SFT 会不会注入新知识？""为什么小模型能超过大基座？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="10-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('10-1')}" rows="1" placeholder="例如：如果只做 SFT 不做后续对齐，会缺什么？"></textarea><button onclick="sendLLM('10-1')">发送</button></div></div></div>
+      <div id="tab-qna-10-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('10-1')">🔄 换一批</button></div><div class="qna-list" data-qna="10-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="10-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">指令数据只有几万条，那"质量"具体指什么？</div><div class="card-q-hint">提示：先想如果同样 1 万条样本，一批是专家写的、一批是网上随手抓的，训出来会差在哪。再想"多"能不能补上"差"。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>训练数据的三种来源（成本与质量递减）：<strong>人类撰写</strong>——InstructGPT 用了约 <strong>13,000 条</strong>专业标注者写的示范；<strong>强模型蒸馏</strong>——Alpaca 用 GPT-3.5 生成了 <strong>52,000 条</strong>；<strong>社区/开放数据集</strong>——规模可达几十万条但质量参差。极端案例是 <strong>LIMA</strong>（Zhou et al., arXiv:2305.11206）：仅用 <strong>1,000 条</strong>精心策展的样本，就得到有竞争力的指令遵循能力。</div>
+      <div class="content-section"><p>上一张卡片我们看到 SFT 只需几万条样本。那问题就来了：<strong>同样是几万条，差别在哪？</strong></p><p><strong>因为</strong>SFT 样本直接示范"什么样的回答是好的"，<strong>所以</strong>样本的风格就是模型的上限。可以把这<strong>类比</strong>成学做菜：跟 10 道大厨做的菜学，和跟 10000 份速冻食品学，前者学到的是手艺，后者学到的是"速冻食品长什么样"。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 数据账：三种来源的质量与成本</div>
+        <div class="step"><div class="step-title">Step 1：三种来源的对照</div>
+          <table><tr><th>来源</th><th>质量</th><th>规模量级</th><th>典型代表</th></tr><tr><td>人类专业撰写</td><td>最高</td><td>约 1 万条级</td><td>InstructGPT（约 13,000 条）</td></tr><tr><td>强模型蒸馏</td><td>高</td><td>约 5 万条级</td><td>Alpaca（52,000 条）</td></tr><tr><td>社区 / 开放集</td><td>参差</td><td>几十万条级</td><td>各类开源指令集</td></tr><tr><td><strong>精挑极少样本</strong></td><td><strong>极高</strong></td><td><strong>1,000 条</strong></td><td>LIMA</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">注意最后一行：<strong>1,000 条也能做出有竞争力的指令遵循能力</strong>——说明规模不是决定因素。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：为什么质量能压过数量</div>
+          <table><tr><th>对比</th><th>样本数</th><th>学到的东西</th></tr><tr><td>少量精品</td><td>1,000 条</td><td>"好答案的标准"（格式、语气、推理痕迹）</td></tr><tr><td>大量杂样本</td><td>100,000 条</td><td>各种风格的平均值（含大量低质模式）</td></tr><tr><td>比值</td><td><strong>100,000 ÷ 1,000 = 100 倍</strong></td><td>但后者并不更强</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">机理是<strong>最大似然会去拟合样本的分布</strong>：样本里有多少比例是"敷衍回答"，模型就有多少概率学会敷衍。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3："质量"具体由哪几项构成</div>
+          <table><tr><th>维度</th><th>合格</th><th>不合格</th></tr><tr><td>正确性</td><td>事实与推理都对</td><td>编造、算错</td></tr><tr><td>格式</td><td>遵循指令要求的格式</td><td>答非所问</td></tr><tr><td>风格一致</td><td>全数据集语气统一</td><td>一部分口语一部分学术腔</td></tr><tr><td>多样性</td><td>任务类型与长度（token 数）分布合理</td><td>全是同一类问题</td></tr><tr><td>无泄漏</td><td>不含评测题</td><td>把 benchmark 答案抄进去</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">最后一项最隐蔽：<strong>把评测题混进训练集会让分数虚高</strong>，但真实能力没变——这叫数据污染。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>指令数据的质量<strong>压过数量</strong>：1,000 条精选样本（LIMA）能与 52,000 条蒸馏样本（Alpaca）竞争，13,000 条人工示范（InstructGPT）能让 1.3B 模型胜过 175B 基座。<strong>因为 SFT 拟合的是样本分布，样本里有多少"敷衍"、"编造"、"格式错乱"，模型就会学多少</strong>——所以筛数据比堆数据更重要。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','10-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','10-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-10-2" class="llm-section"><button class="llm-btn" onclick="startChat('10-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="10-2"><div class="chat-toolbar"><button onclick="copyChat('10-2')">📋 复制对话</button><button onclick="clearChat('10-2')">🗑 清空</button><button onclick="stopLLM('10-2')" id="stop-btn-10-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('10-2')" id="regen-btn-10-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="10-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对数据质量有疑问？比如"怎么自动筛掉低质样本？""蒸馏数据会不会有系统性偏差？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="10-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('10-2')}" rows="1" placeholder="例如：如果 1 万条里有 1000 条错的，会怎样？"></textarea><button onclick="sendLLM('10-2')">发送</button></div></div></div>
+      <div id="tab-qna-10-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('10-2')">🔄 换一批</button></div><div class="qna-list" data-qna="10-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="10-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">为什么算损失时要"假装看不见"问题部分？</div><div class="card-q-hint">提示：先想一条样本里问题和回答各占多少 token；再想如果两部分的损失都算，梯度主要在优化哪一部分。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Loss masking（损失掩码）</strong>是 SFT 的标准做法：输入序列 = 问题 token + 回答 token，但只对<strong>回答部分</strong>计算交叉熵。实现上把问题部分的标签置为 <code>-100</code>（PyTorch 的 <code>ignore_index</code>），只保留回答部分的标签。注意<strong>掩码只作用于损失，不作用于注意力</strong>——回答仍能看到问题。</div>
+      <div class="content-section"><p>上一张卡片我们备好了数据。但直接拿"问题 + 回答"算损失会出问题——<strong>为什么？</strong></p><p><strong>因为</strong>如果问题部分也计入损失，模型会被训练去"复述问题"，<strong>所以</strong>必须把问题部分屏蔽掉。可以把这<strong>类比</strong>成批改作文：你只该按"学生的回答"打分，而不是把"题目"也抄一遍再打分——抄题目不是考核目标。</p><p>更早的做法是照搬<strong>预训练</strong>那一套——对整段文本算损失，毕竟预训练就是这么干的、也跑得通。可预训练语料是一段连续文本、每个 token 都该被预测；SFT 样本里问题占了大头（示例中约 <strong>80%</strong>），照搬过来，模型每学 <strong>1</strong> 份「怎么回答」，就顺带学 <strong>4</strong> 份「怎么复述问题」，训久了会养成"抢着替用户把问题续下去"的坏习惯。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 掩码账：不屏蔽会浪费多少梯度</div>
+        <div class="step"><div class="step-title">Step 1：一条样本的 token 构成</div>
+          <table><tr><th>部分</th><th>典型长度</th><th>是否计入损失</th></tr><tr><td>系统提示 + 用户问题</td><td>约 80 token</td><td>否（置 -100）</td></tr><tr><td>助手回答</td><td>约 20 token</td><td><strong>是</strong></td></tr><tr><td>合计</td><td>约 100 token</td><td>——</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">这里用短回答举例——现实中回答通常更长，但<strong>短回答场景能把问题放大到最明显</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：不掩码会怎样</div>
+          <table><tr><th>方案</th><th>损失覆盖的 token</th><th>梯度去向</th></tr><tr><td>不掩码</td><td>100 个（含 80 个问题 token）</td><td>约 <strong>80%</strong> 用于"复述问题"</td></tr><tr><td>正确掩码</td><td>20 个（只回答）</td><td><strong>100%</strong> 用于"生成回答"</td></tr><tr><td>差异</td><td>——</td><td>约 <strong>5 倍</strong>的有效梯度被浪费</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">计算：100 ÷ 20 = <strong>5 倍</strong>。也就是说，不掩码时模型每学 1 份"如何回答"，就顺带学了 4 份"如何复述问题"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：掩码在实现上长什么样</div>
+          <table><tr><th>张量</th><th>内容</th></tr><tr><td><code>input_ids</code></td><td>[问题 token…, 回答 token…]（共 100 个）</td></tr><tr><td><code>labels</code></td><td>[−100 × 80, 回答 token…]（前 80 个被屏蔽）</td></tr><tr><td>损失</td><td><code>cross_entropy(logits, labels, ignore_index=-100)</code>（<code>logits</code> = 模型对词表里每个 token 打的原始分数）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">注意 <code>input_ids</code> <strong>没有变</strong>——问题 token 仍在输入里，只是不算损失。所以回答仍然能"看到"问题，这正是我们要的：<strong>条件于问题，但不模仿问题</strong>。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>Loss masking 的判据是"<strong>你要模型做什么</strong>"：SFT 要它<strong>生成回答</strong>，就只对回答算损失。不掩码时，被浪费的梯度比例 = 问题 token 占比（示例中约 <strong>80%</strong>）。<strong>关键区别在于掩码只作用于损失、不作用于注意力</strong>——模型依然能看到问题，只是不被训练去复述它。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','10-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','10-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-10-3" class="llm-section"><button class="llm-btn" onclick="startChat('10-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="10-3"><div class="chat-toolbar"><button onclick="copyChat('10-3')">📋 复制对话</button><button onclick="clearChat('10-3')">🗑 清空</button><button onclick="stopLLM('10-3')" id="stop-btn-10-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('10-3')" id="regen-btn-10-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="10-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 loss masking 有疑问？比如"多轮对话里 system 提示也要屏蔽吗？""屏蔽后为什么还能看到问题？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="10-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('10-3')}" rows="1" placeholder="例如：如果回答特别长，掩码还重要吗？"></textarea><button onclick="sendLLM('10-3')">发送</button></div></div></div>
+      <div id="tab-qna-10-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('10-3')">🔄 换一批</button></div><div class="qna-list" data-qna="10-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="10-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">多轮对话和多个角色，模型怎么知道谁在说话、话说完了没？</div><div class="card-q-hint">提示：先想如果把"系统提示、用户问题、助手回答"直接拼成一段文本，模型靠什么判断边界。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Chat template</strong> 用一组特殊 token 显式标出角色与边界。以 Llama 3 为例：序列以 <code>&lt;|begin_of_text|&gt;</code> 开头，每一轮用 <code>&lt;|start_header_id|&gt;</code>角色名<code>&lt;|end_header_id|&gt;</code> 起头，用 <code>&lt;|eot_id|&gt;</code>（end of turn）收尾。这些特殊 token 需要在 tokenizer 里注册，模型由此学会"该我说话了"与"我该停了"。</div>
+      <div class="content-section"><p>上一张卡片解决了"算哪部分损失"。但一条多轮样本里有多段文本，<strong>模型怎么区分它们？</strong></p><p><strong>因为</strong>朴素拼接会让模型分不清"哪句是用户说的、哪句是自己该说的、说到哪停"，<strong>所以</strong>必须用显式的边界标记。可以把这<strong>类比</strong>成剧本：台词前面要写角色名、每句结束要有句号——否则演员不知道该谁开口、什么时候停。</p><p>更早的做法就是<strong>把多段文本首尾直接拼接</strong>（像预训练语料那样不留任何标记）。这样模型学不到「轮次在哪结束」，最直接的症状是回答写完后不收尾、继续替用户编出下一句问答；而放进 <code>&lt;|eot_id|&gt;</code> 这类结束标记后，「该我停了」才第一次变成模型可以学习的显式信号。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 模板账：特殊 token 花在什么地方</div>
+        <div class="step"><div class="step-title">Step 1：一条单轮样本的实际结构</div>
+          <table><tr><th>片段</th><th>内容</th><th>作用</th></tr><tr><td><code>&lt;|begin_of_text|&gt;</code></td><td>1 个 token</td><td>序列起点</td></tr><tr><td><code>&lt;|start_header_id|&gt;system&lt;|end_header_id|&gt;</code></td><td>若干 token</td><td>声明系统角色</td></tr><tr><td>系统提示正文</td><td>n₁ 个 token</td><td>行为约束</td></tr><tr><td><code>&lt;|eot_id|&gt;</code></td><td>1 个 token</td><td><strong>本轮结束</strong></td></tr><tr><td>user 段 + 正文 + <code>&lt;|eot_id|&gt;</code></td><td>n₂ + 若干</td><td>用户输入</td></tr><tr><td>assistant 段 + 正文 + <code>&lt;|eot_id|&gt;</code></td><td>n₃ + 若干</td><td><strong>要学的那一段</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">结构 token 的绝对数量不多，但<strong>缺了它们模型就无法界定边界</strong>——这是"少而关键"的那类 token。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：多轮样本里损失落在哪几段</div>
+          <table><tr><th>轮次</th><th>片段</th><th>是否计入损失</th></tr><tr><td>第 1 轮</td><td>system / user</td><td>否</td></tr><tr><td>第 1 轮</td><td>assistant</td><td><strong>是</strong></td></tr><tr><td>第 2 轮</td><td>user</td><td>否</td></tr><tr><td>第 2 轮</td><td>assistant</td><td><strong>是</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">规则很统一：<strong>所有 assistant 段计入损失，其余全部屏蔽</strong>。所以多轮样本的损失是"若干个回答段之和"，而不是整段文本。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：短样本怎么办——打包</div>
+          <table><tr><th>方案</th><th>利用率</th><th>风险</th></tr><tr><td>一条样本一个序列，不足则填充</td><td>低（大量 padding 浪费）</td><td>无</td></tr><tr><td><strong>打包</strong>：多条短样本拼进同一序列</td><td><strong>高</strong></td><td>需保证跨样本不互相注意</td></tr><tr><td>示例：4 条 1000 token 的样本</td><td>4 × 1000 = 4000 token</td><td>省约 <strong>4 倍</strong>序列数</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">打包时必须在样本边界加<strong>注意力隔离</strong>（各自独立），否则第二条样本会"看到"第一条——那等于制造了假的多轮对话。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>Chat template 的作用是<strong>把"谁在说话、说到哪停"变成可学习的显式信号</strong>：角色标记界定说话者，<code>&lt;|eot_id|&gt;</code> 界定轮次结束。<strong>没有它，模型学不到"该我停下来了"</strong>——这也是"模型不会停、一直续写"的主要成因之一。而打包能把短样本的利用率提上来，前提是做好样本间的注意力隔离。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','10-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','10-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-10-4" class="llm-section"><button class="llm-btn" onclick="startChat('10-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="10-4"><div class="chat-toolbar"><button onclick="copyChat('10-4')">📋 复制对话</button><button onclick="clearChat('10-4')">🗑 清空</button><button onclick="stopLLM('10-4')" id="stop-btn-10-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('10-4')" id="regen-btn-10-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="10-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 chat template 有疑问？比如"训练和推理的模板必须一致吗？""特殊 token 怎么加进词表？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="10-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('10-4')}" rows="1" placeholder="例如：如果训练用 A 模板、推理用 B 模板会怎样？"></textarea><button onclick="sendLLM('10-4')">发送</button></div></div></div>
+      <div id="tab-qna-10-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('10-4')">🔄 换一批</button></div><div class="qna-list" data-qna="10-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="10-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">全参微调要多少显存？LoRA 和 QLoRA 省在哪？</div><div class="card-q-hint">提示：先算一个 7B 模型做全参微调时，权重、梯度和优化器状态各占多少字节；再想如果只训练"加装的小矩阵"，需要存哪些东西。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>LoRA</strong>（Hu et al., arXiv:2106.09685）：冻结原权重，只在选定层注入低秩矩阵 <code>ΔW = BA</code>（<code>A</code> 是 r×d、<code>B</code> 是 d×r，两者相乘即得到 d×d 的增量），把可训练参数减少约 <strong>10,000 倍</strong>、显存减少约 <strong>3 倍</strong>，且推理时无额外延迟（可合并回原权重）。<strong>QLoRA</strong>（Dettmers et al., arXiv:2305.14314, NeurIPS 2023）：把基座量化到 <strong>4-bit NF4</strong>（4 位 NormalFloat：按正态分位设计的 4 比特编码）并冻结，在 16-bit 适配器上反传，配合<strong>双重量化</strong>（再省约 0.37 bit/参数）与<strong>分页优化器</strong>，让 <strong>65B 模型在单张 48GB 卡上微调</strong>——而 16-bit 全参微调该模型需要 <strong>&gt;780GB</strong>。</div>
+      <div class="content-section"><p>上一张卡片把样本格式定好了。现在要真正开始训练——<strong>但显存够吗？</strong></p><p><strong>因为</strong>全参微调要存完整的权重、梯度和优化器状态，<strong>所以</strong>模型一大就跑不动，必须选更省的方式。可以把这<strong>类比</strong>成装修：全参=把整栋楼的墙都重刷一遍；LoRA=只在墙上贴几张便利贴；QLoRA=连墙都换成轻质材料再贴便利贴。</p><p>更早、更自然的做法就是<strong>全参微调</strong>（预训练怎么训、微调就怎么训），但它先撞的其实是<strong>优化器状态</strong>这道墙：以 7B 为例，Adam 状态要 <strong>84 GB</strong>，是权重（<strong>14 GB</strong>）的 <strong>6 倍</strong>，加上梯度合计 <strong>112 GB</strong>——单张 80GB 的卡根本放不下，必须切上两张以上。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 显存账：三种方案差在哪</div>
+        <div class="step"><div class="step-title">Step 1：全参微调的显存构成（以 7B 为例）</div>
+          <table><tr><th>项目</th><th>每参数字节</th><th>7B 总计</th></tr><tr><td>BF16（训练常用的半精度浮点格式）权重</td><td>2</td><td>14 GB</td></tr><tr><td>BF16 梯度</td><td>2</td><td>14 GB</td></tr><tr><td>Adam 优化器状态（fp32 主权重 + 一阶 + 二阶矩）</td><td>12</td><td>84 GB</td></tr><tr><td><strong>合计</strong></td><td><strong>16</strong></td><td><strong>≈ 112 GB</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">还没算激活值——所以单张 24GB 消费卡<strong>完全不可能</strong>跑 7B 全参微调。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：LoRA 把可训练参数压到多少</div>
+          <table><tr><th>项目</th><th>计算</th><th>结果</th></tr><tr><td>注入位置</td><td>q / k / v / o 四个投影 × 2 个矩阵</td><td>8 个矩阵/层</td></tr><tr><td>单个矩阵参数（A：d×r，r=16）</td><td>4096 × 16</td><td>65,536</td></tr><tr><td>每层合计</td><td>8 × 65,536</td><td>524,288</td></tr><tr><td>32 层合计</td><td>524,288 × 32</td><td>≈ <strong>16.8M</strong></td></tr><tr><td>占 7B 的比例</td><td>16.8M ÷ 7000M</td><td>≈ <strong>0.24%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">只需为这 0.24% 的参数存 <b class="rn-key">gradient</b>（梯度）与优化器状态——<strong>基座只占 14 GB（冻结、无需梯度和优化器状态）</strong>，所以 7B 的 LoRA 微调约 <strong>16 GB</strong> 就够（其中注入位置 q/k/v/o 为常见扩展配置，原论文默认只注入 q、v）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：QLoRA 再压一层，以及三档对照</div>
+          <table><tr><th>方案</th><th>7B 需要显存</th><th>65B 需要显存</th><th>相对全参</th></tr><tr><td>全参微调（BF16，含梯度与优化器状态）</td><td>≈ 112 GB</td><td><strong>&gt; 780 GB</strong></td><td>1×</td></tr><tr><td>LoRA（基座 BF16，含适配器训练态）</td><td>≈ 16 GB</td><td>≈ 130 GB（<strong>仅基座权重</strong>，65B × 2 字节；不含适配器训练态）</td><td>约 1/7</td></tr><tr><td><strong>QLoRA</strong>（基座 4-bit，含适配器训练态）</td><td>≈ <strong>6 GB</strong></td><td><strong>&lt; 48 GB</strong>（含适配器训练态）</td><td>约 1/19</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">从 780GB 到 48GB 是 <strong>16 倍</strong>的压缩——这是 QLoRA 让"单卡微调大模型"成为现实的直接原因（论文报告 65B 单张 48GB 且质量与 16-bit 全参微调相当）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 4：怎么选</div>
+          <table><tr><th>场景</th><th>建议</th><th>理由</th></tr><tr><td>基座能装进显存、追求最好效果</td><td>LoRA</td><td>比 QLoRA 快约 20%~40%（示意，需人工核实；无逐次反量化开销）</td></tr><tr><td>基座装不下或显存紧张</td><td><strong>QLoRA</strong></td><td>显存约为 LoRA 的 1/2.7（16GB → 6GB），质量损失通常 &lt; 0.5 分（示意，需人工核实；论文只称质量相当）</td></tr><tr><td>需要改变模型"底子"（如换语言能力）</td><td>全参微调</td><td>LoRA 的表达能力受低秩约束</td></tr></table>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>三档的本质是"<strong>训练哪些参数、以什么精度存基座</strong>"：全参要存全部 16 字节/参数的训练状态（7B 需 112GB）；LoRA 只训 0.24% 的参数，基座 14GB 冻结（7B 约 16GB）；QLoRA 再把基座压到 4-bit（7B 约 6GB，65B &lt; 48GB）。<strong>选型判据很简单：基座装得下就用 LoRA，装不下就用 QLoRA，需要改底子才上全参。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','10-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','10-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-10-5" class="llm-section"><button class="llm-btn" onclick="startChat('10-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="10-5"><div class="chat-toolbar"><button onclick="copyChat('10-5')">📋 复制对话</button><button onclick="clearChat('10-5')">🗑 清空</button><button onclick="stopLLM('10-5')" id="stop-btn-10-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('10-5')" id="regen-btn-10-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="10-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 PEFT 选型有疑问？比如"r 和 alpha 该怎么定？""QLoRA 的精度损失能接受吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="10-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('10-5')}" rows="1" placeholder="例如：如果把 r 从 16 提到 64，参数会涨多少？"></textarea><button onclick="sendLLM('10-5')">发送</button></div></div></div>
+      <div id="tab-qna-10-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('10-5')">🔄 换一批</button></div><div class="qna-list" data-qna="10-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="10-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">微调之后，怎么知道模型没有把原来的本事弄丢？</div><div class="card-q-hint">提示：先想一个只在"客服问答"上微调过的模型，做数学题还灵不灵。再想该在微调前后各测什么才能发现这件事。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>灾难性遗忘（Catastrophic Forgetting）</strong>：在新数据上继续训练会让模型在原有任务上的能力下降。缓解手段包括：<strong>用 LoRA 等参数高效方法</strong>（只动少量参数，对原能力的扰动小）、<strong>控制学习率</strong>（全参 SFT 常用 1e-5~2e-5，与预训练峰值 8e-5 更接近；LoRA 常用 1e-4~2e-4，可高出约一个数量级）、<strong>减少轮数</strong>（通常 1~3 轮）、以及<strong>混合通用数据做重放</strong>。评估上必须在微调前后各测一遍通用能力。</div>
+      <div class="content-section"><p>上一张卡片选好了训练方式。但还有一个反向风险：<strong>微调会不会把原有能力弄丢？</strong></p><p><strong>因为</strong>梯度只服务于新数据的目标，<strong>所以</strong>在窄领域上训久了，通用能力会退化。可以把这<strong>类比</strong>成让一位全科医生去专科进修半年：专科能力上去了，但全科手感可能生疏——所以进修前后都要考一次全科。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 遗忘账：怎么发现、怎么防</div>
+        <div class="step"><div class="step-title">Step 1：评估要在前后各测一遍</div>
+          <table><tr><th>时间点</th><th>测什么</th><th>作用</th></tr><tr><td>微调前</td><td>通用能力基准 + 验证集 <strong>perplexity</strong>（困惑度 = 模型对文本的"意外程度"，越低表示预测越准）</td><td>建立基线</td></tr><tr><td>微调后</td><td>同样的基准 + 目标任务评测</td><td>净变化 = 微调后分数 − 微调前分数</td></tr><tr><td>只看微调后</td><td>只有目标任务的分数</td><td><strong>无法发现遗忘</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">最常见的错误是<strong>只报目标任务涨了多少</strong>——不测基线就永远看不到代价。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：三条缓解手段的取舍</div>
+          <table><tr><th>手段</th><th>做法</th><th>代价</th></tr><tr><td>用 LoRA</td><td>只训练 0.24% 的参数</td><td>表达能力受低秩约束，改不了"底子"</td></tr><tr><td>控制学习率</td><td>全参 1e-5~2e-5 / LoRA 1e-4~2e-4</td><td>收敛更慢</td></tr><tr><td>减少轮数</td><td>1~3 轮</td><td>可能欠拟合任务</td></tr><tr><td><strong>混合通用数据</strong></td><td>指令数据中掺入通用语料做重放</td><td>稀释目标任务的信号</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">四条可以叠加。<strong>最安全的组合是"LoRA + 低学习率 + 少轮数"</strong>——它们的共同点是"尽量少动原权重"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：为什么轮数通常只有 1~3</div>
+          <table><tr><th>轮数</th><th>训练损失</th><th>通用能力</th><th>判断</th></tr><tr><td>1~3</td><td>下降</td><td>基本保持</td><td><strong>推荐区间</strong></td></tr><tr><td>5~10</td><td>继续下降</td><td>开始退化</td><td>已过拟合样本风格</td></tr><tr><td>&gt; 10</td><td>很低</td><td>明显退化</td><td>开始"背答案"</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">机制是<strong>样本量太小</strong>：几万条样本重复多轮，模型从"学规律"滑向"记样本"——损失继续降，但泛化在变差。（上表的轮数-退化区间为<strong>经验区间、示意</strong>，具体拐点随数据量与任务而变，需实测。）</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>微调的代价是<strong>可能在原能力上退化</strong>，而发现它的唯一方法是<strong>微调前后都测同一套基准</strong>。工程上的默认组合是"LoRA + 受控学习率（LoRA 档 1e-4~2e-4）+ 1~3 轮"，共同逻辑都是<strong>尽量少动原权重</strong>。<strong>只报目标任务的提升、不报通用能力的变化，是最常见的自欺。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','10-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','10-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-10-6" class="llm-section"><button class="llm-btn" onclick="startChat('10-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="10-6"><div class="chat-toolbar"><button onclick="copyChat('10-6')">📋 复制对话</button><button onclick="clearChat('10-6')">🗑 清空</button><button onclick="stopLLM('10-6')" id="stop-btn-10-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('10-6')" id="regen-btn-10-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="10-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对遗忘与评估有疑问？比如"怎么构造通用能力基线？""重放数据要掺多少？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="10-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('10-6')}" rows="1" placeholder="例如：如果通用能力掉了 5 分，还能救吗？"></textarea><button onclick="sendLLM('10-6')">发送</button></div></div></div>
+      <div id="tab-qna-10-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('10-6')">🔄 换一批</button></div><div class="qna-list" data-qna="10-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 10 课完成 · 下一课：第 11 课「对齐」</p>
+    <a href="#" onclick="switchLesson(11);return false;">进入第 11 课：对齐 →</a>　·　<a href="#" onclick="switchLesson(9);return false;">← 上一课：预训练全流程</a>
+  </div></div>

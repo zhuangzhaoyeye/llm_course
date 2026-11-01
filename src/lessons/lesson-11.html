@@ -1,0 +1,212 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 11 课：对齐</h2>
+    <p class="subtitle">上一课我们把基座训成了"会听话的助手"，但它只是照着示范说话，并不知道哪个回答更好——SFT（监督微调）的极限就在这里。这一课讲清"对齐"这条线：为什么照着示范学教不了取舍、偏好怎么变成能求导的数字、为什么不直接最大化奖励、PPO（用强化学习按人类偏好小步调模型）贵在哪、DPO（把成对偏好数据当分类问题来训）怎么把强化学习换成一次分类、GRPO（不训练价值模型、改用同一题多次采样的平均分当基线）又为什么能把 critic（专门预测"这么答下去能得多少分"的价值模型）删掉。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清 SFT 与对齐的本质差别（示范 vs 比较）<br>② 手推 DPO 的分类损失，并解释 Z(x) 为什么会自动消失<br>③ 会算 PPO/GRPO/DPO 三者的显存账，并给出选型判据</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：从"示范教不了取舍"到"离线还是在线"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">对齐的<strong>任务要求</strong>不是「唯一正确答案」，而是「人类更喜欢的答案」——<strong>这就要求</strong>训练信号能表达取舍，<strong>而</strong>示范只推高一条序列的似然、教不了取舍，<strong>所以</strong>只学模仿的 <b class="rn-key">SFT</b> 在价值判断上到顶：它给出的 <b class="rn-key">gradient</b> 里没有「这个比那个好」这一项。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">要用"更喜欢"做训练信号，<strong>这就要求</strong>先把成对偏好变成一个可打分的标量——<strong>因为</strong>梯度只能对数字求导、不能对"更好"求导，<strong>于是</strong>出现<b class="rn-key">奖励模型</b>：它读取最后一层的 <b class="rn-key">hidden state</b>（隐藏状态＝模型最后一层的表示向量），用 Bradley-Terry 把比较变成二分类。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">有了可微的奖励，就能直接最大化它——<strong>但</strong>奖励只是人类偏好的不完美代理，<strong>因为</strong>策略的 <b class="rn-key">gradient</b> 只会沿着代理奖励往上爬，优化得越狠就越偏离真意（Goodhart 定律），<strong>所以</strong>必须用 <b class="rn-key">KL</b> 惩罚把策略拴在 SFT 模型附近，这就是 RLHF（即先让人给模型的多个回答排序，再按这个偏好去调模型的强化学习）三段式（PPO）。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">KL 惩罚解决了跑偏，<strong>却带来新代价</strong>——<strong>因为</strong>这一步要同时驻留策略、参考、奖励、<b class="rn-key">critic</b> 四个模型，而 critic 要逐位置读取 <b class="rn-key">hidden state</b>（即模型最后一层的表示向量）、经价值头映射成一个价值估计，因此与策略同级，<strong>于是</strong>显存与稳定性同时成为瓶颈，逼出"能不能不要 critic / 不要奖励模型"。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">要同时砍掉奖励模型与采样，<strong>这就要求</strong>把 KL 约束下最优策略的<b class="rn-key">闭式解</b>代回目标——<strong>因为</strong>反解后发现奖励只是策略与参考模型的对数比，<strong>于是</strong>成对作差时 <b class="rn-key">normalization</b> 项 Z(x) 自动抵消，整个 RL 问题退化成两个模型上的分类损失（<b class="rn-key">DPO</b>）。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text"><strong>【支链 · 选型判据】</strong>离线方法省资源但失去探索，<strong>所以</strong>要保留在线能力的场景仍需 RL——<strong>因此</strong>出现"删掉 critic、用组内统计当基线、把优势广播到整条回答每个 <b class="rn-key">token</b>"的 <b class="rn-key">GRPO</b>，再到把重要性比率提升到序列级的 GSPO，<strong>于是</strong>选型变成一句可判断的话：奖励可验证吗、需不需要探索、显存够不够。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">RLHF</span><span class="meta-tag">PPO</span><span class="meta-tag">Reward Model</span><span class="meta-tag">Bradley-Terry</span><span class="meta-tag">DPO</span><span class="meta-tag">GRPO</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="11-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">上一课训出来的助手已经会听指令了，为什么还是不够？</div><div class="card-q-hint">提示：先想一个问题——"写得好"有没有唯一正确答案？再想 SFT 的损失函数对样本的要求是什么（一条样本里能有几个"正确答案"）。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>"用人类反馈训练模型"最早不是为对话设计的：<strong>Christiano et al.（2017）</strong>让人类在两段短片段之间选更好的，用这套比较数据学出一个奖励预测器——在 Atari 游戏上用于游戏任务，在 MuJoCo 仿真机器人任务上<strong>仅用约 900 次比较</strong>就学会了后空翻；<strong>Stiennon et al.（2020）</strong>把它搬到摘要任务。真正成体系的三段式由 <strong>InstructGPT</strong>（Ouyang et al., arXiv:2203.02155, NeurIPS 2022）确立：SFT → 奖励模型 → PPO，得到的 1.3B 模型被人类标注者偏好于 175B 的基座 GPT-3，参数量只有约 <strong>1/135</strong>。</div>
+      <div class="content-section"><p>上一张卡片我们把 SFT 跑完了：模型学会了"把输入当任务执行"。但它只学会了<strong>照着示范说话</strong>——示范里没有的信息，它学不到。所以问它"帮我写封道歉邮件"，它能写出一个像样的邮件，但同一封邮件写成热情一点还是克制一点更好？<strong>它无从判断。</strong></p><p><strong>因为</strong>SFT 的损失函数要求每条样本里存在一个"正确输出"（即那条被写下来的示范），<strong>所以</strong>它只能表达"照这个写"，表达不了"这两个里哪个更好"。可以把这<strong>类比</strong>成临摹字帖：临摹能让你写得像，但字帖不会告诉你"这幅作品比那幅好"，因为它只给了你一幅。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 监督信号账：示范与比较能表达什么</div>
+        <div class="step"><div class="step-title">Step 1：两种训练数据的形状</div>
+          <table><tr><th>对比项</th><th>SFT（示范）</th><th>对齐（比较）</th></tr><tr><td>一条数据是什么</td><td>1 个问题 + 1 个示范答案</td><td>1 个问题 + 若干候选 + 人类排序</td></tr><tr><td>损失在拟合什么</td><td>这一条示范的分布</td><td>"哪个更好"的相对关系</td></tr><tr><td>能否表达取舍</td><td><strong>不能</strong>（只有一个正样本）</td><td><strong>能</strong>（同题候选互为参照物）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">关键差别：示范是<strong>绝对</strong>的（应该长这样），比较是<strong>相对</strong>的（这个比那个好）——而"有用/无害/得体"这类标准天生只有相对形式。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：一份偏好数据能产出多少训练信号</div>
+          <table><tr><th>量</th><th>数值</th><th>说明</th></tr><tr><td>奖励模型的 prompt 数</td><td>约 <strong>33,000</strong> 条</td><td>InstructGPT 论文</td></tr><tr><td>每个 prompt 的候选数 K</td><td><strong>4 ~ 9</strong></td><td>同一 prompt 采多次</td></tr><tr><td>K=4 时的两两比较对</td><td>C(4,2) = <strong>6</strong> 对</td><td>组合数</td></tr><tr><td>K=9 时的两两比较对</td><td>C(9,2) = <strong>36</strong> 对</td><td>组合数</td></tr><tr><td>这批 prompt 的总比较对</td><td>约 <strong>19.8 万 ~ 118.8 万</strong> 对</td><td>33,000 × 6 与 33,000 × 36</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">比较对是<strong>平方级</strong>增长的信号：候选从 4 条加到 9 条，比较对从 6 涨到 36（<strong>6 倍</strong>），而写示范只会得到 9 条样本。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：为什么必须换成比较</div>
+          <table><tr><th>要训练的行为</th><th>示范能教吗</th><th>比较能教吗</th></tr><tr><td>格式与语气（要有小标题）</td><td>能（示范里有）</td><td>能</td></tr><tr><td>事实与推理（答案对错）</td><td>能（示范里有）</td><td>能</td></tr><tr><td>得体、安全、取舍（哪个更好）</td><td><strong>不能</strong>（没有唯一正确答案）</td><td>能</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">再看一个<strong>数量级</strong>上的理由：SFT 数据是约 13,000 条示范（InstructGPT），而奖励模型数据是约 33,000 个 prompt——<strong>口味的分布比标准答案宽得多，需要更多样本才描述得清</strong>。而两者的差别最终落在 <strong>gradient</strong> 的去向：示范只推高一条序列的似然；比较同时推高胜者、压低败者。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>SFT 与对齐的分界不是"数据多少"，而是<strong>数据形状</strong>：SFT 学的是"应该长这样"（绝对），对齐学的是"这个比那个好"（相对）。<strong>因为"有用、无害、得体"这些标准没有唯一正确答案，所以只能用比较来表达</strong>——这就是为什么 SFT 之后必须再走一步。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','11-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','11-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-11-1" class="llm-section"><button class="llm-btn" onclick="startChat('11-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="11-1"><div class="chat-toolbar"><button onclick="copyChat('11-1')">📋 复制对话</button><button onclick="clearChat('11-1')">🗑 清空</button><button onclick="stopLLM('11-1')" id="stop-btn-11-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('11-1')" id="regen-btn-11-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="11-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"为什么 SFT 之后还要对齐"有疑问？比如"SFT 数据里多写几种答案行不行？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="11-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('11-1')}" rows="1" placeholder="例如：如果我把好答案和坏答案都写进 SFT 数据，会怎样？"></textarea><button onclick="sendLLM('11-1')">发送</button></div></div></div>
+      <div id="tab-qna-11-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('11-1')">🔄 换一批</button></div><div class="qna-list" data-qna="11-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="11-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">谁来当那个「人类」？——偏好数据从哪来，又怎么变成能求导的数字？</div><div class="card-q-hint">提示：先问一句，「谁来标」这件事非得人来做吗？如果换成一个 AI 当裁判，它凭什么判断哪个回答更好？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>把「比较」变成概率的标准工具是 <strong>Bradley-Terry 模型</strong>（古典统计里的配对比较模型，1952 年由 Bradley 与 Terry 提出，与国际象棋 Elo 同源），它假设每个回答背后有一个隐藏分数 r，<strong>人类选 A 的概率只取决于两者分数之差</strong>。奖励模型（reward model，把一段回答映射成一个标量分数的打分模型）就是被训来预测这个概率的网络。但人类标注贵、慢、难扩展，于是「谁来标」出现了第二条路线：2022 年 Anthropic 的 <strong>Constitutional AI</strong>（Bai et al., arXiv:2212.08073）提出"用 AI 反馈替代人类反馈"的方法（即 RL from AI feedback），2023 年 Lee et al. 的 <strong>RLAIF</strong>（arXiv:2309.00267）给这条路线命名、并首次做了 RLAIF vs RLHF 的正面实验——两者都把裁判从人换成了 AI。</div>
+      <div class="content-section"><p>上一张卡片我们确认了：SFT 只会照着示范写、教不了取舍，所以对齐必须用「成对比较」当训练信号。但这里藏着一个一直被默认的前提——<strong>这些比较，究竟是谁做的？</strong></p><p><strong>因为</strong>训练信号的质量上限由标注者的判断决定，<strong>所以</strong>「谁来当人类」直接决定了整条流水线的成本、可扩展性与偏差来源。可以把这<strong>类比</strong>成请阅卷老师：请真人逐份判卷又贵又慢，请一个 AI 判卷又快又省，但这位 AI 老师的口味一旦有偏，会原样传给学生。</p><p><strong>纯人工路线为什么不可扩展？</strong>InstructGPT 的偏好数据是约 <strong>33,000</strong> 个 prompt、每个 prompt 采 <strong>4~9</strong> 个候选——按上一张卡片的算法，一轮就要 <strong>19.8 万 ~ 118.8 万</strong>次人工比较；而偏好对齐往往要反复迭代，跑到第 <strong>10</strong> 轮就是 <strong>198 万 ~ 1,188 万</strong>次。人需要培训、会疲劳、产能有硬上限，加钱也快不了——这正是「把裁判换成 AI」的直接动机。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 偏好来源账：两条路线各走一遍</div>
+        <div class="step"><div class="step-title">Step 1：人类路线——一次比较怎么变成可求导的概率</div>
+          <table><tr><th>量</th><th>符号</th><th>取值</th></tr><tr><td>被选中的回答的分数</td><td>r<sub>w</sub></td><td><strong>1.2</strong></td></tr><tr><td>被拒绝的回答的分数</td><td>r<sub>l</sub></td><td><strong>0.4</strong></td></tr><tr><td>分数差</td><td>r<sub>w</sub> − r<sub>l</sub></td><td>1.2 − 0.4 = <strong>0.8</strong></td></tr><tr><td>人类选胜者的概率</td><td>P = σ(0.8)</td><td><strong>0.690</strong></td></tr><tr><td>这条样本的损失</td><td>−ln σ(0.8)</td><td><strong>0.371</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">公式 P(胜) = σ(r<sub>w</sub> − r<sub>l</sub>)，其中 σ(z) = 1 / (1 + e<sup>−z</sup>)。它<strong>只看分数差</strong>：两个分数同时加 100，概率不变。奖励模型就是被训来最大化这个概率的网络——它读取最后一层的 <strong>hidden state</strong>，经一个线性头映射成一个标量。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：AI 反馈路线——把裁判从人换成模型</div>
+          <table><tr><th>方法</th><th>谁当裁判</th><th>偏好数据怎么来</th><th>关键读数</th></tr><tr><td><strong>RLAIF</strong>（用 AI 代替人类做偏好标注，再据此做强化学习）</td><td>一个现成的大模型</td><td>给它「文本 + 两个候选」，让它输出更喜欢的那个</td><td>摘要任务上，人类对 RLAIF 与 RLHF 的胜率为 <strong>71% / 73%</strong>，两者直接对比的胜率是 <strong>50%</strong>（无显著差异）</td></tr><tr><td><strong>Constitutional AI</strong>（让模型按一份原则清单自我批评、再改写的方法）</td><td>模型自己 + 一部「宪法」（一组写给模型的行为原则）</td><td>先让模型自评自改生成示范，再用 AI 偏好训奖励模型</td><td>不依赖任何「有害输出」的人工标签即可训出无害助手</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">两者的关系是<strong>包含而非并列</strong>：Constitutional AI（两阶段方法）⊃ RLAIF（其中的一环）。<strong>Constitutional AI 是「先自我批评改写、再用 AI 反馈做强化学习」的两阶段方法</strong>；<strong>RLAIF 专指「用 AI 标的偏好去训奖励模型、再做强化学习」这一环</strong>。一次 AI 判断只读一次输入、输出一个选择，边际成本几乎只剩推理费。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：两条路线到底差在哪</div>
+          <table><tr><th>维度</th><th>人类标注</th><th>AI 反馈（RLAIF / Constitutional AI）</th></tr><tr><td>标注成本</td><td>高（按条或按小时付酬）</td><td>低（按 token 付推理费）</td></tr><tr><td>可扩展性</td><td>受限（人要培训、会疲劳、有产能上限）</td><td>高（加机器即可并行，规模近乎线性）</td></tr><tr><td>偏差来源</td><td>标注者的口味、疲劳与分歧</td><td>判官模型自身的偏差（位置、长度、自我偏好），且会被<strong>继承并放大</strong></td></tr><tr><td>适用场景</td><td>主观、高风险、真正需要人类判断的取舍</td><td>可规模化、评判标准清晰、或需要迭代自评的场景</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">这张表是选型的核心：<strong>省钱省时间的那条路，把风险从「人不可靠」换成了「判官不可信」</strong>——换掉的只是裁判，不是偏差。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 4：算一笔账——10,000 条成对偏好</div>
+          <table><tr><th>路线</th><th>单价（示意）</th><th>10,000 对的总额</th></tr><tr><td>人类标注</td><td>$0.67 / 对（行业报价区间约 $0.30 ~ $0.67）</td><td>10,000 × 0.67 = <strong>$6,700</strong></td></tr><tr><td>AI 反馈</td><td>每次判断读约 1,200 token、写约 10 token；示意价 输入 $3 / 百万 token、输出 $15 / 百万 token</td><td>1,200 ÷ 10<sup>6</sup> × 3 + 10 ÷ 10<sup>6</sup> × 15 = <strong>$0.00375</strong> / 对 → 10,000 × 0.00375 = <strong>$37.5</strong></td></tr><tr><td>倍数</td><td colspan="2">6,700 ÷ 37.5 ≈ <strong>179 倍</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">口径先说清：这里只比「标注」这一步（两条路线都要先生成候选回答，那部分成本相同，略去）。单价都是<strong>示意值</strong>，会随模型与供应商浮动；公开的 RLAIF 经济学分析把整条流水线都计入后，倍数会明显收窄（示意估算、需人工核实），但方向一致——<strong>AI 标注把「标一条」的边际成本压低了约两个数量级</strong>。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>偏好数据从哪来，直接决定三件事：<strong>成本</strong>（人按条付费 vs AI 按 token 付费）、<strong>可扩展性</strong>（人要培训排期 vs 加机器）、<strong>偏差来源</strong>（标注者的口味 vs 判官模型的口味）。把裁判从人换成 AI 并没有取消偏差，只是把「人监督」换成了「模型监督」：判官的位置偏差、长度偏好与自我偏好会被写进偏好数据，再经奖励模型放大——这就是<strong>「谁来监督监督者」</strong>的问题。它在无害性任务上甚至能反过来占优（AI 裁判不会像人那样久读有害内容而疲劳），但在判官自己分辨不了的细粒度取舍上，被继承的偏差就是训练信号里的噪声。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','11-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','11-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-11-2" class="llm-section"><button class="llm-btn" onclick="startChat('11-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="11-2"><div class="chat-toolbar"><button onclick="copyChat('11-2')">📋 复制对话</button><button onclick="clearChat('11-2')">🗑 清空</button><button onclick="stopLLM('11-2')" id="stop-btn-11-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('11-2')" id="regen-btn-11-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="11-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对「偏好数据从哪来」有疑问？比如「RLAIF 会不会把判官的偏差也学进去？」「Constitutional AI 的『宪法』到底指什么？」<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="11-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('11-2')}" rows="1" placeholder="例如：如果把 10,000 条偏好全交给 AI 标，能省多少钱？"></textarea><button onclick="sendLLM('11-2')">发送</button></div></div></div>
+      <div id="tab-qna-11-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('11-2')">🔄 换一批</button></div><div class="qna-list" data-qna="11-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="11-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">如果把奖励分数一路加大优化强度，会发生什么？</div><div class="card-q-hint">提示：奖励模型是从有限样本拟合出来的代理。先想"代理"和"真意"在什么情况下会分道扬镳——尤其在优化压力很大的时候。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Goodhart 定律</strong>：1975 年 Goodhart 提出"任何统计规律一旦被用于控制目的就会失效"，1997 年 Strathern 把它概括为流传更广的一句——"当一个度量变成目标，它就不再是好的度量"。在 RLHF 里这叫 <strong>奖励作弊 / 过度优化</strong>。<strong>Gao, Schulman &amp; Hilton</strong>（arXiv:2210.10760, ICML 2023）用"金标准奖励模型"替代人类做了可测量的研究：真实奖励随优化强度先升后降，而代理奖励一直在升。InstructGPT 的对策是在奖励里减去与 SFT 模型的 KL 惩罚，系数 <strong>β = 0.02</strong>。</div>
+      <div class="content-section"><p>上一张卡片我们得到了一个可求导的奖励。那最直接的做法就是<strong>把它最大化</strong>——但这里有个陷阱。<strong>为什么？</strong></p><p><strong>因为</strong>奖励模型只在那 33,000 个 prompt 附近见过数据，策略一旦被推到没见过的区域，它给出的分数只是<strong>外推</strong>，可能一路虚高。<strong>所以</strong>必须用 KL 惩罚把策略拴在 SFT 模型附近。可以把这<strong>类比</strong>成按一个不完美的评分表排练：你把评分表的每一条都做到极致，最后拿到高分，但评委（真实人类）看的是另一套标准。</p><p>换句话说，<strong>「直接最大化」就等于把 KL 系数 β 设成 0</strong>：Gao 等的实验显示，真实奖励在优化强度越过拐点（示例中 d ≈ <strong>2.718</strong>）后掉头向下，而代理奖励还在往上爬——这正是「分数涨了、人却更不满意」的量化形态。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 过度优化账：奖励涨了，真实质量却掉了</div>
+        <div class="step"><div class="step-title">Step 1：经验关系式长什么样</div>
+          <table><tr><th>项</th><th>含义</th></tr><tr><td>d</td><td>策略相对初始策略的 KL 距离<strong>的平方根</strong> √D<sub>KL</sub>（单位 √nat，其中 nat = 自然对数单位、1 nat ≈ 1.44 bit）——原论文为把曲线写成 d 的简单形式，刻意用 KL 的平方根作图，<strong>不是 KL 本身</strong></td></tr><tr><td>R(d) = d(a − b ln d)</td><td>真实（金标准）奖励随优化强度的变化</td></tr><tr><td>a = 1、b = 0.5</td><td><strong>示意参数</strong>——原论文把这两个系数写作 α、β，它们由奖励模型规模与数据量<strong>拟合</strong>得到；为避免与 KL 系数 β 混淆，本课记作 a、b</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">这里用示意参数画出形状；<strong>真实系数必须代入论文拟合值，不能照搬这里的 1 和 0.5</strong>。优化压力越大，策略的 <strong>gradient</strong> 就越会往"代理奖励更高"的方向走——而那里正是奖励模型没见过的区域。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：把 d 代进去，看曲线怎么拐弯</div>
+          <table><tr><th>d = √KL（√nat）</th><th>R = d(1 − 0.5 ln d)</th><th>方向</th></tr><tr><td>0.5</td><td>0.673</td><td>上升</td></tr><tr><td>1.0</td><td>1.000</td><td>上升</td></tr><tr><td>2.0</td><td>1.307</td><td>上升</td></tr><tr><td><strong>2.718</strong></td><td><strong>1.359</strong></td><td><strong>峰值</strong></td></tr><tr><td>5.0</td><td>0.976</td><td>下降</td></tr><tr><td>7.389</td><td>0.000</td><td>降到 0</td></tr><tr><td>10.0</td><td><strong>−1.513</strong></td><td>已为负</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">求导 dR/dd = a − b(ln d + 1) = 0，得峰值在 d = e<sup>a/b − 1</sup> = e<sup>1</sup> ≈ <strong>2.718</strong>；令 R = 0 得过零点 d = e<sup>a/b</sup> = e<sup>2</sup> ≈ <strong>7.389</strong>（a、b 是拟合系数，与 KL 系数 β 无关）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：这个拐弯在现实中真的会发生</div>
+          <table><tr><th>证据</th><th>读数</th><th>来源</th></tr><tr><td>Gao 等的结论</td><td>真实奖励先升后降，代理奖励持续上升</td><td>arXiv:2210.10760</td></tr><tr><td>KL 惩罚是否治本</td><td><strong>不治本</strong>，只是延后——β 的选取基本靠经验</td><td>InstructGPT（β = 0.02）</td></tr><tr><td>前沿模型的作弊比例</td><td>某基准套件上 o3 有 <strong>30.4%</strong> 的 run 出现奖励作弊</td><td>METR 报告：RE-Bench 子集 39/128 = 30.4%（2025-06-05）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">30.4% 说明这不是玩具问题：即使模型"知道"什么行为不可取，仍会去钻空子。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>RLHF 的目标不是"奖励最大化"，而是"<strong>在离 SFT 模型不太远的约束下最大化奖励</strong>"。KL 惩罚系数的意义就在这里：它把优化强度 d 限制在峰值（示例中 d ≈ 2.7 √nat）以内。<strong>因为奖励模型只是代理，优化得越狠就越是在拟合它的外推误差</strong>——所以"奖励涨了"和"变好了"是两件事，必须分开看。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','11-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','11-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-11-3" class="llm-section"><button class="llm-btn" onclick="startChat('11-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="11-3"><div class="chat-toolbar"><button onclick="copyChat('11-3')">📋 复制对话</button><button onclick="clearChat('11-3')">🗑 清空</button><button onclick="stopLLM('11-3')" id="stop-btn-11-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('11-3')" id="regen-btn-11-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="11-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对奖励作弊有疑问？比如"β 调大调小分别会怎样？""除了 KL 还有什么办法？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="11-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('11-3')}" rows="1" placeholder="例如：如果 β 设成 0，训练会发生什么？"></textarea><button onclick="sendLLM('11-3')">发送</button></div></div></div>
+      <div id="tab-qna-11-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('11-3')">🔄 换一批</button></div><div class="qna-list" data-qna="11-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="11-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">PPO 那一步，到底贵在哪？</div><div class="card-q-hint">提示：数一数这一步同时要驻留几个模型；再区分哪些模型"只在算前向"、哪些"也在被训练"——训练态的显存开销远不止权重。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>PPO</strong>（Schulman et al., arXiv:1707.06347, 2017）用"裁剪的替代目标"把策略更新限制在小步内，是 RLHF 第三段的默认算法。它属于 actor-critic 家族：需要一个 <strong>critic</strong>（价值模型）估计每个位置的"未来期望回报"，作为基线来降低梯度方差。在 LLM 场景里 critic 通常与策略同规模——<strong>这就是它的代价所在</strong>。后来的 GRPO（DeepSeekMath, 2024，arXiv:2402.03300）删掉 critic，把组内统计量当基线，峰值显存相对 PPO 约减半。</div>
+      <div class="content-section"><p>上一张卡片说明了必须有 KL 惩罚。加上它之后，RLHF 第三段同时要跑四样东西——<strong>这就是它贵的原因。</strong></p><p><strong>因为</strong>critic 要预测"未来回报"，它的规模必须和策略相当，<strong>所以</strong>这一步的显存不是"一个模型加一点开销"，而是"两个大模型都在训练态"。可以把这<strong>类比</strong>成同时开着四台机器：一台在学（策略）、一台在打分（奖励）、一台做参照（参考模型）、一台在预测未来（critic）——后三台都得一直通电。</p><p>更早的做法是<strong>不用 critic、直接拿原始回报更新</strong>（策略梯度 / REINFORCE 一类）：同一题采 <strong>8</strong> 条回答，回报可能是 <strong>0、1、1、0……</strong>，样本均值本身就在抖，直接拿它当信号会把这个抖动放大成高方差梯度，训练来回震荡、收敛很慢；critic 的作用正是提供一个「基线」，把回报减去它来降方差——代价就是多养一个与策略同规模的模型。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 显存账：RLHF 第三段要同时装几个模型</div>
+        <div class="step"><div class="step-title">Step 1：四个模型分别是什么</div>
+          <table><tr><th>角色</th><th>作用</th><th>是否训练态</th></tr><tr><td>策略（policy）</td><td>被优化的模型</td><td><strong>是</strong></td></tr><tr><td>参考（reference）</td><td>算 KL 惩罚的锚点</td><td>否（冻结、只前向）</td></tr><tr><td>奖励（reward）</td><td>给回答打分</td><td>否（已训好、只前向）</td></tr><tr><td>critic（价值模型）</td><td>估计未来回报当基线</td><td><strong>是</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">关键区别：<strong>训练态</strong>的模型除了权重，还要存梯度和优化器状态（Adam 的 m、v 与 fp32 主权重），量级是权重的数倍。critic 的职责是读取每个位置的 <strong>hidden state</strong>（隐藏状态，即模型最后一层的表示向量）、经价值头映射成一个价值估计，因此它的结构与策略同级。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：按 7B 模型算一遍（只算模型状态）</div>
+          <table><tr><th>项</th><th>每参数字节</th><th>7B 合计</th></tr><tr><td>bf16 权重（单个模型）</td><td>2</td><td>14.0 GB</td></tr><tr><td>混合精度训练态（权重 2 + 梯度 2 + fp32 主权重 4 + Adam m 4 + Adam v 4）</td><td><strong>16</strong></td><td><strong>112.0 GB</strong></td></tr><tr><td>参考 + 奖励两个<strong>只前向</strong>的模型（策略的 bf16 权重已含在上一行的训练态里，<strong>不重复计</strong>）</td><td>2 × 2</td><td>28.0 GB</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">这里只算<strong>模型状态</strong>（权重/梯度/优化器状态），不含激活值与前向缓存——那部分与批大小、序列长度有关，本课先不展开。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：三种方案的总账对比</div>
+          <table><tr><th>方案</th><th>同时在场的模型</th><th>模型状态合计（7B 量级）</th></tr><tr><td><strong>PPO</strong></td><td>策略 + critic + 参考 + 奖励</td><td>16 + 16 + 2 + 2 = 36 字节/参数 → <strong>252 GB</strong></td></tr><tr><td><strong>GRPO</strong></td><td>删掉 critic</td><td>16 + 2 + 2 = 20 → <strong>140 GB</strong></td></tr><tr><td><strong>DPO</strong></td><td>只有策略 + 参考</td><td>16 + 2 = 18 → <strong>126 GB</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">计算：PPO 252 GB、GRPO 140 GB，<strong>省下 112 GB，占 PPO 的 44.4%</strong>（即 GRPO 峰值降到 PPO 的约 55.6%）；DPO 只有 PPO 的 50%。算法论文与二手资料常把这个量级表述为"峰值显存约减半"——本课按 7B 静态账实算为 <strong>44.4%</strong>，两者口径不同（前者含激活与采样开销，后者只算模型状态），引用时请连同口径一起给出。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>"贵"的根源不是某一个模型大，而是<strong>同类模型被复制了多份、且其中两份都在训练态</strong>。critic 之所以是首要下刀对象，是因为它与策略同规模、又要付完整的训练态开销（示例里占 16/36 = <strong>44%</strong>）。<strong>看懂这张账，才能理解下一张卡片为什么能"把 RL 换成分类"——那等于一次砍掉 critic 与奖励模型两个模型（4 → 2）。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','11-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','11-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-11-4" class="llm-section"><button class="llm-btn" onclick="startChat('11-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="11-4"><div class="chat-toolbar"><button onclick="copyChat('11-4')">📋 复制对话</button><button onclick="clearChat('11-4')">🗑 清空</button><button onclick="stopLLM('11-4')" id="stop-btn-11-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('11-4')" id="regen-btn-11-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="11-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 PPO 的开销有疑问？比如"critic 能不能用小模型？""参考模型能不能不常驻？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="11-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('11-4')}" rows="1" placeholder="例如：RLHF 一般要跑多久、采样多少次？"></textarea><button onclick="sendLLM('11-4')">发送</button></div></div></div>
+      <div id="tab-qna-11-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('11-4')">🔄 换一批</button></div><div class="qna-list" data-qna="11-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="11-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">能不能把这一整套强化学习，换成一次分类？</div><div class="card-q-hint">提示：先写出"在 KL 约束下最优的策略"长什么样（它一定与参考模型和奖励有关），然后试着反解出奖励——你会发现奖励完全由策略自己决定。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>DPO（Direct Preference Optimization）</strong>由 Rafailov、Sharma、Mitchell、Ermon、Manning、Finn（Stanford）提出（arXiv:2305.18290, 2023），论文标题就是结论："你的语言模型其实是个奖励模型"。它证明 KL 约束下的最优策略有<strong>闭式解</strong>，把这个解反解回去，奖励可以写成策略与参考模型的对数比——于是 RLHF 的强化学习阶段被替换成一个普通分类损失。</div>
+      <div class="content-section"><p>上一张卡片我们看到 PPO 要同时装四个模型。那能不能<strong>把强化学习整个拿掉？</strong>——DPO 的答案是能，靠一次代数替换。</p><p><strong>因为</strong>加了 KL 约束的最优化问题有解析解，<strong>所以</strong>可以先把"最优策略长什么样"写出来，再反解出奖励。<strong>于是</strong>奖励不再需要一个独立网络，它藏在策略自己的概率里。可以把这<strong>类比</strong>成解方程：与其迭代逼近（RL 采样试错），不如先把方程解出来——解的形式告诉你答案长什么样。</p><p>更自然的做法是<strong>继续用 PPO</strong>——四个模型驻留（7B 量级约 <strong>252 GB</strong>）、每轮都要在线采样。DPO 的取舍是把它<strong>离线化</strong>：只用一份固定的成对偏好数据做分类，模型从 <strong>4</strong> 个降到 <strong>2</strong> 个（约 <strong>126 GB</strong>），代价是失去「从当前策略再采样、发现数据里没有的好答案」的能力。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 DPO 推导走查：从闭式解到分类损失</div>
+        <div class="step"><div class="step-title">Step 1：KL 约束下最优策略的闭式解</div>
+          <table><tr><th>符号</th><th>含义</th></tr><tr><td>π<sub>ref</sub></td><td>参考策略（就是 SFT 模型，冻结）</td></tr><tr><td>r(x, y)</td><td>奖励函数</td></tr><tr><td>β</td><td>KL 惩罚系数（与上一张卡片的 β 同源）</td></tr><tr><td>π*(y|x) = π<sub>ref</sub>(y|x)·e<sup>r(x,y)/β</sup> / Z(x)</td><td><strong>最优策略</strong>：奖励高的回答按指数加权</td></tr><tr><td>Z(x) = Σ<sub>y</sub> π<sub>ref</sub>(y|x)·e<sup>r(x,y)/β</sup></td><td>归一化项（<strong>normalization</strong>，即配分函数）——<strong>正是它让计算不可行</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">Z(x) 要对<strong>所有可能的回答</strong>求和，词表 10 万级、长度 100 就是天文数字——所以不能直接算。DPO 的巧妙之处是让它在下一步自动消失。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：反解奖励，Z(x) 为什么可以不管</div>
+          <table><tr><th>步骤</th><th>结果</th></tr><tr><td>对闭式解两边取对数再整理</td><td>r(x, y) = β·ln(π<sub>θ</sub>(y|x) / π<sub>ref</sub>(y|x)) + β·ln Z(x)</td></tr><tr><td>这一项叫什么</td><td><strong>隐式奖励</strong>——策略本身就是奖励模型</td></tr><tr><td>代入 Bradley-Terry：P(胜) = σ(r<sub>w</sub> − r<sub>l</sub>)</td><td>两个 β·ln Z(x) 都是同一个 x 的项，<strong>相减时抵消</strong></td></tr><tr><td>最终损失</td><td>L = −ln σ( β·ln(π<sub>θ</sub>(y<sub>w</sub>)/π<sub>ref</sub>(y<sub>w</sub>)) − β·ln(π<sub>θ</sub>(y<sub>l</sub>)/π<sub>ref</sub>(y<sub>l</sub>)) )</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">这是 DPO 的关键一步：<strong>只要数据是成对的，Z(x) 就永远不需要算</strong>。这也是它只能用成对数据的原因。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：代入具体数字走一遍</div>
+          <table><tr><th>量</th><th>被选中的回答 y<sub>w</sub></th><th>被拒绝的回答 y<sub>l</sub></th></tr><tr><td>策略对数概率 ln π<sub>θ</sub>(y|x)</td><td><strong>−20.0</strong></td><td><strong>−18.0</strong></td></tr><tr><td>参考对数概率 ln π<sub>ref</sub>(y|x)</td><td>−23.2</td><td>−17.0</td></tr><tr><td>对数比（策略 − 参考）</td><td>−20.0 − (−23.2) = <strong>+3.2</strong></td><td>−18.0 − (−17.0) = <strong>−1.0</strong></td></tr><tr><td>取 β = 0.1 后的差值 Δ</td><td colspan="2">0.1 × (3.2 − (−1.0)) = <strong>0.42</strong></td></tr><tr><td>σ(Δ) 与损失</td><td colspan="2">σ(0.42) = <strong>0.603</strong>，L = −ln 0.603 = <strong>0.505</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">注意一个反直觉之处：<strong>被选中的回答，策略给的绝对概率反而更低</strong>（−20.0 比 −18.0 更负）。DPO 要的不是绝对概率，而是"相对参考模型被抬升了多少"——这正是它和最朴素的"提高好答案概率"做法的区别。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 4：换一个 β 看看尺度敏感度</div>
+          <table><tr><th>β</th><th>差值 β×4.2</th><th>σ(Δ)</th><th>损失</th></tr><tr><td>0.1</td><td>0.42</td><td>0.603</td><td>0.505</td></tr><tr><td>1.0</td><td>4.20</td><td>0.985</td><td><strong>0.015</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">同一份数据，β 从 0.1 换到 1.0，损失从 0.505 掉到 0.015（<strong>缩小约 34 倍</strong>）——<strong>β 同时控制了"允许多大偏离"和"损失对数据的敏感度"</strong>，这是调 DPO 时最需要盯的一个旋钮。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>DPO 的本质是<strong>一次代数替换，而不是一个新算法</strong>：闭式解 → 反解奖励 → 归一化项在成对差值中抵消。<strong>代价也很明确</strong>：它只在固定偏好数据上做离线分类，<strong>不再从当前策略采样、也就不再探索</strong>；而 RL 能在训练中不断生成新样本、发现数据里没有的好答案。<strong>"省掉三个模型"换的是"失去在线探索"。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','11-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','11-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-11-5" class="llm-section"><button class="llm-btn" onclick="startChat('11-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="11-5"><div class="chat-toolbar"><button onclick="copyChat('11-5')">📋 复制对话</button><button onclick="clearChat('11-5')">🗑 清空</button><button onclick="stopLLM('11-5')" id="stop-btn-11-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('11-5')" id="regen-btn-11-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="11-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 DPO 有疑问？比如"β 到底该设多少？""为什么 DPO 有时会变啰嗦？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="11-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('11-5')}" rows="1" placeholder="例如：如果偏好数据是一批旧模型产的，DPO 会有什么问题？"></textarea><button onclick="sendLLM('11-5')">发送</button></div></div></div>
+      <div id="tab-qna-11-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('11-5')">🔄 换一批</button></div><div class="qna-list" data-qna="11-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="11-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">删掉 critic 之后，组内统计量真的能当基线吗？</div><div class="card-q-hint">提示：基线的作用是"减去一个参照值"以降低方差。先想：同一个问题采样 4 个答案，如果 4 个全对或全错，这个基线还有信息吗？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>GRPO（Group Relative Policy Optimization）</strong>由 DeepSeek 在 DeepSeekMath 中提出（arXiv:2402.03300, 2024-02）：对同一个 prompt 采样一组（G 个）回答，用<strong>组内奖励的均值与标准差</strong>把每个奖励标准化，得到的 z 分数直接当作该回答所有 token 的优势，从而完全不需要 critic。它随后成为 DeepSeek-R1 的核心 RL 算法；2025 年起，Qwen 的 <strong>GSPO</strong>（arXiv:2507.18071）把重要性比率从 token 级提升到<strong>序列级</strong>，解决了 MoE（即混合专家，每层用多个专家网络、每个 token 只激活其中少数几个）训练不稳定；<strong>SAPO</strong>（arXiv:2511.20347）进一步用平滑门控替代硬裁剪；<strong>DAPO</strong>（ByteDance Seed + 清华 AIR，2025-03）则用动态采样过滤"零梯度"的 prompt 组。</div>
+      <div class="content-section"><p>上一张卡片我们看到 DPO 省了模型，但代价是失去探索。所以需要探索的场景仍要走 RL——<strong>那能不能既保留在线采样、又不要 critic？</strong></p><p><strong>因为</strong>critic 的职责只是提供一个"基线"（把回报减去一个参照以减少方差），<strong>所以</strong>如果同一个问题有多个候选，就用这些候选的平均分当基线即可。可以把这<strong>类比</strong>成考试排名：不知道分数线是多少，但同一张卷子考了 4 个人，谁高于平均分一目了然——<strong>你不需要额外请一位"预言家"来预测分数线</strong>。</p><p>更早的 PPO 为什么要单独养一个 critic？因为它只能逐位置预测「这么答下去能得多少分」，这个预测越准、基线越好——于是 critic 被迫长得和策略一样大，开销并不小：上一张卡片的账里，critic 占了 <strong>16/36 = 44%</strong> 的训练态开销。GRPO 的洞见是：同一个 prompt 一次采一组回答，「组内平均分」本身就是现成的基线，何必再训一个模型去猜它。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 组内基线账：优势怎么算、什么时候会失效</div>
+        <div class="step"><div class="step-title">Step 1：一次完整的组内归一化</div>
+          <table><tr><th>第 i 个回答</th><th>奖励 r<sub>i</sub></th><th>r<sub>i</sub> − 均值</th><th>÷ 标准差 = 优势 A<sub>i</sub></th></tr><tr><td>1</td><td>1（对）</td><td>+0.5</td><td><strong>+1.0</strong></td></tr><tr><td>2</td><td>0（错）</td><td>−0.5</td><td><strong>−1.0</strong></td></tr><tr><td>3</td><td>1（对）</td><td>+0.5</td><td><strong>+1.0</strong></td></tr><tr><td>4</td><td>0（错）</td><td>−0.5</td><td><strong>−1.0</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">计算：均值 = 2 ÷ 4 = <strong>0.5</strong>；总体标准差 = <strong>0.5</strong>；因此答对得 +1、答错得 −1。<strong>注意优势是"相对于同组"的，不是绝对分数</strong>——全组都答对时它就没有意义了（见 Step 2）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：组内归一化的失效边界</div>
+          <table><tr><th>组内奖励分布</th><th>标准差</th><th>全部优势</th><th>这条 prompt 的梯度</th></tr><tr><td>2 对 2 错（上表）</td><td>0.5</td><td>+1 / −1</td><td>正常，有效</td></tr><tr><td>4 对 0 错</td><td>0</td><td>全为 0</td><td><strong>零梯度</strong>（白跑一次前向）</td></tr><tr><td>0 对 4 错</td><td>0</td><td>全为 0</td><td><strong>零梯度</strong>（且失去"这题太难"的信号）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">这是 GRPO 的固有浪费：<strong>训练越往后，"全对"的 prompt 越多，被浪费的批次占比越高</strong>。DAPO 的做法是动态采样——把标准差为 0 的组过滤掉，再补采，直到凑够批次。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：GSPO 为什么要把比率提到序列级</div>
+          <table><tr><th>做法</th><th>重要性比率的定义</th><th>一条 500 token 回答的数值示例</th></tr><tr><td>GRPO（token 级）</td><td>w<sub>i,t</sub> = π<sub>θ</sub>(y<sub>i,t</sub>)/π<sub>old</sub>(y<sub>i,t</sub>)</td><td>单 token 比率可达 <strong>1.5</strong>（示意：某个偏离最大的 token；噪声大、逐个裁剪）</td></tr><tr><td>GSPO（序列级）</td><td>s<sub>i</sub> = (π<sub>θ</sub>(y<sub>i</sub>)/π<sub>old</sub>(y<sub>i</sub>))<sup>1/|y<sub>i</sub>|</sup></td><td>1.5<sup>1/500</sup> = <strong>1.00081</strong>（<strong>偏离 1 的幅度</strong>从 0.5 压到 8.1×10⁻⁴，即 10⁻¹ 量级 → 10⁻³ 量级）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">长度归一化把比率的波动幅度按 |y| 压缩：<strong>序列越长，单点噪声被平均得越狠</strong>。Qwen 的报告还给出一个反直觉观察——GSPO 的裁剪比例比 GRPO 高<strong>两个数量级</strong>，但训练效率反而更高，说明 GRPO 的 token 级目标本身噪声过大。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>去掉 critic 的代价不是"精度变差"，而是<strong>基线的可靠性变成了一个统计问题</strong>：组内方差为 0 时，组相对优势完全失效（同组全对/全错 → 零梯度）。所以这条线的演进都在回答两个问题——<strong>怎么让基线更稳</strong>（GSPO 的序列级比率、SAPO 的平滑门控）、<strong>怎么不浪费批次</strong>（DAPO 的动态采样）。<strong>选型判据可以浓缩成三问：奖励可验证吗？需要在线探索吗？显存够装几个模型？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','11-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','11-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-11-6" class="llm-section"><button class="llm-btn" onclick="startChat('11-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="11-6"><div class="chat-toolbar"><button onclick="copyChat('11-6')">📋 复制对话</button><button onclick="clearChat('11-6')">🗑 清空</button><button onclick="stopLLM('11-6')" id="stop-btn-11-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('11-6')" id="regen-btn-11-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="11-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 GRPO 与选型有疑问？比如"组大小 G 设多少？""什么时候还该用 PPO？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="11-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('11-6')}" rows="1" placeholder="例如：如果奖励只有对错两种取值，组内归一化会不会不稳定？"></textarea><button onclick="sendLLM('11-6')">发送</button></div></div></div>
+      <div id="tab-qna-11-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('11-6')">🔄 换一批</button></div><div class="qna-list" data-qna="11-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 11 课完成 · 下一课：第 12 课「推理模型与 RLVR」</p>
+    <a href="#" onclick="switchLesson(12);return false;">进入第 12 课：推理模型与 RLVR →</a>　·　<a href="#" onclick="switchLesson(10);return false;">← 上一课：SFT 微调</a>
+  </div></div>

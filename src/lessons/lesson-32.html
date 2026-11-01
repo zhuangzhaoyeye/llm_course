@@ -1,0 +1,204 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 32 课：长时程执行与状态</h2>
+    <p class="subtitle">第 31 课把"怎么在巨大空间里搜、什么时候砍方向"讲完了；这一课只追一个问题：<strong>没人看着跑 23 小时，Agent 凭什么不跑偏、状态放哪、什么时候该停。</strong>我们从一条真实的 23 小时自主实验曲线讲起，把 best-so-far 曲线、项目状态外置（File-as-Bus）、失败诊断、环境隔离、token 成本账与停机判据，一路算到工程细节。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 用 best-so-far 曲线与 held-out 准入判断一条长时程任务有没有"越跑越好"<br>② 说清项目状态为什么要落在文件里（File-as-Bus），以及去掉它会掉多少分<br>③ 用"并发 × 单任务显存"估资源、用"证据条件"决定继续、改向还是终止</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步逻辑递进：从"凭什么不跑偏"到"什么时候该停"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要让一个 Agent 在没人盯的情况下连续自主跑 <strong>23 小时、74 轮实验</strong>，<strong>这就要求</strong>它的成绩曲线必须越跑越好——每轮把结果写进 <b>context</b> 之外的项目状态，再用 held-out 准入挡住刷分。<b class="rn-key">长时程要看越跑越好</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然「<b>长时程要看越跑越好</b>」，<strong>所以</strong>成绩只能靠状态累积——<strong>这就要求</strong>把决策相关的状态从易失的 <b>context</b> 里搬进持久文件，用「状态落在上下文之外」的方式让每一轮都能接着上一轮。<b class="rn-key">状态落在上下文之外</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然「<b>状态落在上下文之外</b>」，<strong>那么</strong>状态一旦持久，失败就不再白费——<strong>这就要求</strong>跑挂的时候能定位"错在哪一环"，把坏轮次的日志写回文件（而非留在 <b>context</b>）供下一轮读。<b class="rn-key">失败要能诊断复用</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">既然「<b>失败要能诊断复用</b>」，<strong>那么</strong>并行跑多个假设就必须互不污染——<strong>这就要求</strong>一个假设一个隔离工作树（<b>worktree</b>，指 git 的独立工作目录），再把资源预算落到每轮的 <b>tokens</b> 与显存上。<b class="rn-key">执行环境要隔离</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>执行环境要隔离</b>」，<strong>那么</strong>并发的每个执行器都在烧预算——<strong>这就要求</strong>把账算平：轮数 × 单轮 <b>tokens</b> × 并发度，并对照第 26 课的 4×/15× 口径。<b class="rn-key">成本要按 token 算</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>成本要按 token 算</b>」，<strong>那么</strong>预算有限时就得知道何时收手——<strong>这就要求</strong>用证据条件三选一：continue / revise / terminate，把「该停就停」变成可执行判据。<b class="rn-key">该停就停</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">长时程执行</span><span class="meta-tag">best-so-far</span><span class="meta-tag">File-as-Bus</span><span class="meta-tag">worktree 隔离</span><span class="meta-tag">token 成本</span><span class="meta-tag">证据条件终止</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="32-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">跑 23 小时没人看着，怎样才算没跑偏？</div><div class="card-q-hint">提示：别只看它最后跑出多高——先看这条曲线中间有没有"越跑越好"，还是原地打转。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>长时程 ML 研究工程</strong>（long-horizon ML research engineering，指把研究规格变成能跑、能验证的系统）的核心难点是<strong>延迟反馈</strong>——跑完一整轮才知道对不对。AiScientist（Chen 等，arXiv:2604.13018，2026）报告了一条真实曲线：在 MLE-Bench Lite 的 Detecting Insults 任务上，系统连续自主运行 <strong>23 小时</strong>、做了 <strong>74 轮实验</strong>（无人工干预），验证 AUC 从 <strong>0.903</strong> 升到 <strong>0.982</strong>，中途发生 <strong>18 次 best-so-far 更新</strong>。</div>
+      <div class="content-section"><p>第 31 课我们把"怎么在巨大空间里搜、怎么砍方向"讲完了；这一课换个视角：<strong>让它自己长跑，凭什么不跑偏？</strong></p><p><strong>因为</strong>长时程最怕的不是单步慢，而是"跑了半天越跑越差还没人发现"。判断力来自一条可审计的曲线。每轮把结果写进 <b>context</b>（模型上下文，即模型这一次能看到的全部 token）之外的持久状态。并且只在 <strong>held-out</strong>（预留测试集，即不参与搜索的那部分数据）上变好，才计入 <strong>best-so-far</strong>（至今最好成绩）。这样曲线才会单调向上。<strong>就像</strong>长跑要看配速表，不是看某一步迈得多大；配速乱了，越跑越远也没用。<strong>所以</strong>先把这条曲线读出来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：一条 23 小时曲线的四个读数</div>
+        <div class="step"><div class="step-title">Step 1：原始读数</div>
+          <table><tr><th>读数</th><th>数值</th><th>来源</th></tr><tr><td>连续自主运行</td><td>23 小时</td><td>arXiv:2604.13018 图 1</td></tr><tr><td>无干预实验轮次</td><td>74 轮</td><td>同上</td></tr><tr><td>best-so-far 更新次数</td><td>18 次</td><td>同上</td></tr><tr><td>验证 AUC</td><td>0.903 → 0.982</td><td>同上</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条口径：四个读数出自同一张图、同一条 run；AUC 是"越接近 1 越好"的排序质量指标。<strong>这不是示意值，是论文读数。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：更新密度与 AUC 增幅</div>
+          <table><tr><th>算式</th><th>结果</th></tr><tr><td>更新密度 = 18 ÷ 74</td><td>≈ 0.243 → <strong>24.3%</strong> 的轮次产生新最优</td></tr><tr><td>AUC 绝对增幅 = 0.982 − 0.903</td><td><strong>0.079</strong></td></tr><tr><td>AUC 相对增幅 = 0.982 ÷ 0.903</td><td>≈ <strong>8.7%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：74 轮里只有约 <strong>24.3%</strong> 的轮次刷新了最优——<strong>大部分轮次是"试错没成"</strong>，这正是长时程的常态；但 0.079 的绝对提升说明"没成"的轮次也在被累积利用。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：轮均耗时（换算）</div>
+          <table><tr><th>项</th><th>算式</th><th>结果</th></tr><tr><td>总分钟数</td><td>23 × 60</td><td><strong>1,380 分钟</strong></td></tr><tr><td>轮均耗时</td><td>1,380 ÷ 74</td><td>≈ <strong>18.6 分钟/轮</strong></td></tr><tr><td>含义</td><td colspan="2">每 18.6 分钟才回一次信号</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（换算）：23 小时 ≈ 1,380 分钟，摊到 74 轮约 <strong>18.6 分钟/轮</strong>。<strong>延迟反馈的单位是"十几分钟"，不是"一次 API 往返"</strong>——这是长时程和普通对话最根本的区别。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>判断长时程跑得好不好，先看三件事：<strong>曲线是否单调向上（靠 best-so-far）、新最优是否只在 held-out 上准入、每轮回信号要等多久</strong>。23 小时 / 74 轮 / 18 次更新 / AUC 0.903→0.982 给出的就是一条"越跑越好"的证据链。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','32-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','32-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-32-1" class="llm-section"><button class="llm-btn" onclick="startChat('32-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="32-1"><div class="chat-toolbar"><button onclick="copyChat('32-1')">📋 复制对话</button><button onclick="clearChat('32-1')">🗑 清空</button><button onclick="stopLLM('32-1')" id="stop-btn-32-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('32-1')" id="regenerate-btn-32-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="32-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"越跑越好"有疑问？比如「best-so-far 到底指什么」「held-out 为什么不能搜」？<br><br>说清你的任务，我帮你判断一条曲线算不算在累积。</div></div><div class="chat-input-row"><textarea data-input="32-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('32-1')}" rows="1" placeholder="例如：best-so-far 和 pass@k 有什么区别？"></textarea><button onclick="sendLLM('32-1')">发送</button></div></div></div>
+      <div id="tab-qna-32-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('32-1')">🔄 换一批</button></div><div class="qna-list" data-qna="32-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="32-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">状态放哪？上下文装不下怎么办？</div><div class="card-q-hint">提示：一次运行 74 轮，历史越来越长——它是把全部历史塞进 context，还是把状态放到别的地方？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>File-as-Bus</strong>（文件当总线，指用持久文件在多个角色、多次调用之间传状态）是 AiScientist（arXiv:2604.13018）的核心机制。它的 schema（结构定义）把工件分成三种更新模式：<strong>append-only 日志</strong>（只追加、保时间序）、<strong>versioned 工件</strong>（保当前版 + 历史版）、<strong>mutable 状态</strong>（短命的控制信息）。论文消融显示：<strong>去掉 File-as-Bus，PaperBench 掉 6.41 分、MLE-Bench Lite Any Medal 掉 31.82 个点</strong>。</div>
+      <div class="content-section"><p>上一张卡片看到它在 74 轮里越跑越好；可 <b>context</b> 是易失的——一次调用结束就清空。<strong>状态放哪，才是长时程能不能接上的关键。</strong></p><p><strong>因为</strong>74 轮的历史、诊断、产物不可能全塞进窗口，硬塞只会挤掉真正要用的证据；正确做法是把决策相关的状态外置到文件，每轮只把"该看的那部分"读回 <b>context</b>，并在关键轮写一个<b>检查点</b>（checkpoint，即把当前状态快照落盘，便于中断后恢复）。<strong>就像</strong>项目交接不靠某个人的记忆，靠的是共享盘里的文档；人换了，文档还在。<strong>所以</strong>要把状态从"对话"搬进"文件总线"。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：状态外置到底掉不掉分</div>
+        <div class="step"><div class="step-title">Step 1：File-as-Bus 的三种工件</div>
+          <table><tr><th>模式</th><th>存什么</th><th>为什么</th></tr><tr><td>append-only 日志</td><td>实现日志、实验诊断</td><td>证据不能覆盖</td></tr><tr><td>versioned 工件</td><td>计划、分析、报告</td><td>要当前版 + 可恢复历史</td></tr><tr><td>mutable 状态</td><td>短命控制信息</td><td>不必留历史、保持轻</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条分工：<strong>该留的证据（日志）只追加，要演进的状态（计划）带版本，临时的控制（指针）可覆盖</strong>——三种模式对号入座。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：消融读数</div>
+          <table><tr><th>基准</th><th>去掉 File-as-Bus</th><th>差额</th></tr><tr><td>PaperBench 分数</td><td>下降</td><td><strong>−6.41 分</strong></td></tr><tr><td>MLE-Bench Lite Any Medal</td><td>下降</td><td><strong>−31.82 个点</strong></td></tr><tr><td>MLE-Bench Lite 剩余</td><td colspan="2">81.82 − 31.82 = <strong>50.00 个点</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：论文报的 MLE-Bench Lite 是 81.82 Any Medal%，去掉 File-as-Bus 掉 31.82 → 只剩 <strong>50.00</strong>；相对下降 31.82 ÷ 81.82 ≈ <strong>38.9%</strong>。<strong>去掉一层文件总线，Any Medal 掉了近四成。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：提升被吃掉多少（派生）</div>
+          <table><tr><th>项</th><th>算式</th><th>结果</th></tr><tr><td>去掉 File-as-Bus 掉的 PaperBench 分</td><td>6.41</td><td>—</td></tr><tr><td>对照：相对最强基线的提升（单 backbone Gemini-3-Flash）</td><td>9.92</td><td>—</td></tr><tr><td>被吃掉的比例</td><td>6.41 ÷ 9.92</td><td>≈ <strong>64.6%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（派生）：去掉 File-as-Bus 掉的 6.41 分，等于把 9.92 的相对提升吃掉约 <strong>64.6%</strong>（9.92 为该行的单 backbone Gemini-3-Flash 取值，论文摘要报告的平均增益为 10.54）——文字与数字都表明<strong>持久状态是长时程的主要增益来源，不是锦上添花</strong>。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>上下文是易失的，<strong>项目状态必须落在上下文之外</strong>（File-as-Bus）。消融给出量化代价：PaperBench −6.41、MLE-Bench Lite Any Medal −31.82。判据是：<strong>换一个角色、换一次调用，它还能不能从文件里读回上一轮的证据。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','32-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','32-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-32-2" class="llm-section"><button class="llm-btn" onclick="startChat('32-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="32-2"><div class="chat-toolbar"><button onclick="copyChat('32-2')">📋 复制对话</button><button onclick="clearChat('32-2')">🗑 清空</button><button onclick="stopLLM('32-2')" id="stop-btn-32-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('32-2')" id="regenerate-btn-32-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="32-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 File-as-Bus 有疑问？比如「什么该写文件、什么留在 context」「三种工件怎么分」？<br><br>说清你的任务与角色数，我帮你定状态外置方案。</div></div><div class="chat-input-row"><textarea data-input="32-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('32-2')}" rows="1" placeholder="例如：什么状态必须落盘？"></textarea><button onclick="sendLLM('32-2')">发送</button></div></div></div>
+      <div id="tab-qna-32-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('32-2')">🔄 换一批</button></div><div class="qna-list" data-qna="32-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="32-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">失败了它怎么自己爬起来？</div><div class="card-q-hint">提示：一轮失败后，它需要先知道"错在哪一环"——想想一条流水线里可能出错的环节有多少个。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>AiScientist 的 <strong>evidence-driven research-engineering loop</strong>（证据驱动的研究—工程回路）说明：每轮实验产出可执行证据（失败、部分成功、指标缺口、瓶颈、结果偏差），Orchestrator（编排者，负责定策略的角色）据此选择下一种干预——补实现、改数据处理/配置、重跑实验，或在假设被推翻时退回更早的分析。论文把失败成因归到多层：论文解读、数据处理、模型设计、训练配置、基础设施，以及它们之间的交互。</div>
+      <div class="content-section"><p>上一张卡片把状态外置到了文件；状态一持久，失败就不再"白费"。<strong>那它到底怎么从失败里爬起来？</strong></p><p><strong>因为</strong>长时程的失败往往是<strong>沉默的</strong>——进程没崩，但指标不对，成因可能横跨论文解读、数据、模型、训练配置、基础设施好几层；<strong>这就要求</strong>每轮失败都被写成"诊断记录"（错在哪一环 + 依据），<strong>这就要求</strong>把它写回文件而不是留在 <b>context</b> 里，下一轮才谈得上修。<strong>就像</strong>医生看检验单：不先定位是哪个器官，开再多药也是碰运气。<strong>所以</strong>回路的关键不是"重试"，是"先诊断再修"。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：诊断—修正回路</div>
+        <div class="step"><div class="step-title">Step 1：一条流水线的六类成因</div>
+          <table><tr><th>层</th><th>典型症状</th><th>干预</th></tr><tr><td>论文解读</td><td>方法与目标对不上</td><td>退回分析、改假设</td></tr><tr><td>数据处理</td><td>指标偏低但能跑</td><td>修预处理</td></tr><tr><td>模型设计</td><td>结构不匹配</td><td>改实现</td></tr><tr><td>训练配置</td><td>不收敛 / 波动</td><td>调超参</td></tr><tr><td>基础设施</td><td>OOM / 超时</td><td>改资源</td></tr><tr><td>交互</td><td>多个原因叠加</td><td>分而治之</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条映射：<strong>每类症状对应一种干预</strong>——诊断的价值就是把"重试"换成"对地方下手"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：触发诊断的轮次（示意）</div>
+          <table><tr><th>项</th><th>算式</th><th>结果</th></tr><tr><td>总轮次</td><td>74</td><td>—</td></tr><tr><td>假设首跑失败率（示意）</td><td>40%</td><td>—</td></tr><tr><td>触发诊断的轮次</td><td>74 × 0.4</td><td><strong>29.6 轮</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意：失败率 40% 为假设值）：74 轮里约 <strong>29.6 轮</strong>会触发诊断；<strong>失败不是异常，是常态</strong>——回路必须默认自己会失败。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：一次诊断要"烧"掉多少时间（示意）</div>
+          <table><tr><th>项</th><th>算式</th><th>结果</th></tr><tr><td>轮均耗时</td><td>1,380 ÷ 74</td><td>≈ 18.6 分钟/轮</td></tr><tr><td>一次诊断 + 重跑（按 2 轮计）</td><td>2 × 18.6</td><td>≈ <strong>37.2 分钟</strong></td></tr><tr><td>对照"闷头重试"</td><td colspan="2">诊断省下的是后面 N 轮的无效盲跑</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意：按 2 轮估算）：一次诊断 + 重跑约 <strong>37.2 分钟</strong>；而"不诊断直接重试"要把同样的时间花在错误方向上。<strong>诊断的收益是"少跑的无效轮"，不是"跑得更快"。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>失败要能被诊断成"错在哪一环"，才能被复用。回路 = <strong>产出证据 → 定位层级 → 选干预 → 写回状态</strong>；触发条件是"指标缺口 / 偏差"，而不是"进程崩溃"。判定：<strong>它有没有把失败写成下一轮的输入。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','32-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','32-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-32-3" class="llm-section"><button class="llm-btn" onclick="startChat('32-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="32-3"><div class="chat-toolbar"><button onclick="copyChat('32-3')">📋 复制对话</button><button onclick="clearChat('32-3')">🗑 清空</button><button onclick="stopLLM('32-3')" id="stop-btn-32-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('32-3')" id="regenerate-btn-32-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="32-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对失败诊断有疑问？比如「怎么知道错在哪一环」「诊断记录该写什么」？<br><br>说清你的流水线，我帮你把诊断步骤拆出来。</div></div><div class="chat-input-row"><textarea data-input="32-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('32-3')}" rows="1" placeholder="例如：跑挂了该怎么定位原因？"></textarea><button onclick="sendLLM('32-3')">发送</button></div></div></div>
+      <div id="tab-qna-32-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('32-3')">🔄 换一批</button></div><div class="qna-list" data-qna="32-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="32-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">多个假设同时改同一份代码、抢同一块显存，会怎样？</div><div class="card-q-hint">提示：同一份证据里混进两个人的改动，出问题时你还分得清是谁干的吗？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>Arbor（Jin 等，arXiv:2606.11926，2026）让<strong>每个执行器（executor）在隔离的 git worktree 里</strong>实现并测试单个假设——<strong>worktree</strong>（工作树）指 git 的独立工作目录，同一仓库可检出多份互不干扰的副本。只有通过 held-out 验证的改进才被"准入"回主干。论文报告：Arbor 在 MLE-Bench Lite 上以 GPT-5.5 达到 <strong>86.36% Any Medal</strong>（本文对比中的最强结果），并取得相对 Codex / Claude Code 超过 <strong>2.5×</strong> 的平均相对 held-out 增益。（注意：这两个读数是整套框架的结果，隔离本身的贡献论文未单独消融。）</div>
+      <div class="content-section"><p>上一张卡片讲失败怎么被诊断；但要是多个假设<strong>同时</strong>跑、还共用同一份代码，诊断就没了意义——A 的改动会污染 B 的证据。<strong>为什么要给每个假设一套隔离环境？</strong></p><p><strong>因为</strong>长时程常常并行搜索，多个执行器会同时改文件、抢显存；没有隔离，一个假设的失败会被误判成另一个的，反过来也一样。<strong>就像</strong>多人同时编辑同一份文档，谁改坏了都说不清；一人一份副本 + 合并审查才可控。<strong>所以</strong>一个假设一个工作树，再加资源预算兜底。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：隔离与资源预算</div>
+        <div class="step"><div class="step-title">Step 1：隔离的三道边界</div>
+          <table><tr><th>边界</th><th>隔离对象</th><th>目的</th></tr><tr><td>worktree</td><td>代码工作目录</td><td>改动互不覆盖</td></tr><tr><td>工件目录</td><td>输出 / 日志 / 模型</td><td>证据归属清晰</td></tr><tr><td>资源配额</td><td>GPU 显存 / tokens</td><td>防止一个吃光全部</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条原则：<strong>隔离要覆盖代码、工件、资源三层</strong>——只隔离代码，显存仍会互相饿死。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：并发 × 单任务显存 = 需要多少卡（示意）</div>
+          <table><tr><th>项</th><th>算式</th><th>结果</th></tr><tr><td>并发任务数（示意）</td><td>8</td><td>—</td></tr><tr><td>单任务显存（示意）</td><td>24 GB</td><td>—</td></tr><tr><td>总显存需求</td><td>8 × 24</td><td><strong>192 GB</strong></td></tr><tr><td>按 48 GB/卡折算</td><td>192 ÷ 48</td><td><strong>4 张卡</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：8 个并发 × 24 GB = <strong>192 GB</strong>，按 48 GB/卡需 <strong>4 张卡</strong>。（并发数与单任务显存为示意值，用于说明"并发上限由资源预算反推"。）</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：隔离 vs 共享</div>
+          <table><tr><th>维度</th><th>共享一份</th><th>一假设一 worktree</th></tr><tr><td>证据可信</td><td>互相污染</td><td>可归因</td></tr><tr><td>失败定位</td><td>难</td><td>清楚</td></tr><tr><td>合并</td><td>隐式覆盖</td><td>显式准入</td></tr><tr><td>代价</td><td>低</td><td>多占磁盘</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条取舍：隔离的代价是磁盘与调度开销，换来的是<strong>证据可归因、改进可准入</strong>——长时程里这笔交换划算。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>并发搜索的前提是<strong>失败互不污染</strong>，所以一个假设一套 worktree + 独立工件目录 + 资源配额。资源账 = <strong>并发数 × 单任务显存 → 需要多少卡</strong>。判定：<strong>任意两条支线的证据能不能分别归因。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','32-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','32-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-32-4" class="llm-section"><button class="llm-btn" onclick="startChat('32-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="32-4"><div class="chat-toolbar"><button onclick="copyChat('32-4')">📋 复制对话</button><button onclick="clearChat('32-4')">🗑 清空</button><button onclick="stopLLM('32-4')" id="stop-btn-32-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('32-4')" id="regenerate-btn-32-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="32-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对隔离有疑问？比如「worktree 和容器哪个合适」「并发开几个」？<br><br>说清你的硬件与任务，我帮你算并发与配额。</div></div><div class="chat-input-row"><textarea data-input="32-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('32-4')}" rows="1" placeholder="例如：并发跑几个假设合适？"></textarea><button onclick="sendLLM('32-4')">发送</button></div></div></div>
+      <div id="tab-qna-32-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('32-4')">🔄 换一批</button></div><div class="qna-list" data-qna="32-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="32-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">74 轮实验跑下来，时间与 token 各花了多少？</div><div class="card-q-hint">提示：时间是明账，token 是暗账——想想 74 轮里每轮要跟模型来回几次。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>长时程的成本不在"一次调用"，而在"轮数 × 每轮往返"。第 26 课引 Anthropic《How we built our multi-agent research system》（2025）给出 token 口径：普通对话约 <strong>1×</strong>，单 Agent 约 <strong>4×</strong>，多智能体约 <strong>15×</strong>（相对普通对话）。Arbor 也用 token 消耗与搜索成本做了分析（arXiv:2606.11926 §5.8）。</div>
+      <div class="content-section"><p>上一张卡片把并发折成了卡数；卡数背后是钱。<strong>这笔账怎么算才算得清？</strong></p><p><strong>因为</strong>长时程要跑 74 轮、每轮涉及多次模型往返，成本随轮数线性放大；只看"单次调用多少钱"会严重低估。<strong>所以</strong>要把账拆成 时间 × 并发 × 单价，并对照第 26 课的 token 口径。<strong>就像</strong>出差报销：不是看单张发票，是把交通、住宿、补贴乘天数一起算。<strong>所以</strong>先立一个可复算的成本公式。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：74 轮的总 token</div>
+        <div class="step"><div class="step-title">Step 1：轮数 × 单轮 token = 总 token（示意锚点）</div>
+          <table><tr><th>项</th><th>算式</th><th>结果</th></tr><tr><td>轮数</td><td>74</td><td>—</td></tr><tr><td>单轮普通对话量（示意，承第 26 课 20,000 锚点）</td><td>20,000 token</td><td>—</td></tr><tr><td>总 token（1× 口径）</td><td>74 × 20,000</td><td><strong>1,480,000 token</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意锚点）：以第 26 课的 20,000 token/次普通对话为锚，74 轮 ≈ <strong>1,480,000 token</strong>。<strong>锚点来自第 26 课，倍数才是 Anthropic 口径。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：对照第 26 课的 4× / 15× 口径</div>
+          <table><tr><th>口径</th><th>单轮 token</th><th>74 轮合计</th></tr><tr><td>普通对话 1×</td><td>20,000</td><td>1,480,000</td></tr><tr><td>单 Agent 4×</td><td>80,000</td><td><strong>5,920,000</strong></td></tr><tr><td>多智能体 15×</td><td>300,000</td><td><strong>22,200,000</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：承第 26 课口径（4× / 15×），74 轮下单 Agent ≈ <strong>5,920,000</strong>、多智能体 ≈ <strong>22,200,000</strong> token；多智能体是单 Agent 的 22,200,000 ÷ 5,920,000 = <strong>3.75 倍</strong>（15 ÷ 4 = 3.75）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：时间账（与 token 账并列）</div>
+          <table><tr><th>项</th><th>算式</th><th>结果</th></tr><tr><td>总秒数</td><td>23 × 3,600</td><td><strong>82,800 秒</strong></td></tr><tr><td>轮均</td><td>82,800 ÷ 74</td><td>≈ <strong>1,119 秒/轮</strong></td></tr><tr><td>含义</td><td colspan="2">时间账按小时，token 账按轮数——两者都要算</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：23 小时 = <strong>82,800 秒</strong>，轮均 ≈ <strong>1,119 秒</strong>（约 18.6 分钟）。<strong>"跑得久"和"烧得多"是两笔账，必须同时给。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>长时程的成本公式 = <strong>时间 × 并发 × 单价</strong>，其中 token 是暗账。对照口径（第 26 课）：单 Agent ≈4×、多智能体 ≈15× 普通对话。判定：<strong>报一条 run 时，能不能同时给出小时数与总 token 数。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','32-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','32-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-32-5" class="llm-section"><button class="llm-btn" onclick="startChat('32-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="32-5"><div class="chat-toolbar"><button onclick="copyChat('32-5')">📋 复制对话</button><button onclick="clearChat('32-5')">🗑 清空</button><button onclick="stopLLM('32-5')" id="stop-btn-32-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('32-5')" id="regenerate-btn-32-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="32-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对成本账有疑问？比如「74 轮要花多少 token」「4× 和 15× 怎么用」？<br><br>说清你的模型与步数，我帮你估一条 run 的账。</div></div><div class="chat-input-row"><textarea data-input="32-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('32-5')}" rows="1" placeholder="例如：一次 74 轮的 run 多少钱？"></textarea><button onclick="sendLLM('32-5')">发送</button></div></div></div>
+      <div id="tab-qna-32-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('32-5')">🔄 换一批</button></div><div class="qna-list" data-qna="32-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="32-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">跑着跑着，什么信号说明该停、该换方向了？</div><div class="card-q-hint">提示：证据够了就发，证据不够就换；想想要连续多少轮没新最优，才该收手。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>Arbor 把"是否继续"交给证据：<strong>一个候选只有在 held-out 评估上变好，才被提升为当前最优</strong>，否则该支线被剪（prune）。这种"证据条件"式控制可归纳为三选一：<strong>continue（继续）/ revise（改向）/ terminate（终止）</strong>。AiScientist 的 Orchestrator 也据工作区地图与已记录证据选择下一步干预，或在假设被推翻时退回分析。</div>
+      <div class="content-section"><p>上一张卡片把账算平了；账再平，也总得有个停的时候。<strong>什么信号说明该停？</strong></p><p><strong>因为</strong>长时程里"再多跑一轮"永远有诱惑（沉没成本 + 可能翻盘），但预算有限；把停与不停交给<strong>证据条件</strong>，比交给"感觉差不多了"可靠得多。<strong>就像</strong>考试到点就得交卷：不是不会写了，是时间到了；该交还是该再想，要有明确规则。<strong>所以</strong>把 continue / revise / terminate 写成可执行判据。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：continue / revise / terminate</div>
+        <div class="step"><div class="step-title">Step 1：三选一的判据</div>
+          <table><tr><th>动作</th><th>触发条件</th><th>依据</th></tr><tr><td>continue</td><td>近期仍有 best-so-far 更新</td><td>证据在累积</td></tr><tr><td>revise</td><td>连续多轮无更新且方向单一</td><td>换支线 / 换假设</td></tr><tr><td>terminate</td><td>预算触顶或 held-out 长期不升</td><td>证据不足 + 成本已满</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条映射：<strong>continue 看"有没有新证据"，revise 看"方向是不是死了"，terminate 看"预算 + held-out"</strong>——三者判据不同，不能混用。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：用更新密度定"该换方向"的阈值（示意）</div>
+          <table><tr><th>项</th><th>算式</th><th>结果</th></tr><tr><td>平均更新间隔</td><td>74 ÷ 18</td><td>≈ <strong>4.11 轮/次</strong></td></tr><tr><td>容忍阈值（2× 平均间隔，示意）</td><td>2 × 4.11</td><td>≈ <strong>8.22 轮</strong></td></tr><tr><td>含义</td><td colspan="2">连续约 8 轮无 best-so-far → 触发 revise</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意阈值）：平均每 <strong>4.11 轮</strong>才刷新一次最优；若连续约 <strong>8.22 轮</strong>（2× 平均间隔）都没更新，就说明当前支线大概率走死 → revise。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：终止线（与预算挂钩）</div>
+          <table><tr><th>信号</th><th>含义</th><th>动作</th></tr><tr><td>held-out 不升且预算触顶</td><td>证据不足 + 成本满</td><td>terminate</td></tr><tr><td>总 token 达上限</td><td>钱花完</td><td>terminate</td></tr><tr><td>仍有支线待试且预算未满</td><td>有证据空间</td><td>continue</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条收口：<strong>终止 = 证据条件 + 预算条件同时成立</strong>；只要还有未试支线且预算未满，就该 revise 到那条支线，而不是草草 terminate。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>停机不是"感觉"，是<strong>证据条件</strong>——continue / revise / terminate 三选一。用 best-so-far 的更新密度定"该换方向"，用预算 + held-out 定"该终止"。判定：<strong>每一次收手都能说清触发的是哪条判据。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','32-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','32-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-32-6" class="llm-section"><button class="llm-btn" onclick="startChat('32-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="32-6"><div class="chat-toolbar"><button onclick="copyChat('32-6')">📋 复制对话</button><button onclick="clearChat('32-6')">🗑 清空</button><button onclick="stopLLM('32-6')" id="stop-btn-32-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('32-6')" id="regenerate-btn-32-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="32-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对停机判据有疑问？比如「多少轮没进展该停」「怎么区分该换方向和该终止」？<br><br>说清你的任务与预算，我帮你定三选一判据。</div></div><div class="chat-input-row"><textarea data-input="32-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('32-6')}" rows="1" placeholder="例如：什么时候该终止一条 run？"></textarea><button onclick="sendLLM('32-6')">发送</button></div></div></div>
+      <div id="tab-qna-32-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('32-6')">🔄 换一批</button></div><div class="qna-list" data-qna="32-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 32 课完成 · 承第 31 课「假设、规划与搜索」，启第 33 课「验证、复现与评审」</p>
+    <a href="#" onclick="switchLesson(31);return false;">← 上一课：假设、规划与搜索</a>　·　<a href="#" onclick="switchLesson(33);return false;">下一课：验证、复现与评审 →</a>
+  </div></div>

@@ -1,0 +1,204 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 30 课：文献锚定与选题</h2>
+    <p class="subtitle">上一课把"AI 做研究"拆成了一条可测的流水线。现在从流水线的第一步开始：<strong>AI 的"新想法"到底是怎么来的、怎么证明它是真的新、选题一旦错了要赔多少？</strong>这一课先给文献底座装上"可溯源"这根硬骨头（provenance），再用"检索→去污染→弱方向拒绝"三步判定新颖性，最后把选题算成一笔会被放大 N 倍的成本账，并用一道三问门禁把它拦在开工之前。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清 provenance（出处可追溯）为什么是硬要求，并用引用的精确率 / 召回率算出文献底座靠不靠得住<br>② 用"检索 → 去污染 → 弱方向拒绝"三步判定新颖性，算出漏检率、说清为什么"没搜到"不能当"不存在"<br>③ 把选题固化成本算成"后续 N 步 × 单步成本"的一笔账，再用"可测吗 / 可做吗 / 真新吗"三问把它拦在开工前</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步逻辑递进：从"新想法从哪来"到"怎么把它拦在开工前"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要产生一个新想法，<strong>这就要求</strong>先有可信的文献底座——每一条引用的出处都得能点开、可追溯（<b>provenance</b>），否则后面搭在它上面的每一步都可能是编的。<b class="rn-key">先有可信的文献底座</b></span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然要有「<b>先有可信的文献底座</b>」，<strong>这就要求</strong>能判"这个想法是不是真的新"——<strong>所以</strong>得去检索、再逐条比对已有工作，还要排除 <b>contamination</b>（模型训练时早就见过它），而不是凭感觉说"我觉得新"。<b class="rn-key">要能判真新</b></span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然要「<b>要能判真新</b>」，<strong>于是</strong>先排除两类假象：模型训练时早就见过它（<b>contamination</b>）、别人已经做过它（重复）；<strong>所以</strong>"没搜到反例"只是一个待证状态，不等于不存在——把检索结果压进 <b>context</b>（喂给模型的一次性上下文窗口）之前，先过这一道筛。<b class="rn-key">先排除污染与重复</b></span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">既然要「<b>先排除污染与重复</b>」，<strong>那么</strong>筛完剩下的才是真正值得投入的方向——<strong>这就要求</strong>把它当成一笔会被放大的账来算：计划一旦固化，后续每一步实验、验证与写作（都要在 <b>held-out</b> 上拿分）都压在它身上，<strong>所以</strong>选题成本要按"它拖住了几步"来算。<b class="rn-key">选题要算成本账</b></span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>选题要算成本账</b>」，<strong>那么</strong>代价一旦发生就收不回——<strong>这就要求</strong>把拦截放在投入之前：用一道成本极小的闸，拦住可能烧掉一堆 <b>token</b> 的错方向，越晚止损越亏。<b class="rn-key">把闸设在开工前</b></span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>把闸设在开工前</b>」，<strong>所以</strong>最后落到一道可复核的三问门禁——可测吗、可做吗、真新吗，三问全过才允许投入；这道闸拦的是"没有 <b>held-out</b> 判据的猜测"，不是想法本身。这就是本课把"新想法"挡在代价发生之前的<b>结论</b>。<b class="rn-key">结论</b></span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">provenance（出处可追溯）</span><span class="meta-tag">novelty（新颖性）</span><span class="meta-tag">contamination（污染）</span><span class="meta-tag">弱方向拒绝</span><span class="meta-tag">选题门禁</span><span class="meta-tag">计划固化成本</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="30-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">它引的每篇文献，出处都能一条条点开吗？</div><div class="card-q-hint">提示：先别急着看结论，去找一条最硬的判据——这条引用指向的论文，真的存在吗、能不能追溯到原文？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>provenance（出处可追溯）</strong>指记录一条信息"从哪来、经过谁、到哪一步"的能力，回答 who-what-when-where；对研究来说，它就是"这条引用能不能被验证"的底座。MLE-bench（Chan 等，arXiv:2410.07095，OpenAI，2024）在跑分之外，还对获奖提交跑了抄袭检测（plagiarism detector），报告结论是<strong>未发现抄袭证据</strong>——说明"产物可溯源"已经是自主研究系统的一条验收项。</div>
+      <div class="content-section"><p>先问一个最容易被跳过的问题：<strong>AI 写出的那句结论，它引的那篇文献，真的存在吗？</strong></p><p><strong>因为</strong>模型是在"续写下一个 token"，不是去文献库里点开一篇文章——它完全可能把两篇论文的标题、作者、年份拼成一条<strong>看起来很像却并不存在</strong>的引用。<strong>就像</strong>有人报菜名报得很顺，但厨房里根本没有这道菜。<strong>所以</strong>在讨论"新不新"之前，先得有一层能验证的底座，这就是 <strong>provenance</strong>。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：文献底座的两个指标（示意）</div>
+        <div class="step"><div class="step-title">Step 1：精确率——引用的都是真的吗</div>
+          <table><tr><th>项</th><th>数值（示意）</th></tr><tr><td>生成的引用条数</td><td>20 条</td></tr><tr><td>能点开、真实存在的</td><td>15 条</td></tr><tr><td>精确率</td><td>15 ÷ 20 = <strong>0.75</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：精确率回答"有没有编造"——20 条里 15 条真、5 条查无此文，说明仍有 <strong>25%</strong> 的引用是空头支票。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：召回率——该引的都引到了吗</div>
+          <table><tr><th>项</th><th>数值（示意）</th></tr><tr><td>该主题真实应引的文献</td><td>25 篇</td></tr><tr><td>实际命中并引到的</td><td>10 篇</td></tr><tr><td>召回率</td><td>10 ÷ 25 = <strong>0.40</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：召回率回答"有没有漏掉关键前人工作"——25 篇里只引到 10 篇，漏掉 <strong>15 篇</strong>，这些漏引正是后面"看起来新、其实早已有人做过"的源头。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：合成一个可比的总分（F1）</div>
+          <table><tr><th>项</th><th>算式（示意）</th></tr><tr><td>F1</td><td>2 × (0.75 × 0.40) ÷ (0.75 + 0.40)</td></tr><tr><td>分子 / 分母</td><td>0.60 ÷ 1.15</td></tr><tr><td>结果</td><td>≈ <strong>0.52</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：精确率与召回率要一起看——只追精确（少引、都真）会漏光前人工作，只追召回（乱引一堆）会掺进编造。<strong>底座可信 = 两者同时达标。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>provenance 是"能不能验证"的前提：<strong>精确率管"有没有编造引用"，召回率管"有没有漏掉关键前人工作"</strong>。文献底座不牢，后面的"新颖"就只是错觉——所以判新之前，先把引用一条条点开。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','30-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','30-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-30-1" class="llm-section"><button class="llm-btn" onclick="startChat('30-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="30-1"><div class="chat-toolbar"><button onclick="copyChat('30-1')">📋 复制对话</button><button onclick="clearChat('30-1')">🗑 清空</button><button onclick="stopLLM('30-1')" id="stop-btn-30-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('30-1')" id="regenerate-btn-30-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="30-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 provenance 有疑问？比如「怎么快速验证一条引用」「精确率和召回率哪个更重要」？<br><br>说清你的场景，我帮你判断文献底座该怎么查。</div></div><div class="chat-input-row"><textarea data-input="30-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('30-1')}" rows="1" placeholder="例如：怎么检查一条引用是不是编的？"></textarea><button onclick="sendLLM('30-1')">发送</button></div></div></div>
+      <div id="tab-qna-30-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('30-1')">🔄 换一批</button></div><div class="qna-list" data-qna="30-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="30-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">检索没搜到一样的东西，就能说它是新的吗？</div><div class="card-q-hint">提示：想一个更冷的情况——可能别人做过了，只是你的检索没碰到；那"没搜到"到底证明了什么？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>novelty（新颖性）</strong>指一个想法相对已有公开工作"是否带来了新东西"；它的反面不是"错"，而是"已知 / 重复"——所以判定不能靠"我觉得新"，要靠可复现的检索与比对。与之相邻的两个词是：<strong>contamination（污染）</strong>，指训练语料里已经包含了本该用来检验它的资料，让"记住的"冒充"想出来的"；<strong>去污染（decontamination）</strong>，就是把这些已见过的题 / 答案从检验中排除。</div>
+      <div class="content-section"><p>上一张卡片把文献底座验成了可追溯的引用。但底座可信，不等于结论就新——<strong>检索没搜到一样的东西，就能说它新吗？</strong></p><p><strong>因为</strong>检索本身会漏：语料不全、同义词没覆盖、命名差异，都会让人"看不见"已经存在的反例；而模型又可能早就见过答案（污染），把"记住的"当成"想出来的"——<strong>好比</strong>在图书馆找一本书：书名对不上、索引又没收录，不等于这本书不存在。<strong>所以</strong>判定新颖性要走三步：<strong>检索 → 去污染 → 弱方向拒绝</strong>（证据太弱就主动砍掉，而不是继续加码）。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：为什么"没搜到"不能当"不存在"（示意）</div>
+        <div class="step"><div class="step-title">Step 1：算一次检索的漏检率</div>
+          <table><tr><th>项</th><th>数值（示意）</th></tr><tr><td>真实相关文献</td><td>100 篇</td></tr><tr><td>检索命中</td><td>60 篇</td></tr><tr><td>漏检率</td><td>(100 − 60) ÷ 100 = <strong>0.40</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：即便检索不差，也还有 <strong>40%</strong> 的相关文献没被碰到；在这些没碰到的地方，完全可能藏着已经做过的同类工作。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：把"没搜到"当"新"的误判下界</div>
+          <table><tr><th>前提</th><th>推论</th></tr><tr><td>假设未检出的 40% 都是已做过的重复（保守场景）</td><td>此时"判新"的误判率 <strong>≥ 40%</strong></td></tr><tr><td>命中越少</td><td>该保守下界越高</td></tr><tr><td>结论</td><td>"没搜到"给的是保守下界，不是证明</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：只有当"未检出的都是重复"这一保守假设成立时，"我没找到反例"才推得出"至少 40% 的地方可能有同类工作"——它仍是待证状态，不是结论；若盲区里没有重复，这个下界会降到 0。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：三步各管什么</div>
+          <table><tr><th>步骤</th><th>靶子</th></tr><tr><td>检索</td><td>降低漏检率（扩大覆盖）</td></tr><tr><td>去污染</td><td>排除"模型见过"的假新颖</td></tr><tr><td>弱方向拒绝</td><td>砍掉证据不足的方向</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条分工：<strong>检索管"有没有人做过"，去污染管"模型是不是背过"，弱方向拒绝管"证据够不够撑住往下做"</strong>——三步缺一，"新"就不可信。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>判"真新"靠的是排除法：先<b>检索</b>（降漏检）、再<b>去污染</b>（排除记忆）、最后<b>弱方向拒绝</b>（证据不足就砍）。"没搜到反例"只是一个下界——把它当结论，等于把 40% 的盲区当成不存在。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','30-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','30-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-30-2" class="llm-section"><button class="llm-btn" onclick="startChat('30-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="30-2"><div class="chat-toolbar"><button onclick="copyChat('30-2')">📋 复制对话</button><button onclick="clearChat('30-2')">🗑 清空</button><button onclick="stopLLM('30-2')" id="stop-btn-30-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('30-2')" id="regenerate-btn-30-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="30-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对新颖性判定有疑问？比如「去污染具体怎么做」「弱方向拒绝会不会误杀」？<br><br>说清你的检索范围与领域，我帮你设计这三步。</div></div><div class="chat-input-row"><textarea data-input="30-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('30-2')}" rows="1" placeholder="例如：怎么判断一个方向该不该砍？"></textarea><button onclick="sendLLM('30-2')">发送</button></div></div></div>
+      <div id="tab-qna-30-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('30-2')">🔄 换一批</button></div><div class="qna-list" data-qna="30-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="30-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">从一堆检索结果到能动手的假设，中间缺了哪几步？</div><div class="card-q-hint">提示：检索回来的是零散信号——想想要经过几次转换，才能变成一次实验就能判真伪的假设。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>把检索结果变成研究问题要走<strong>三级转换</strong>：<strong>信号（signal，读到的现象 / 矛盾 / 反常）</strong> → <strong>可迁移洞见（transferable insight，换一个场景仍然成立的说法）</strong> → <strong>可测假设（testable hypothesis，一次实验就能判真伪的陈述）</strong>。据公开报道，DeepSeek 研究者的自主研究系统由 Agent 执笔约 99% 的正文、全文约 <strong>45 页</strong>、引用约 <strong>105 篇</strong>文献（B 级、需人工核实：另有公开口径记为 46 页 / 103 篇），说明这条链路已有端到端产出。</div>
+      <div class="content-section"><p>上一张卡片说了判"真新"要走的三步。那检索回来的一大堆东西，<strong>怎么才能变成能动手的假设？</strong></p><p><strong>因为</strong>检索回来的是零散信号——一句反常的实验结果、两篇互相打架的结论；信号本身做不了实验——得先把它们压进 <b>context</b>（喂给模型的一次性上下文窗口），再"翻译"两次：先提炼成换场景还成立的洞见，再收窄成一次实验能判真伪的假设。<strong>就像</strong>把满桌零件先归类成几个部件，再挑一个去装配测试。<strong>所以</strong>要三级转换，而不是从检索直接跳到动手。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：三级转换的收敛（示意）</div>
+        <div class="step"><div class="step-title">Step 1：信号 → 洞见</div>
+          <table><tr><th>项</th><th>数值（示意）</th></tr><tr><td>检索结果</td><td>120 条</td></tr><tr><td>可迁移洞见</td><td>18 条</td></tr><tr><td>平均每条约用几篇</td><td>120 ÷ 18 ≈ <strong>6.7</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：从 120 条零散信号里先压出 18 条洞见，平均约 <strong>6.7 条信号</strong>支撑 1 条洞见——这一步在做"归类"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：洞见 → 可测假设</div>
+          <table><tr><th>项</th><th>数值（示意）</th></tr><tr><td>可迁移洞见</td><td>18 条</td></tr><tr><td>可测假设</td><td>3 个</td></tr><tr><td>平均每条生出几个</td><td>18 ÷ 3 = <strong>6</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：18 条洞见里只有 <strong>6 条</strong>才收窄成 1 个可测假设——这一步在做"可检验性筛选"，把解释不了、测不了的先淘汰。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：总压缩比</div>
+          <table><tr><th>项</th><th>数值（示意）</th></tr><tr><td>首尾之比</td><td>120 ÷ 3 = <strong>40</strong></td></tr><tr><td>含义</td><td>平均 40 条检索结果收敛出 1 个假设</td></tr><tr><td>为什么值得</td><td>只有假设能判真伪，信号不能</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：整条链路的压缩比约 <strong>40:1</strong>；这个"损失"不是浪费，而是把不能用实验判定的东西提前挡掉。<strong>45 页 / 105 篇的整篇论文，也是从海量信号这样收敛出来的。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>三级转换的价值是"可测"：<strong>信号不能做实验，洞见能解释，只有假设能判真伪</strong>。能不能从检索跳到动手，取决于你有没有把信号收敛到"一次实验能判真假"的那一层。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','30-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','30-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-30-3" class="llm-section"><button class="llm-btn" onclick="startChat('30-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="30-3"><div class="chat-toolbar"><button onclick="copyChat('30-3')">📋 复制对话</button><button onclick="clearChat('30-3')">🗑 清空</button><button onclick="stopLLM('30-3')" id="stop-btn-30-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('30-3')" id="regenerate-btn-30-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="30-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"信号→洞见→假设"有疑问？比如「信号和洞见怎么分」「怎么判断假设可测」？<br><br>说清你的主题与数据条件，我帮你把洞见收窄成可测假设。</div></div><div class="chat-input-row"><textarea data-input="30-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('30-3')}" rows="1" placeholder="例如：一条洞见能生出几个假设？"></textarea><button onclick="sendLLM('30-3')">发送</button></div></div></div>
+      <div id="tab-qna-30-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('30-3')">🔄 换一批</button></div><div class="qna-list" data-qna="30-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="30-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">模型早就"背过"这道题，会让它显得更聪明吗？</div><div class="card-q-hint">提示：判污染要看它对分数的实际贡献，别只停在"它可能见过"——找一个把题面改到认不出来的实验。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>MLE-bench 专门做了污染实验（Chan 等，arXiv:2410.07095，OpenAI，2024）：把 <strong>75</strong> 个 Kaggle 竞赛的题面全部改写、去掉竞赛名，让题目"认不出来"，再让 GPT-4o（AIDE 脚手架）重跑——混淆题面 <strong>8.4%±1.0%</strong> vs 原始题面 <strong>8.5%±0.6%</strong>，两者落在误差范围内、<strong>无显著差异</strong>；同时对获奖提交跑抄袭检测，未发现抄袭。结论：记忆对分数的贡献有限，但这只是"未发现系统性膨胀"，不等于污染不存在。</div>
+      <div class="content-section"><p>上一张卡片把检索信号收敛成了可测假设。可这里藏着一个更危险的可能——<strong>这个"新想法"，模型是不是早就在训练里见过？</strong></p><p><strong>因为</strong>如果任务或答案本来就在训练语料里，"会做 / 会想"可能只是回忆，新颖性就成了假象。<strong>就像</strong>考前偷看过答案：卷面分数高，不代表你真会做。<strong>所以</strong>要看污染对分数的实际贡献，而不是停在"它可能见过"——用一个能证伪的对照实验来量它。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：污染对分数到底贡献了多少</div>
+        <div class="step"><div class="step-title">Step 1：混淆题面对照实验</div>
+          <table><tr><th>条件</th><th>奖牌率</th></tr><tr><td>原始题面</td><td>8.5% ± 0.6%</td></tr><tr><td>混淆题面（去名、改写）</td><td>8.4% ± 1.0%</td></tr><tr><td>差值</td><td>8.5% − 8.4% = <strong>0.1</strong> 个百分点</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：把题面改到"认不出"，分数只掉了 <strong>0.1 个百分点</strong>——若模型主要靠背题，这一改应该崩，事实上没崩。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：这点差值算不算显著</div>
+          <table><tr><th>比较</th><th>判断</th></tr><tr><td>0.1 vs 混淆组误差 1.0</td><td>0.1 &lt; 1.0，落在噪声内</td></tr><tr><td>结论</td><td>无显著差异、未发现系统性膨胀</td></tr><tr><td>边界</td><td>"未发现"≠"不存在"</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：<strong>0.1 &lt; 1.0</strong>，差值被误差吞掉，所以只能说"未发现系统性膨胀"。这条对照是 MLE-bench 原文的做法（见论文 §4.2 与附录 A.8）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：另一条独立检查——抄袭</div>
+          <table><tr><th>检查</th><th>结果</th></tr><tr><td>对获奖提交跑抄袭检测</td><td>未发现抄袭证据</td></tr><tr><td>与污染的关系</td><td>污染问"见过没"，抄袭问"抄没抄"，两者独立</td></tr><tr><td>合起来说明</td><td>至少不是"背答案 / 抄答案"在撑分</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条分工：污染与抄袭是两把不同的尺子——前者查"训练时是否见过"，后者查"产物是否照搬"（MLE-bench 附录 A.4）。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>污染的判据是"贡献"，不是"可能性"：混淆题面后分数只差 <strong>0.1 个百分点</strong>、落在误差内，说明记忆不是主要来源。但"未发现"不等于"不存在"——换个领域，仍要用 held-out（留出未见过）复查。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','30-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','30-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-30-4" class="llm-section"><button class="llm-btn" onclick="startChat('30-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="30-4"><div class="chat-toolbar"><button onclick="copyChat('30-4')">📋 复制对话</button><button onclick="clearChat('30-4')">🗑 清空</button><button onclick="stopLLM('30-4')" id="stop-btn-30-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('30-4')" id="regenerate-btn-30-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="30-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对污染有疑问？比如「怎么设计混淆对照」「8.4% 和 8.5% 算不算一样」？<br><br>说清你的任务与语料来源，我帮你排污染检查。</div></div><div class="chat-input-row"><textarea data-input="30-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('30-4')}" rows="1" placeholder="例如：怎么在自己场景里查污染？"></textarea><button onclick="sendLLM('30-4')">发送</button></div></div></div>
+      <div id="tab-qna-30-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('30-4')">🔄 换一批</button></div><div class="qna-list" data-qna="30-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="30-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">选错一个方向，代价会停在那一步吗？</div><div class="card-q-hint">提示：计划一旦锁定，后面的实验、验证、写作是不是都绑在它身上——把一个方向的成本乘以它拖住的步数。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>计划固化成本（plan-commitment cost，本课构造的记账口径，非既有研究术语，需人工核实）</strong>：选题一旦确定，后续每一步实验、验证与写作都建立在它之上；方向错了，被锁住的不只是"那一步"，而是它背后的一整串步骤。这类"前置一步决定后续 N 步"的结构，在长时程自主研究里尤其明显——所以选题的成本要按"它拖住了几步"来算。</div>
+      <div class="content-section"><p>上一张卡片排除了"污染让它假装新"的一种可能。可就算想法真的新，<strong>选错方向要赔多少？</strong></p><p><strong>因为</strong>选题不是孤立的第 0 步：实验、验证、写作都挂在它身上，方向错了，这些步骤要么报废、要么重来。<strong>就像</strong>地基打歪了，上面盖的每一层都得拆。<strong>所以</strong>选题成本要按"它拖住了几步"来算，而不是按它自己那一步算。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：计划固化成本（示意）</div>
+        <div class="step"><div class="step-title">Step 1：先把公式写出来</div>
+          <table><tr><th>项</th><th>定义</th></tr><tr><td>计划固化成本</td><td>后续 N 步 × 单步成本 C</td></tr><tr><td>N</td><td>被这个选题锁住的后续步数</td></tr><tr><td>C</td><td>走完一步的平均成本</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条定义：成本不是"选错那一下"的成本，而是"被它锁住的 N 步"的成本——<strong>选题错 = 后续 N 步一起错。</strong>口径可选人时或 token；本课统一按人时计，而第 29 课的成本按 <b>token</b> 计——两者量纲不同，不可直接相加或换算。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：代入一个数（N=5、C=10 人时，示意）</div>
+          <table><tr><th>项</th><th>数值（示意）</th></tr><tr><td>后续步数 N</td><td>5</td></tr><tr><td>单步成本 C</td><td>10 人时</td></tr><tr><td>计划固化成本</td><td>5 × 10 = <strong>50 人时</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：5 步、每步 10 人时，一次选题固化就把 <strong>50 人时</strong>绑上了——注意这只是"被锁住"的下限，还没算返工。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：与前置核查比一比</div>
+          <table><tr><th>项</th><th>数值（示意）</th></tr><tr><td>开工前的选题复核</td><td>2 人时</td></tr><tr><td>固化成本</td><td>50 人时</td></tr><tr><td>杠杆</td><td>50 ÷ 2 = <strong>25×</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：花 <strong>2 人时</strong>的复核去拦可能 <strong>50 人时</strong>的固化，杠杆约 <strong>25 倍</strong>——这就是"为什么必须在开工前设门禁"的直接理由。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>选题的代价是乘出来的：<strong>计划固化成本 = 后续 N 步 × 单步成本 C</strong>，一个小错会被 N 步一起放大。用"前置核查（小成本）× 拦住固化成本（大成本）"的杠杆，才是选题阶段真正该做的事。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','30-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','30-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-30-5" class="llm-section"><button class="llm-btn" onclick="startChat('30-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="30-5"><div class="chat-toolbar"><button onclick="copyChat('30-5')">📋 复制对话</button><button onclick="clearChat('30-5')">🗑 清空</button><button onclick="stopLLM('30-5')" id="stop-btn-30-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('30-5')" id="regenerate-btn-30-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="30-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对选题成本有疑问？比如「N 该取几步」「C 怎么估」？<br><br>说清你的流程与单步开销，我帮你把固化成本算出来。</div></div><div class="chat-input-row"><textarea data-input="30-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('30-5')}" rows="1" placeholder="例如：N 该取几步？"></textarea><button onclick="sendLLM('30-5')">发送</button></div></div></div>
+      <div id="tab-qna-30-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('30-5')">🔄 换一批</button></div><div class="qna-list" data-qna="30-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="30-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">开工前，用什么把不该做的方向拦下来？</div><div class="card-q-hint">提示：要让门禁真拦得住人，每一问都得有一个"不合格就否掉"的硬条件，而不是凭感觉放行。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>选题门禁（research-question gate）</strong>：在投入执行前，用一组带明确否决条件的问题筛方向。本课程用三问——<strong>可测吗</strong>（能不能设计一次判真伪的实验）、<strong>可做吗</strong>（现有工具 / 算力 / 时间够不够）、<strong>真新吗</strong>（检索 + 去污染后还剩多少未被覆盖）；任一问不通过，方向就不进入执行。</div>
+      <div class="content-section"><p>上一张卡片把选题算成了一笔会被放大 N 倍的成本账。既然代价这么大，<strong>开工前用什么把它拦住？</strong></p><p><strong>因为</strong>凭感觉放行，等于把前面的核查全部作废；门禁要在投入之前、用可复核的条件把方向筛掉。<strong>就像</strong>出门前的检查清单，宁可多问一句，也别带着漏洞上路。<strong>所以</strong>把三问写成硬条件：<strong>可测吗（能不能拿到 <b>held-out</b> 结果来判真伪）、可做吗、真新吗</strong>——任一问不通过就不开工。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：三问门禁的通过率（示意）</div>
+        <div class="step"><div class="step-title">Step 1：每一问的否决条件</div>
+          <table><tr><th>问</th><th>不合格即否</th></tr><tr><td>可测吗</td><td>无法设计一次判真伪的实验</td></tr><tr><td>可做吗</td><td>工具 / 算力 / 时间不够</td></tr><tr><td>真新吗</td><td>检索 + 去污染后已被覆盖</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条原则：门禁的价值在于<strong>否决条件可复核</strong>——"可测吗"能拿"能不能写出实验"来验，而不是靠感觉。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：三问串联的通过率</div>
+          <table><tr><th>项</th><th>数值（示意）</th></tr><tr><td>单问通过率</td><td>0.8</td></tr><tr><td>三问全过</td><td>0.8³ = <strong>0.512</strong></td></tr><tr><td>换算</td><td>≈ <strong>51.2%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：单问 0.8 看着不差，三问串联只剩 <strong>51.2%</strong>——这里默认三问相互独立（真实场景里三项可能相关，0.8³ 需用历史数据估计）；门禁不是"再确认一下"，而是把不合格方向真的砍掉。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：这对选题意味着什么</div>
+          <table><tr><th>项</th><th>含义</th></tr><tr><td>被拦下的比例</td><td>1 − 0.512 = <strong>0.488</strong>，约 48.8%</td></tr><tr><td>被拦住的</td><td>"看起来能做、其实不合格"的方向</td></tr><tr><td>通过后才做</td><td>进入执行，避免固化成本</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术（示意）：三问大约会拦下 <strong>48.8%</strong> 的候选方向——拦在开工前，比拦在投了 50 人时之后便宜得多。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>门禁的价值在于"否决条件可复核"：<strong>可测吗、可做吗、真新吗，任一不合格就否</strong>。它是本课推理链的落点——在代价发生之前，把"新想法"先拦一遍。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','30-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','30-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-30-6" class="llm-section"><button class="llm-btn" onclick="startChat('30-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="30-6"><div class="chat-toolbar"><button onclick="copyChat('30-6')">📋 复制对话</button><button onclick="clearChat('30-6')">🗑 清空</button><button onclick="stopLLM('30-6')" id="stop-btn-30-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('30-6')" id="regenerate-btn-30-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="30-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对选题门禁有疑问？比如「三问里哪问最容易挂」「会不会误杀好方向」？<br><br>说清你的方向与条件，我帮你逐问过一遍门禁。</div></div><div class="chat-input-row"><textarea data-input="30-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('30-6')}" rows="1" placeholder="例如：三问里哪一问最重要？"></textarea><button onclick="sendLLM('30-6')">发送</button></div></div></div>
+      <div id="tab-qna-30-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('30-6')">🔄 换一批</button></div><div class="qna-list" data-qna="30-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 30 课完成 · 文献锚定与选题：先把出处验成可追溯，再把"新"判成可复核，最后把方向拦在开工前</p>
+    <a href="#" onclick="switchLesson(29);return false;">← 上一课：自主研究全景与自主度分级</a>　·　<a href="#" onclick="switchLesson(31);return false;">下一课：假设、规划与搜索 →</a>
+  </div></div>

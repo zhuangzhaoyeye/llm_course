@@ -1,0 +1,204 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 24 课：记忆与 RAG 工程化</h2>
+    <p class="subtitle">上一课我们把"工具"这条通道打通了——模型能通过 MCP 去调用外部世界。但工具解决的是"能做什么"，没解决"知道什么"：模型的知识停在训练截止日，你的私域文档它从没见过。这一课从一个反问开始：<strong>上下文窗口都到百万 token 了，塞进上下文就等于用得上吗？</strong>我们从检索链路（切分 / 嵌入 / 重排）、中间遗忘、记忆分层、写权重 vs 放检索，一路算到"怎么评估一条 RAG（先去资料库检索出相关片段，再把这些片段塞进上下文让模型照着回答）链路"。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清"窗口大 ≠ 该全塞"的成本与效果账，并算出全量塞入与按需检索的 token 差<br>② 讲清 RAG 检索链路的每一环，用 recall / precision 量化召回质量，并解释"中间遗忘"为什么让塞进去的内容用不上<br>③ 用 CoALA 的四层记忆组织 Agent 状态，在"写进权重 vs 放检索"之间做取舍，并用 RAGAS 分层评估定位"是检索坏还是生成坏"</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步逻辑递进：从"为什么要检索"到"怎么证明它有用"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要让模型回答它训练里没见过、而且会变的事实，<strong>这就要求</strong>先做一个选择：把知识塞进权重（贵、慢、会遗忘）还是放进 <b>context</b>（便宜、可更新）。既然知识会变、又要能溯源，<strong>于是</strong>选"运行时取"。<b class="rn-key">知识要运行时取</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然「<b>知识要运行时取</b>」，<strong>所以</strong>得先把文档变成一个能被检索的结构——<strong>这就要求</strong>解析、切分、<b>embedding</b> 成向量、建索引；链路里任何一环坏，最终答案都会坏。<b class="rn-key">检索质量由链路最弱环决定</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然「<b>检索质量由链路最弱环决定</b>」，那么把对的材料取回来只是第一步——<strong>这就要求</strong>接着解决「取回来怎么摆」：材料进 <b>context</b> 后是线性铺开的，而模型对中段利用最差（Lost in the Middle），<strong>否则</strong>检索得再准，收益也会被位置吃掉。<b class="rn-key">取回来还要放对位置</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">既然「<b>取回来还要放对位置</b>」，<strong>所以</strong>要先看清一件事：上下文里的"位置"是稀缺资源——<strong>这就要求</strong>决定"什么值得占用它"：把记忆按用途分层（工作 / 情节 / 语义 / 程序），只有工作记忆常驻 <b>context</b>，其余外置、用时再取，不同层配不同的 <b>cache</b>。<b class="rn-key">记忆要分层</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>记忆要分层</b>」，<strong>于是</strong>最上层的决策就浮出来了：这份知识该放哪一层——<strong>这就要求</strong>在"写进权重"与"放 <b>context</b> 里的检索"之间，按更新频率、规模、是否要溯源来取舍。<b class="rn-key">放权重还是放检索要按场景定</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>放权重还是放检索要按场景定</b>」，<strong>所以</strong>最后还得能证明这个选择真的对——<strong>这就要求</strong>一套分层评估：把检索指标与生成指标分开测，<strong>否则</strong>"检索涨了、答案没涨"会被漏掉。衡量这一切的输入与输出都是 <b>tokens</b>。<b class="rn-key">评估要分层</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">RAG</span><span class="meta-tag">切分与嵌入</span><span class="meta-tag">重排</span><span class="meta-tag">Lost in the Middle</span><span class="meta-tag">记忆分层</span><span class="meta-tag">RAGAS</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="24-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">上下文窗口都到百万 token 了，为什么还要 RAG？</div><div class="card-q-hint">提示：先算两笔账——把整个知识库都塞进去，一次请求要多少 token、多少成本？再想"装得下"和"用得上"是不是同一件事。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>RAG</strong>（Retrieval-Augmented Generation，检索增强生成）由 Lewis 等人于 2020 年提出（arXiv:2005.11401，NeurIPS 2020）：把<strong>参数化记忆</strong>（模型权重里的事实）与<strong>非参数化记忆</strong>（一个可检索的维基百科向量索引）结合，先检索、再生成。它要解决的正是语言模型的三处结构性缺陷——知识无法方便地<strong>扩充或修订</strong>、无法<strong>给出出处</strong>、容易<strong>编造（幻觉）</strong>。注意：RAG 早于"百万 token 窗口"，但窗口变大并没有取消它的理由。</div>
+      <div class="content-section"><p>上一课我们把"工具"这条通道打通了：模型能通过 MCP 去调用外部世界。但工具解决的是"能做什么"，没解决"知道什么"——模型的内部知识停在训练截止日，你的私域文档它从没见过。这一张先回答一个最容易被忽略的反问：<strong>窗口都这么大（标称百万 token），为什么还要费劲检索？</strong></p><p><strong>因为</strong>"装得下"和"用得上"是两回事。装得下是显存/工程问题（窗口够大即可），用得上是能力问题（模型在训练时见过多少长依赖）。<strong>就像</strong>开卷考试：你不会把整间图书馆搬进考场，而是按题目去书架上取那几页——取哪几页、取多少页，才是真正决定成绩的一步。<strong>所以</strong>下面用两笔账，把"全塞"与"检索"的差距算出来。</p><p>更自然的做法是「窗口既然到了百万 token，那就把知识库整个塞进去」。但输入 token 是线性计费的：100 万 token 的知识库每次请求都送，10,000 次/天就是 1×10¹⁰ token、约 $1,500/天；按需检索 top-5 只要约 $3.84/天，相差约 391 倍。「装得下」也不等于「用得上」——这由第 3 张卡片来算。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：全量塞入 vs 按需检索</div>
+        <div class="step"><div class="step-title">Step 1：一次请求的 token 差多少</div>
+          <table><tr><th>方案</th><th>每次输入 token</th><th>说明</th></tr><tr><td>全量塞入</td><td><strong>1,000,000</strong></td><td>把 100 万 token 的知识库整个放进 context</td></tr><tr><td>检索 top-5</td><td><strong>2,560</strong></td><td>5 块 × 512 token</td></tr><tr><td>比值</td><td colspan="2">1,000,000 ÷ 2,560 ≈ <strong>391 倍</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：知识库 100 万 token、检索每次只取 top-5（每块约 512 token）时，一次请求的输入从 <strong>1,000,000</strong> 降到 <strong>2,560</strong>，相差约 <strong>391 倍</strong>。窗口再大，也不该把无关的 99.74% 也一起付钱。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：这个差距换算成钱是多少</div>
+          <table><tr><th>口径</th><th>每天 10,000 次请求的累计输入</th><th>按 $0.15/百万 token 计</th></tr><tr><td>全量塞入</td><td>10,000 × 1,000,000 = 1×10¹⁰ token</td><td>≈ <strong>$1,500 / 天</strong></td></tr><tr><td>检索 top-5</td><td>10,000 × 2,560 = 2.56×10⁷ token</td><td>≈ <strong>$3.84 / 天</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：按输入 $0.15/百万 token（示意价）计，每天 10,000 次请求：全量约 <strong>$1,500/天</strong>、检索约 <strong>$3.84/天</strong>，同样相差约 <strong>391 倍</strong>。输入 token 是线性计费的，"省掉的 99.74%"会直接变成账单。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：标称窗口 ≠ 有效窗口</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>标称窗口（百万级窗口的一个示例取值）</td><td>500,000 token</td></tr><tr><td>假设的实测有效区间（举例，非某模型实测）</td><td>约 125,000 token</td></tr><tr><td>有效利用率（示意）</td><td>125,000 ÷ 500,000 = <strong>25%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">先说可核验的结论：<strong>标称窗口 ≠ 有效窗口</strong>——Lost in the Middle（Liu 等，arXiv:2307.03172）证明即便显式支持长上下文的模型，对中段信息的利用也会下降，所以"能装下"不等于"能用好"。但<strong>具体阈值没有统一答案</strong>：不同模型、不同任务差异很大，没有可照搬的统一数字。这里把 125K / 500K 只当<strong>示意</strong>，工程上必须按你自己场景的<strong>实测有效范围</strong>设计。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>RAG 的第一个理由不是"窗口不够大"，而是<strong>成本与效果都不支持全塞</strong>：输入 token 线性计费，而模型对超长上下文的利用在远低于标称上限时就已退化。RAG 把"把整个库读一遍"换成"只读相关的那几页"——这是在<strong>成本</strong>与<strong>效果</strong>上同时更优的选择。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','24-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','24-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-24-1" class="llm-section"><button class="llm-btn" onclick="startChat('24-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="24-1"><div class="chat-toolbar"><button onclick="copyChat('24-1')">📋 复制对话</button><button onclick="clearChat('24-1')">🗑 清空</button><button onclick="stopLLM('24-1')" id="stop-btn-24-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('24-1')" id="regenerate-btn-24-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="24-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"窗口够大为什么还要 RAG"有疑问？比如「窗口够大是不是就不用检索了」「成本到底差多少」？<br><br>说一下你的知识库规模与日请求量，我帮你估算全塞与检索的成本差。</div></div><div class="chat-input-row"><textarea data-input="24-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('24-1')}" rows="1" placeholder="例如：100 万 token 的知识库全塞要多少钱？"></textarea><button onclick="sendLLM('24-1')">发送</button></div></div></div>
+      <div id="tab-qna-24-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('24-1')">🔄 换一批</button></div><div class="qna-list" data-qna="24-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="24-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">检索链路这么长，怎么保证拿回来的就是对的？</div><div class="card-q-hint">提示：把链路拆成"入库"和"查询"两条路——文档进库前要先被切、被编码；查询时先粗排、再精排。想想哪一步做错，后面怎么补救都白搭。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>一条 RAG 链路由<strong>入库路径</strong>（解析 → 切分 chunking → 嵌入 <strong>embedding</strong> 成向量 → 建索引）与<strong>查询路径</strong>（问题编码 → 相似度检索 → 重排 <strong>re-ranking</strong> → 生成）组成。<strong>重排</strong>用更强的交叉编码器对粗排结果重新打分——检索质量有提升，但要权衡延迟代价（见 Step 3）。常见失败模式有三类：切分把语义切断、嵌入模型在入库端与查询端不一致、检索分数未校准。</div>
+      <div class="content-section"><p>上一张卡片说明知识要运行时取，而不是全塞。这一张盯住"取"这条链路：<strong>它这么长，怎么保证拿回来的是对的？</strong></p><p><strong>因为</strong>入库与查询是两条独立的路，任何一环出错都会沿着链路传到最终答案——切分把一句话劈成两半、嵌入模型两端用得不一样、粗排召回了却没排进前面，都会让生成拿到错的材料。<strong>就像</strong>一条水管：只要有一个接口漏水，末端就出不了水；你没法在末端"补回来"。<strong>所以</strong>下面先用一笔账看切分，再用两个指标量化召回质量。</p><p>更笨的做法是「让粗排的结果直接进生成」。但粗排靠向量相似度打分，只判「语义像不像」，分不清「字面很像、其实在讲别的」；重排用更强的交叉编码器把候选重新打分，实测能把 Context Precision 从 0.80 抬到 0.85、Context Recall 从 0.78 抬到 0.86——代价是运行时间约上升至原来的 5 倍。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：切分、召回、重排各值多少</div>
+        <div class="step"><div class="step-title">Step 1：切分与重叠决定块数</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>文档长度</td><td>10,000 token</td></tr><tr><td>块大小 chunk</td><td>512 token</td></tr><tr><td>重叠 overlap</td><td>50 token</td></tr><tr><td>步长</td><td>512 − 50 = <strong>462</strong></td></tr><tr><td>块数</td><td>⌈(10,000 − 512) ÷ 462⌉ + 1 = 21 + 1 = <strong>22 块</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：块数 ≈ (文档长度 − 块大小) ÷ (块大小 − 重叠) + 1 = (10,000 − 512) ÷ 462 + 1 ≈ <strong>22</strong>。块太小会丢上下文、块太大又塞进无关内容——那 50 token 的重叠，就是为了防止关键句正好横跨两块边界被劈开。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：召回率怎么算</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>文档里真正相关的片段</td><td>3 个</td></tr><tr><td>检索 top-5 命中的相关片段</td><td>2 个</td></tr><tr><td>召回率 recall</td><td>2 ÷ 3 ≈ <strong>0.667</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：召回率 = 相关片段中被召回的比例 = <strong>2 ÷ 3 ≈ 0.667</strong>。它衡量"该拿的拿到没有"——漏掉的那个片段，生成阶段再怎么努力也变不出来（这正是"垃圾进、垃圾出"）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：重排能带来多少提升</div>
+          <table><tr><th>指标</th><th>重排前</th><th>重排后</th><th>变化</th></tr><tr><td>Context Precision（相关块是否排在前面）</td><td>0.80</td><td><strong>0.85</strong></td><td>+0.05</td></tr><tr><td>Context Recall（相关块是否被召回）</td><td>0.78</td><td><strong>0.86</strong></td><td>+0.08</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">据一项 RAG 优化研究（arXiv:2505.08445），加入重排后 Context Precision 从 0.80 升到 0.85、Context Recall 从 0.78 升到 0.86（绝对提升 0.05 / 0.08），属"小幅提升"。<strong>代价是延迟</strong>：该研究报告运行时间约上升至原来的 <strong>5 倍</strong>（单一研究、单配置，示意），因此是否上重排取决于你的延迟约束。它对应的朴素做法是：<strong>先粗排取 top-50，再用交叉编码器精排取 top-5</strong>——用更多候选换更准的顺序。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>检索链路的产出上限由<strong>最弱的一环</strong>决定：切分错了，后面的重排与生成都在错的材料上工作，修生成模型救不回来。所以调优顺序应该是——<strong>先把切分与嵌入对齐，再上混合检索与重排</strong>，而不是一上来就换更大的生成模型。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','24-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','24-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-24-2" class="llm-section"><button class="llm-btn" onclick="startChat('24-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="24-2"><div class="chat-toolbar"><button onclick="copyChat('24-2')">📋 复制对话</button><button onclick="clearChat('24-2')">🗑 清空</button><button onclick="stopLLM('24-2')" id="stop-btn-24-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('24-2')" id="regenerate-btn-24-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="24-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对检索链路有疑问？比如「chunk 该切多大」「重排到底值不值」？<br><br>说一下你的文档类型与查询方式，我帮你判断瓶颈最可能在切分、嵌入还是重排。</div></div><div class="chat-input-row"><textarea data-input="24-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('24-2')}" rows="1" placeholder="例如：chunk 512 加 50 overlap 合适吗？"></textarea><button onclick="sendLLM('24-2')">发送</button></div></div></div>
+      <div id="tab-qna-24-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('24-2')">🔄 换一批</button></div><div class="qna-list" data-qna="24-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="24-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">内容都塞进上下文了，为什么模型还是答不到点上？</div><div class="card-q-hint">提示：材料没问题、也确实放进去了。那换个角度想——同一份材料，模型读它的「顺序」会不会有影响？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Lost in the Middle</strong>（Liu 等，arXiv:2307.03172，TACL 2024）用"多文档问答"实验发现：当相关信息在上下文（<b>context</b>）里的<strong>位置</strong>改变时，模型性能显著变化——放在开头或结尾时最高（primacy bias / recency bias，即首因 / 近因偏好：更依赖开头与结尾的信息），放在<strong>中间时显著下降</strong>，整体呈 U 形曲线；即便换成显式支持长上下文的模型，这个现象依然存在。</div>
+      <div class="content-section"><p>上一张卡片把检索质量量化成了 recall 与 precision。但还有半步没走完：<strong>就算检索到的片段是对的，把它们一股脑塞进上下文，模型就一定会用吗？</strong></p><p><strong>因为这</strong>不是"有没有材料"的问题，而是"材料放在哪"的注意力问题——同一段正确材料，放在上下文开头/结尾和放在中间，模型的利用率差别很大。<strong>就像</strong>念一长串名单：开头和结尾的名字记得最清楚，中间那一大段常被一带而过。<strong>所以</strong>下面看这个"中间遗忘"有多大，以及怎么把材料放对位置。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：位置决定利用率</div>
+        <div class="step"><div class="step-title">Step 1：位置改变，准确率跟着变（示意）</div>
+          <table><tr><th>相关信息位置</th><th>相对准确率（示意）</th><th>说明</th></tr><tr><td>第 1 位（最前）</td><td>100%（基准）</td><td>primacy bias</td></tr><tr><td>第 10 位（中间）</td><td>≈ <strong>70%</strong> 基准</td><td>明显下降</td></tr><tr><td>第 20 位（最后）</td><td>≈ <strong>95%</strong> 基准</td><td>recency bias，回升</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">示意：把"信息在开头时的准确率"设为 100% 基准，位置移到中段会掉到约 <strong>70%</strong>，回到末尾又接近开头（约 <strong>95%</strong>）——形状是先降后升的 U 形。具体幅度随模型与任务而异（此处为读图近似，仅示形状），可核验的是<strong>方向</strong>：中间最差（Liu 等，arXiv:2307.03172）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：减少塞入的片段数就能缓解</div>
+          <table><tr><th>方案</th><th>塞入片段数</th><th>注意力竞争面</th></tr><tr><td>粗排放进全部候选</td><td>20 块</td><td><strong>20 个</strong>片段竞争</td></tr><tr><td>精排后只放 top-5</td><td>5 块</td><td><strong>5 个</strong>片段竞争</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：从 20 块降到 5 块，竞争注意力的片段数 <strong>20 ÷ 5 = 4</strong>，缩小到原来的 1/4。无关块挤占的是<strong>注意力预算</strong>，不是 token 预算——取太多会稀释真正相关的信号。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：把材料放对位置的三条做法</div>
+          <table><tr><th>做法</th><th>具体操作</th></tr><tr><td>最相关的放首尾</td><td>重排后把 top-1 放开头、top-2 放结尾</td></tr><tr><td>减少总片段数</td><td>精排取 top-5，而不是 top-20</td></tr><tr><td>结构化标注</td><td>给每块加来源标题，帮模型定位</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条总纲：既然"中间最难用"，那就把最关键的材料放在两端、并砍掉总量。这也是<strong>重排</strong>（把最相关的排到最前）与<strong>少取几块</strong>两个动作能同时提升答案质量的原因。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>RAG 的失效常被误判成"没检索到"，其实更常见的是"检索到了但没用上"。对策有三：<strong>把最相关的放首尾、减少塞入的片段数、给材料加来源标记</strong>。记住这条顺序：先保证取到（recall），再保证用好（位置）。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','24-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','24-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-24-3" class="llm-section"><button class="llm-btn" onclick="startChat('24-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="24-3"><div class="chat-toolbar"><button onclick="copyChat('24-3')">📋 复制对话</button><button onclick="clearChat('24-3')">🗑 清空</button><button onclick="stopLLM('24-3')" id="stop-btn-24-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('24-3')" id="regenerate-btn-24-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="24-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"中间遗忘"有疑问？比如「为什么不把最相关的直接放最前就好了」「多放几块是不是更保险」？<br><br>说一下你一次塞几块、按什么顺序排，我帮你调排布。</div></div><div class="chat-input-row"><textarea data-input="24-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('24-3')}" rows="1" placeholder="例如：关键片段该放开头还是结尾？"></textarea><button onclick="sendLLM('24-3')">发送</button></div></div></div>
+      <div id="tab-qna-24-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('24-3')">🔄 换一批</button></div><div class="qna-list" data-qna="24-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="24-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">工作记忆、情节记忆、语义记忆、程序记忆——Agent 的记忆为什么要分这么多层？</div><div class="card-q-hint">提示：想想你自己的信息是怎么分开放的——正在处理的事、上周发生的事、一般性知识、做事的步骤，是不是放在不同的"地方"、用不同的方式取？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>Agent 记忆的分层来自 <strong>CoALA</strong>（Cognitive Architectures for Language Agents，Sumers 等，arXiv:2309.02427，2023）：一个<strong>工作记忆</strong>（working memory，即当前 <b>context</b> 窗口内正在推理的状态）+ 三类长期记忆——<strong>情节记忆</strong>（episodic：过去的事件与经历）、<strong>语义记忆</strong>（semantic：事实与知识）、<strong>程序记忆</strong>（procedural：做事的步骤与技能）。它借鉴认知科学，把"短期/长期"这种模糊二分，换成按<strong>信息类型</strong>区分的更细分类——分层也决定了哪一层可以放进高速 <b>cache</b>、哪一层必须走外部检索。</div>
+      <div class="content-section"><p>上一张卡片说明取回来还要放对位置。可"放"在哪里、放多久，本身就需要一个结构——这一张问：<strong>Agent 的记忆为什么要分这么多层？</strong></p><p><strong>因为</strong>不同的信息有完全不同的生命周期与取用方式：当前这一步的推理必须常驻 <b>context</b>（快、但贵、会话结束就没），而"三天前用户说过什么"要能跨会话留存、"公司报销规则"要能长期复用、"先校验再下单"这类步骤要能指导行为。<strong>就像</strong>办公桌、日记本、百科全书、操作手册——信息不同，放的抽屉和取的方式也不同，全堆桌面上很快就乱。<strong>所以</strong>下面看四层各存什么，再算一笔上下文预算。</p><p>更省事的做法是「所有信息都放进同一段上下文，谁需要谁自己看」。但上下文的位置是稀缺资源：单次会话约 5,000 token 的轨迹，30 次会话就是 150,000 token，是 8,000 预算的 18.75 倍——不分层、不外置，历史很快就把窗口占满。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：四层记忆与一份上下文预算</div>
+        <div class="step"><div class="step-title">Step 1：四层记忆各存什么</div>
+          <table><tr><th>层</th><th>存什么</th><th>典型载体</th><th>存取方式</th></tr><tr><td>工作记忆 working</td><td>当前任务的状态与中间结果</td><td>context 窗口</td><td>直接读写</td></tr><tr><td>情节记忆 episodic</td><td>过去的事件、会话记录、工具调用轨迹</td><td>日志</td><td>向量检索</td></tr><tr><td>语义记忆 semantic</td><td>事实、偏好、领域知识</td><td>知识库</td><td>向量 + 图检索</td></tr><tr><td>程序记忆 procedural</td><td>做事的步骤、技能、决策规则</td><td>prompt 规则或代码</td><td>直接注入</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条结构说明：四层的区别不是"存多久"，而是"存什么"——工作记忆按窗口存、情节按时间存、语义按事实存、程序按步骤存。一个 Agent 通常同时用其中 <strong>2~3 层</strong>（经验说法，示意）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：一份 8,000 token 的预算怎么分</div>
+          <table><tr><th>用途</th><th>预算</th><th>占比</th></tr><tr><td>system prompt</td><td>500 token</td><td>6.25%</td></tr><tr><td>工作记忆（本轮历史 + 中间结果）</td><td><strong>3,000 token</strong></td><td>37.5%</td></tr><tr><td>检索片段</td><td><strong>4,000 token</strong></td><td>50%</td></tr><tr><td>输出预留</td><td>500 token</td><td>6.25%</td></tr><tr><td>合计</td><td>500 + 3,000 + 4,000 + 500 = <strong>8,000</strong></td><td>100%</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：工作记忆 + 检索片段 + system + 输出 = <strong>8,000</strong> token，其中检索片段占 <strong>50%</strong>。这也是"记忆分层"的落地方式——<strong>每一层都要在 context 里分到一块预算，而不是谁先来谁占满</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：情节记忆为什么必须外置</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>每次会话产生的轨迹</td><td>5,000 token</td></tr><tr><td>30 次会话累计</td><td>30 × 5,000 = <strong>150,000 token</strong></td></tr><tr><td>相对 8,000 预算</td><td>150,000 ÷ 8,000 = <strong>18.75 倍</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：单次会话 5,000 token，30 次就是 <strong>150,000</strong> token，是 8,000 预算的 <strong>18.75 倍</strong>——装不下。所以情节记忆必须<strong>外置到检索里</strong>，用时按需取回少数几条，而不是无脑累积进 context。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>记忆分层回答的问题是"<strong>什么该常驻、什么该外置</strong>"：工作记忆常驻 context（快但贵、易失），情节/语义/程序记忆外置到存储（便宜、可持久、需检索）。把这条想清楚，RAG 就不只是"文档问答"，而是 Agent 记忆体系里的<strong>语义记忆层</strong>。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','24-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','24-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-24-4" class="llm-section"><button class="llm-btn" onclick="startChat('24-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="24-4"><div class="chat-toolbar"><button onclick="copyChat('24-4')">📋 复制对话</button><button onclick="clearChat('24-4')">🗑 清空</button><button onclick="stopLLM('24-4')" id="stop-btn-24-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('24-4')" id="regenerate-btn-24-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="24-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对记忆分层有疑问？比如「我的场景该用哪几层」「情节记忆怎么存才不爆」？<br><br>说一下你的 Agent 要记什么、记多久，我帮你分到合适的层。</div></div><div class="chat-input-row"><textarea data-input="24-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('24-4')}" rows="1" placeholder="例如：跨会话的记忆该放哪一层？"></textarea><button onclick="sendLLM('24-4')">发送</button></div></div></div>
+      <div id="tab-qna-24-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('24-4')">🔄 换一批</button></div><div class="qna-list" data-qna="24-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="24-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">新知识该写进权重还是放进检索？为什么不能全用微调？</div><div class="card-q-hint">提示：比较两条路的成本——"改权重"要做什么、多久一次能承受？"放检索"又便宜在哪？再想：哪些知识根本不该动权重。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>把新知识装进模型有两条路：<strong>改权重</strong>（持续预训练 / 微调 / 模型编辑——ROME、MEMIT 属后者，把事实当键值对、直接改写模型局部权重）与<strong>放检索</strong>（RAG）。一项综述（Wang 等，arXiv:2502.12598，<em>Bring Your Own Knowledge: A Survey of Methods for LLM Knowledge Expansion</em>）给出取舍：<strong>模型编辑</strong>适合精确、定向的少量事实更正；<strong>检索</strong>适合动态、频繁变化的事实，无需改参数、天然可溯源；<strong>持续学习</strong>适合大规模知识增量。要注意编辑的代价：一篇编辑方法综述与基准（Yao 等，arXiv:2305.13172）指出，现有编辑方法在可移植性、局部性上仍有局限；一项规模化研究（Gupta 等，arXiv:2401.07453）进一步发现，对 ROME/MEMIT 做持续顺序编辑时，模型会先"渐进遗忘"、随后进入"灾难性遗忘"——即少量、定向的编辑尚可，编辑量一上去就明显退化。</div>
+      <div class="content-section"><p>上一张卡片把记忆分了层，其中"语义记忆"这一层既可以写进权重、也可以放进 <b>context</b> 里的检索。这一张问最上层的决策：<strong>新知识到底该放哪？为什么不能全用微调？</strong></p><p><strong>因为</strong>两条路的成本结构完全不同：改权重要跑训练/编辑，慢、贵且会遗忘旧知识；放检索只需更新索引，快、可回滚、可溯源。<strong>就像</strong>改一个人的习惯要重新训练很久，而给他贴一张"今天改走这条路"的便签当场就生效——短期、易变的信息用便签，长期、稳定的能力才值得改习惯。<strong>所以</strong>下面用一笔账把两条路的成本摆出来。</p><p>更自然的做法是「有新知识就微调一遍模型」。但改权重的边际成本高、还会遗忘旧知识：按每月 100 条更新算，一年要微调 12 次，每次都是数 GPU·小时级的训练；同样的知识放进索引只要写 1,200 次、每次秒级。模型编辑只在很小的编辑量下还可用——一旦持续顺序编辑，ROME/MEMIT 就会先"渐进遗忘"、后"灾难性遗忘"（Gupta 等，arXiv:2401.07453）。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：写权重 vs 放检索</div>
+        <div class="step"><div class="step-title">Step 1：两条路的性质对比</div>
+          <table><tr><th>维度</th><th>写进权重</th><th>放进检索</th></tr><tr><td>更新成本</td><td>高（训练/编辑一轮）</td><td><strong>低</strong>（更新索引）</td></tr><tr><td>更新速度</td><td>小时 ~ 天</td><td><strong>秒级</strong></td></tr><tr><td>可溯源</td><td>难</td><td><strong>易</strong>（可给出处）</td></tr><tr><td>适合规模</td><td>少量、定向</td><td>大量、频繁</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条结构对比：这两条路不是"谁更好"，而是"谁更合适"——权重适合稳定、通用的能力；检索适合易变、需溯源的事实。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：一年更新成本算例</div>
+          <table><tr><th>项</th><th>写进权重（月度微调）</th><th>放进检索（实时索引）</th></tr><tr><td>更新频率</td><td>100 条/月 → <strong>12 次/年</strong></td><td><strong>1,200 条/年</strong></td></tr><tr><td>单次代价</td><td>一次微调（数 GPU·小时）</td><td>一次索引写（毫秒 ~ 秒）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：100 条/月意味着一年 <strong>12 次</strong>微调（每次都要重新训练），或 <strong>1,200 次</strong>索引写入（每次秒级）。<strong>更新越频繁，检索的相对成本越低</strong>——这就是为什么"会变的事实"默认走检索。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：编辑规模的代价</div>
+          <table><tr><th>编辑规模</th><th>ROME / MEMIT 的表现</th><th>来源</th></tr><tr><td>少量、定向的更正</td><td>尚可</td><td>Yao 等，arXiv:2305.13172</td></tr><tr><td>持续顺序编辑（规模增大）</td><td>先"渐进遗忘"、后"灾难性遗忘"</td><td>Gupta 等，arXiv:2401.07453</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">定性结论：模型编辑适合"少量、定向"的更正；一旦持续顺序编辑，ROME/MEMIT 会先渐进遗忘、后灾难性遗忘（Gupta 等，arXiv:2401.07453）——所以<strong>"用编辑代替 RAG"只在极小规模下成立</strong>。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>选路看四个问题：<strong>① 更新多频繁 ② 要溯源吗 ③ 规模多大 ④ 要保旧知识吗</strong>。频繁 / 要溯源 / 规模大 → 放检索；稳定 / 通用 / 少量更正 → 可考虑写权重；两者都要 → 检索为主、对稳定的部分做微调补齐。判据一句话：<strong>先问"把正确资料给它，它就能答对吗"——能就是检索问题，不能才动权重。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','24-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','24-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-24-5" class="llm-section"><button class="llm-btn" onclick="startChat('24-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="24-5"><div class="chat-toolbar"><button onclick="copyChat('24-5')">📋 复制对话</button><button onclick="clearChat('24-5')">🗑 清空</button><button onclick="stopLLM('24-5')" id="stop-btn-24-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('24-5')" id="regenerate-btn-24-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="24-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"写权重还是放检索"有疑问？比如「什么时候必须微调」「模型编辑能撑多大」？<br><br>说清你的知识更新频率与规模，我帮你判断该走哪条路。</div></div><div class="chat-input-row"><textarea data-input="24-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('24-5')}" rows="1" placeholder="例如：每月更新 100 条知识该用哪种？"></textarea><button onclick="sendLLM('24-5')">发送</button></div></div></div>
+      <div id="tab-qna-24-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('24-5')">🔄 换一批</button></div><div class="qna-list" data-qna="24-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="24-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">一条 RAG 链路，怎么保证出了问题能定位到是检索坏了还是生成坏了？</div><div class="card-q-hint">提示：答案错了，可能错在"没找到材料"，也可能错在"材料在手却写错"。要分开定位，就得有能分别度量这两段的东西。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>评估 RAG 要<strong>把检索与生成分开测</strong>。常用指标来自 <strong>RAGAS</strong>（一个开源的 RAG 评估框架）：<strong>Context Precision</strong>（相关片段是否被排到前面，对排名敏感的 average precision@k）、<strong>Context Recall</strong>（相关片段被召回的比例）测检索；<strong>Faithfulness</strong>（答案有多少条被上下文支持）、<strong>Answer Relevancy</strong>（答案是否切题）、<strong>Answer Correctness</strong>（与标准答案的一致度）测生成。这一整条链的输入与输出最终都是 <b>tokens</b>，成本与延迟也都按它计。</div>
+      <div class="content-section"><p>前面五张卡片解决了"为什么要检索、怎么取、怎么放、放哪层、放权重还是放检索"。最后一张要解决一个工程问题：<strong>怎么证明这条链路真的对，且出问题能定位？</strong></p><p><strong>因为</strong>"答案错了"是一个笼统的现象，可能错在检索（没找到材料），也可能错在生成（材料在手却写歪）；不把两段分开测，就会一直修错地方。<strong>就像</strong>体检要分科室：肝指标高不能说明心脏没问题，必须分开看才能定位。<strong>所以</strong>下面先给五个指标各测什么，再用算例把"分段定位"跑一遍。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：分层评估与定位</div>
+        <div class="step"><div class="step-title">Step 1：五个指标各测哪一段</div>
+          <table><tr><th>指标</th><th>测哪段</th><th>一句话定义</th></tr><tr><td>Context Precision</td><td>检索</td><td>相关片段是否被排到前面（average precision@k，排名敏感）</td></tr><tr><td>Context Recall</td><td>检索</td><td>相关片段被召回的比例</td></tr><tr><td>Faithfulness</td><td>生成</td><td>答案被上下文支持的程度</td></tr><tr><td>Answer Relevancy</td><td>生成</td><td>答案是否切题</td></tr><tr><td>Answer Correctness</td><td>生成</td><td>与标准答案的一致度</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条分类：前两个属于<strong>检索段</strong>，后三个属于<strong>生成段</strong>。分开测的意义是——检索分低就去修切分/嵌入/重排，生成分低才去改 prompt 或换模型。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：三个指标怎么算</div>
+          <table><tr><th>指标</th><th>算例</th><th>结果</th></tr><tr><td>Context Precision</td><td>取回 5 条、相关 3 条（在第 1、3、4 位）</td><td>(1.000 + 0.667 + 0.750) ÷ 3 ≈ <strong>0.806</strong></td></tr><tr><td>Context Recall</td><td>相关 3 条，召回 2 条</td><td>2 ÷ 3 ≈ <strong>0.667</strong></td></tr><tr><td>Faithfulness</td><td>答案 10 条断言，8 条有上下文支持</td><td>8 ÷ 10 = <strong>0.80</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：Recall 与 Faithfulness 是"命中 ÷ 总数"（2÷3≈0.667、8÷10=0.80）；Precision 是<strong>排名敏感</strong>的——相关块排在第 1、3、4 位时 P@1=1/1=1.000、P@3=2/3≈0.667、P@4=3/4=0.750，取平均得 (1.000+0.667+0.750)÷3≈0.806。三者都落在 0~1，便于跨版本对比。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：检索涨了，生成不一定涨</div>
+          <table><tr><th>指标</th><th>优化前</th><th>优化后</th><th>变化</th></tr><tr><td>Context Precision</td><td>0.80</td><td>0.85</td><td>+0.05</td></tr><tr><td>Context Recall</td><td>0.78</td><td>0.86</td><td>+0.08</td></tr><tr><td>生成侧（Faithfulness / Correctness）</td><td>——</td><td>+0.6% / +4%（<strong>相对</strong>提升）</td><td>仅小幅提升（原文自述「muted downstream response」）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">据同一项研究（arXiv:2505.08445），检索侧指标有提升（+0.05 / +0.08 绝对，该文自述为"小幅"），而<strong>生成侧只有小幅提升</strong>——Faithfulness 约 +0.6%、Answer Correctness 约 +4%，原文自述为"下游反应平淡（muted downstream response）"。这正说明<strong>必须分层测</strong>：否则"检索变好了"会被误当成"系统变好了"，而真正的瓶颈（生成）被掩盖。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>本课收口：RAG 是<strong>把"知道什么"从权重里拆出来、放进可检索的外部记忆</strong>。它的工程要点是一条链：<strong>为什么要检索（成本 + 有效窗口）→ 检索质量（切分 / 嵌入 / 重排 + recall / precision）→ 用得上的关键（位置）→ 记忆分层（工作 / 情节 / 语义 / 程序）→ 放权重还是放检索（按场景）→ 分层评估（检索段 vs 生成段）</strong>。下一课我们把这条链继续往前推：当任务长到一步做不完，Agent 怎么规划、怎么和别的 Agent 协作。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','24-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','24-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-24-6" class="llm-section"><button class="llm-btn" onclick="startChat('24-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="24-6"><div class="chat-toolbar"><button onclick="copyChat('24-6')">📋 复制对话</button><button onclick="clearChat('24-6')">🗑 清空</button><button onclick="stopLLM('24-6')" id="stop-btn-24-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('24-6')" id="regenerate-btn-24-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="24-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 RAG 评估有疑问？比如「怎么判断该修检索还是修生成」「要不要上 LLM 当裁判」？<br><br>说一下你现在的错误案例，我帮你归到检索段还是生成段。</div></div><div class="chat-input-row"><textarea data-input="24-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('24-6')}" rows="1" placeholder="例如：答案错了我该先查哪一段？"></textarea><button onclick="sendLLM('24-6')">发送</button></div></div></div>
+      <div id="tab-qna-24-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('24-6')">🔄 换一批</button></div><div class="qna-list" data-qna="24-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 24 课完成 · 下一课：第 25 课「规划与反思」</p>
+    <a href="#" onclick="switchLesson(25);return false;">进入第 25 课：规划与反思 →</a>　·　<a href="#" onclick="switchLesson(23);return false;">← 上一课：MCP 协议</a>
+  </div></div>

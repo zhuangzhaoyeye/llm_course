@@ -1,0 +1,204 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 12 课：推理模型与 RLVR</h2>
+    <p class="subtitle">RLVR（即用程序直接判定答案对错来当奖励的强化学习）——上一课我们把模型调成了"会按偏好说话"。但偏好管的是好不好听，管不了算得对不对。这一课换一个目标：让模型在多步问题上想得更久、更准。讲清"写步骤"的能力从哪来、奖励怎么换成程序可判的对错、纯 RL 为什么能自己长出长思考、长度膨胀这笔账怎么算、推理预算该分配给哪些题，最后把大模型的长思考搬进小模型。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清 CoT 的两条供给路径（提示 vs 训练）与各自代价<br>② 说清 RLVR 为什么能用"对错"当奖励，以及它的适用边界<br>③ 会算长度偏差与 test-time scaling 两笔账，并给出蒸馏与 RL 的选型判据</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（5 步逻辑递进 + 1 条落地支链：从"多步推理要写出思考"到"该把思考训在哪"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">多步推理的<strong>任务要求</strong>是：中间步骤必须先写成 <b>token</b> 才可能算对——<strong>而</strong>供给这些步骤只有两条路：在提示里给示范（占 <b>context</b>），或把过程训进权重，这就是 <b class="rn-key">CoT</b> 的两种来源。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">要把过程训进权重，<strong>这就要求</strong>有一个能批量获得的奖励信号（正好补上 <b>CoT</b> 只能"激发"、不能"创造"的短板）——<strong>因为</strong>人类偏好对"算得对不对"给不出稳定判据，<strong>于是</strong>换成程序验证器直接判对错，这就是 <b class="rn-key">RLVR</b>；它给出的 0/1 奖励让策略的 <b>gradient</b> 第一次有了便宜又可靠的来源。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">奖励可验证之后（这正是 <b>RLVR</b> 的前提），<strong>所以</strong>可以直接在基座上开 RL——<strong>因此</strong>出现 <b class="rn-key">R1-Zero</b> 这一类现象：平均响应 <b>token</b> 数随训练一路上升，自我检查、回溯这些行为没有任何示范，全是"更可能答对"被强化出来的。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">但长度上升会被优化器利用——<strong>因为</strong> GRPO（即不训练价值模型、改用同一题内多次采样的平均分当参照的强化学习）的损失里含长度 <b>normalization</b>，答错的回答反而"越长越不吃亏"，<strong>这就</strong>是 <b class="rn-key">长度膨胀</b>：注意 R1-Zero 里"变长"与"变强"只是同时发生，不代表二者互为因果。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">长度膨胀直接变成推理账单，<strong>所以</strong>必须回答"该给多少思考预算、怎么分配"——这就是 <b class="rn-key">test-time scaling</b> 的账本：串行拉长、并行投票、验证器搜索各值多少，以及按难度分配为什么更省（它也决定每次请求占多少 <b>context</b>）。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text"><strong>【支链 · 落地】</strong><b>test-time scaling</b> 的账算清之后，预算受限的部署还有一条更省的路：<strong>因此</strong>可以让小模型模仿教师写出的逐条 <b>token</b> 推理轨迹（不是经典蒸馏里那种 <b>logits</b> 分布对齐），这就是 <b class="rn-key">蒸馏</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">Chain-of-Thought</span><span class="meta-tag">RLVR</span><span class="meta-tag">DeepSeek-R1</span><span class="meta-tag">GRPO</span><span class="meta-tag">Test-Time Scaling</span><span class="meta-tag">Distillation</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="12-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">为什么同一个模型直接问答案总错、让它"一步步想"就对？</div><div class="card-q-hint">提示：先分清两种让"写步骤"出现的方式——一种是你临时在提示里塞几个示范（模型权重没变），另一种是把带步骤的数据训进权重。想想这两种各要在推理时付什么成本。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>CoT（Chain-of-Thought，思维链）提示</strong>由 Wei 等（arXiv:2201.11903, NeurIPS 2022）提出：在提示里给几个"输入 + 中间步骤 + 输出"的示范，模型就会跟着把中间步骤写出来。论文报告 PaLM 540B 只用 8 个 CoT 示范，GSM8K 就从标准提示的 <strong>17.9%</strong> 升到 <strong>56.9%</strong>（Google 官方博客对同一结果的转述另记作 58.1%，与论文表格口径不同），超过此前最好结果；论文强调这种能力约在 <strong>100B 参数</strong>以上才出现。另一条路是 <strong>STaR</strong>（Zelikman et al., arXiv:2203.14465, NeurIPS 2022）：让模型自己生成推理过程，只保留"最终答对"的那些去微调，如此反复迭代。另外，<strong>零样本 CoT</strong>（Kojima et al., arXiv:2205.11916, NeurIPS 2022）证明提示里连示范都不用给，只加一句"Let's think step by step"也有效。</div>
+      <div class="content-section"><p>上一课我们把对齐那条线走完了：模型学会了"按人类偏好说话"。但那套偏好管的是好不好听，<strong>因为</strong>它只回答"人更喜欢哪个"，<strong>所以</strong>管不了算得对不对——这一课换一个目标，<strong>让它在多步问题上想得更久、算得更准</strong>。</p><p>要让模型"一步步想"，有两条供给路径：<strong>提示</strong>和<strong>训练</strong>。可以把这<strong>类比</strong>成教人做菜：一种是把菜谱贴在灶台边，每次做菜都得看着它；另一种是让人把菜谱背下来，以后不用带纸条。前者不动权重、随时可换，后者要把步骤真正写进脑子。</p><p><strong>更自然的做法是直接问它要答案</strong>（标准提示）——但 PaLM 540B 这样问，在 GSM8K 上只能拿到 <strong>17.9%</strong>。原因是答题需要多步推导，而模型被训练的默认行为是「一次给一个 token」，中间步骤全被压进一步里、没有展开的空间；把 8 个带中间步骤的示范放进提示后，同一模型的同一批题就升到 <strong>56.9%</strong>——差的不是知识，而是「把中间步骤写出来」这件事本身。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 供给账：提示法 vs 训练法</div>
+        <div class="step"><div class="step-title">Step 1：两种供给方式在机制上差在哪</div>
+          <table><tr><th>对比项</th><th>提示（in-context）</th><th>训练（写进权重）</th></tr><tr><td>改了什么</td><td>只改本次输入</td><td><strong>改模型参数</strong></td></tr><tr><td>推理时要不要带示范</td><td>要，每次都要</td><td><strong>不要</strong></td></tr><tr><td>能力上限</td><td>受基座已有能力限制</td><td>可把外部/自产的推理过程写进去</td></tr><tr><td>代价形态</td><td>每次请求都付的"输入税"</td><td>一次性数据与训练成本</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">关键差别：提示改的是<strong>这一次的输入</strong>，训练改的是<strong>以后所有次的默认行为</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：提示法的"输入税"具体是多少</div>
+          <table><tr><th>项</th><th>数值</th><th>说明</th></tr><tr><td>示范条数（Wei 2022）</td><td><strong>8</strong> 条</td><td>论文用的 exemplars</td></tr><tr><td>每条示范的 CoT 长度</td><td>约 120 token（示意）</td><td>长题更长，此处按题意估值</td></tr><tr><td>每次请求的固定输入开销</td><td>8 × 120 = <strong>960</strong> token</td><td>与题目本身无关</td></tr><tr><td>题目本身长度</td><td>约 50 token（示意）</td><td>一道应用题</td></tr><tr><td>输入放大倍数</td><td>960 ÷ 50 ≈ <strong>19 倍</strong></td><td>示意</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">960 与 19 是<strong>示意</strong>算例（示范长度按题意估值）。这里要看的不是精确数，而是<strong>这笔开销随请求次数线性增长</strong>：每天 100 万次请求，就是 9.6 亿 token 的额外输入。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：为什么提示只能"激发"、不能"创造"</div>
+          <table><tr><th>问题</th><th>读数</th><th>来源</th></tr><tr><td>CoT 在什么规模上才有效</td><td>小模型上收益很小甚至更差，约 <strong>100B 参数</strong>以上才出现正收益</td><td>Wei 2022</td></tr><tr><td>论文评测的模型规模区间</td><td>约 0.35B ~ 540B（含 LaMDA / GPT-3 / PaLM / UL2 / Codex 等多个家族，最小约 350M）</td><td>Wei 2022</td></tr><tr><td>540B 标准提示（GSM8K）</td><td><strong>17.9%</strong></td><td>Wei 2022</td></tr><tr><td>540B + 8 个 CoT 示范</td><td><strong>56.9%</strong>（Google 博客记 58.1%）</td><td>Wei 2022 / Google 官方博客</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">这说明提示法<strong>只能把基座里已有的能力"叫出来"</strong>，不能凭空加。要把更强的推理过程装进去，就得动权重——这正是下一张卡片要回答的事。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>让模型写出中间步骤有两条路——<strong>提示</strong>（改输入、不动权重）和<strong>训练</strong>（改权重、推理时零开销）。提示法简单、随时可换，但有两条硬边界：<strong>① 每次请求都要付固定输入开销；② 只能激发基座已有的能力</strong>。"要足够大才会出现"这一点，正是它必须从"提示"走向"训练"的原因。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','12-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','12-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-12-1" class="llm-section"><button class="llm-btn" onclick="startChat('12-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="12-1"><div class="chat-toolbar"><button onclick="copyChat('12-1')">📋 复制对话</button><button onclick="clearChat('12-1')">🗑 清空</button><button onclick="stopLLM('12-1')" id="stop-btn-12-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('12-1')" id="regen-btn-12-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="12-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"一步步想"这件事有疑问？比如"Zero-shot CoT 行不行？""示范里的步骤写错了会怎样？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="12-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('12-1')}" rows="1" placeholder="例如：如果示范里只写答案不写步骤，效果会差多少？"></textarea><button onclick="sendLLM('12-1')">发送</button></div></div></div>
+      <div id="tab-qna-12-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('12-1')">🔄 换一批</button></div><div class="qna-list" data-qna="12-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="12-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">要想训练模型推理，奖励该从哪来？</div><div class="card-q-hint">提示：先想一件事——一道数学题的答案，机器能不能自己判对错？如果能，那还需要人去标注"哪个回答更好"吗？把这两种奖励的信号密度和成本摆在一起比。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>RLVR（Reinforcement Learning with Verifiable Rewards，可验证奖励的强化学习）</strong>这个词由 <strong>Tulu 3</strong>（Lambert et al., arXiv:2411.15124, 2024-11）提出：它沿用 RLHF（即先让人给回答排序、再按这个偏好调模型的强化学习）的目标函数，只把"学出来的奖励模型"换成一个<strong>确定性的验证函数</strong>——回答经校验正确给 1、否则给 0。DeepSeek-R1-Zero 的奖励就只保留两项：<strong>正确性</strong>（数学按规则比对最终答案、代码跑测试用例）+ <strong>格式</strong>（要求把思考放在 &lt;think&gt;、答案放在 &lt;answer&gt;），并明确<strong>不使用神经奖励模型</strong>，理由是它在长链推理上容易被钻空子。</div>
+      <div class="content-section"><p>上一张卡片我们看到：要把更强的推理过程装进去，就得动权重。可一旦要"训"，第一个绕不开的环节就是<strong>奖励从哪来</strong>。</p><p>对齐那一课用的是"人类比较"，但对数学题，比较是<strong>弱信号</strong>——两个错误答案之间"谁更好"意义不大，人还得读完整段推理才判得出来。可以把这<strong>类比</strong>成判卷：主观题必须请人阅卷，客观题只要对答案就行——能把自动判的题，就别浪费人的时间。<strong>所以</strong>做法是让程序直接判对错，把 RLHF 里那个学出来的奖励模型整个换掉——<strong>这样一来策略的 gradient 就只剩"对 / 错"这一个方向可爬</strong>。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 三类奖励来源的账</div>
+        <div class="step"><div class="step-title">Step 1：三种奖励信号放在一起比</div>
+          <table><tr><th>奖励来源</th><th>谁能给</th><th>信号形态</th><th>能自动规模化吗</th><th>主要风险</th></tr><tr><td>人类偏好</td><td>人工标注</td><td>成对比较（哪个更好）</td><td><strong>否</strong>（贵、慢）</td><td>标注噪声、偏好被"冗长"挟持</td></tr><tr><td>AI 偏好（RLAIF）</td><td>强模型</td><td>成对比较</td><td>是</td><td>继承强模型的偏见</td></tr><tr><td>可验证规则（RLVR）</td><td>程序 / 测试用例</td><td>对 = 1、错 = 0（二值）</td><td><strong>是</strong></td><td>只覆盖"能自动判对错"的题</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">三者的差别不在"信号强弱"，而在<strong>谁能生产它</strong>：只有可验证规则能让奖励随题目数量自动扩张。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：一个验证器其实只做三件事</div>
+          <table><tr><th>步骤</th><th>做什么</th><th>例子</th></tr><tr><td>extract（抽取）</td><td>从回答里抓出被检查的那部分</td><td>取出 &lt;answer&gt; 标签内、或 \boxed{} 里的内容</td></tr><tr><td>canonicalize（规范化）</td><td>把无害的表面差异抹平</td><td>「(2,3)」「{3,2}」「x=2, x=3」都归成集合 {2,3}</td></tr><tr><td>reward（给分）</td><td>与标准答案比对</td><td>相等给 1，否则给 0</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">具体例子：解 x² − 5x + 6 = 0，标准答案是 {2,3}；模型写「x = 2 或 x = 3」也能得 1 分，因为规范化那一步把它变成了同一个集合。而形状对不上（标签写错、多了干扰文本）就会被判 0——<strong>奖励的漏洞往往就在这一步</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：为什么"1 比特"够用——信号量与题量的算术</div>
+          <table><tr><th>项</th><th>数值</th><th>说明</th></tr><tr><td>一道题一次采样给的信号</td><td><strong>1 比特</strong>（对 / 错）</td><td>二值奖励</td></tr><tr><td>一组采样（G = 8）给的信息</td><td>8 个 0/1</td><td>组内相对好坏由此算出</td></tr><tr><td>GSM8K 题库规模</td><td><strong>8,792</strong> 题（常引作 8.5K）</td><td>Cobbe et al., 2021（7,473 训练 / 1,319 测试）</td></tr><tr><td>MATH 题库规模</td><td><strong>12,500</strong> 题</td><td>Hendrycks et al., 2021（7,500 训练 / 5,000 测试）</td></tr><tr><td>两库可训练题合计</td><td>7,473 + 7,500 = <strong>14,973</strong> 题</td><td>算术</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">单条奖励看着只有 1 比特，但<strong>它能在百万量级的题上自动生成</strong>；而偏好数据每个 prompt 都要人读两份回答。这就是 RLVR 能规模化的根本原因——<strong>不是信号更强，而是信号能自动产生</strong>。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>RLVR 换掉的不是算法，而是<strong>奖励的来源</strong>：把"学出来的偏好模型"换成"确定性的验证程序"，奖励变成二值的 0/1。它的边界同样清楚——<strong>只在"能被程序判对错"的领域成立</strong>（数学、代码、形式化逻辑、结构化指令遵循）；写作、开放问答这类没有唯一判据的任务，仍然得回到偏好奖励。<strong>奖励换成可验证的，才谈得上把 RL 的规模做大。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','12-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','12-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-12-2" class="llm-section"><button class="llm-btn" onclick="startChat('12-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="12-2"><div class="chat-toolbar"><button onclick="copyChat('12-2')">📋 复制对话</button><button onclick="clearChat('12-2')">🗑 清空</button><button onclick="stopLLM('12-2')" id="stop-btn-12-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('12-2')" id="regen-btn-12-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="12-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对可验证奖励有疑问？比如"答案格式不统一怎么办？""开放题能不能也用规则判？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="12-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('12-2')}" rows="1" placeholder="例如：如果答案抽取这一步出错，训练会怎样？"></textarea><button onclick="sendLLM('12-2')">发送</button></div></div></div>
+      <div id="tab-qna-12-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('12-2')">🔄 换一批</button></div><div class="qna-list" data-qna="12-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="12-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">只有"对/错"信号，模型新长出的行为一定是"更会推理"吗？</div><div class="card-q-hint">提示：先想：如果只有最终对错的信号，模型要提高正确率，最省力的方向是什么？它会不会自己发现"多写一点、多想一遍"能让答对概率上升？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>DeepSeek-R1-Zero</strong>（arXiv:2501.12948, 2025-01；后发表于 Nature 645:633–638, 2025）是第一个"纯 RL"路线：直接拿 <strong>DeepSeek-V3-Base</strong> 做 GRPO，<strong>不做任何 SFT（即监督微调，用示范答案训练）</strong>。它只用"答案对不对"这一条奖励，AIME 2024 的 pass@1 从 <strong>15.6%</strong> 升到 <strong>71.0%</strong>，多数投票后到 <strong>86.7%</strong>（<strong>口径说明</strong>：以上为 arXiv 技术报告读数；有资料称 Nature 正式版把 R1-Zero 的 AIME 2024 记为 77.9%，本课未取到 Nature 原表逐字核对，引用时请注明版本并人工核实）。训练中出现了被称为 <strong>"aha moment"</strong> 的现象：模型自发写出"Wait, wait…"式的自我质疑与回头重算。代价是输出可读性差、中英混杂——这也是后来 DeepSeek-R1 要加冷启动数据与多阶段训练的原因。</div>
+      <div class="content-section"><p>上一张卡片我们把奖励换成了可验证的对错。现在的问题是：<strong>只有对错，模型凭什么学会"想更久"？</strong></p><p>先把"学"这件事讲清：组内相对优势只看"同一题里哪条回答更好"，<strong>完全不关心它是怎么想出来的</strong>。可以把这<strong>类比</strong>成打靶训练：教练不点评姿势，只在命中时报一声"中"——练久了，你自己会摸索出更容易命中的姿势。<strong>于是</strong>策略的 <strong>gradient</strong> 只会沿着"更可能答对"的方向走；只要"想得更久"恰好与答对相关，它就会被反复强化。</p><p>更早、也更自然的做法是<strong>先做 SFT、把「怎么想」的示范喂进去</strong>——但那要有现成的高质量长链推理数据，而这类数据恰恰很贵、很难大规模获得。R1-Zero 反过来走：不加任何示范，只留「答案对不对」的 0/1 奖励，让基座自己从 <strong>15.6%</strong> 的起点摸索，最终把 AIME 2024 的 pass@1 推到 <strong>71.0%</strong>——自我检查、回溯都不是被教的，而是「更可能答对」被强化出来的副产品。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 纯 RL 账：一条对错信号能走多远</div>
+        <div class="step"><div class="step-title">Step 1：训练前后的读数</div>
+          <table><tr><th>指标</th><th>起点</th><th>终点</th><th>备注</th></tr><tr><td>AIME 2024 pass@1</td><td><strong>15.6%</strong></td><td><strong>71.0%</strong></td><td>单次采样答对率</td></tr><tr><td>AIME 2024 多数投票</td><td>—</td><td><strong>86.7%</strong></td><td>论文称与 o1-0912 相当</td></tr><tr><td>pass@1 提升倍数</td><td>—</td><td>71.0 ÷ 15.6 ≈ <strong>4.55 倍</strong></td><td>算术</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">起点 15.6% 是基座 DeepSeek-V3-Base 的水平（上表为 arXiv 技术报告口径，Nature 版读数见知识背景的口径说明）。整个过程<strong>没有任何关于"怎么想"的示范</strong>，只有答案对错的 0/1 奖励。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：奖励里到底有哪几项</div>
+          <table><tr><th>奖励项</th><th>类型</th><th>作用</th></tr><tr><td>正确性</td><td>规则校验（二值）</td><td>数学比对最终答案、代码跑测试</td></tr><tr><td>格式</td><td>规则校验（二值）</td><td>要求把思考包在 &lt;think&gt;、答案包在 &lt;answer&gt;</td></tr><tr><td>神经奖励模型</td><td><strong>不使用</strong></td><td>论文明确排除，理由是长链推理下容易被钻空子</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">两条奖励都是<strong>程序可判</strong>的。格式奖励的存在说明一件事：<strong>即使"只想让它答对"，也得先用格式把"思考"和"答案"切开</strong>——否则没法稳定地抽出答案来校验。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：涌现出来的行为，以及它的代价</div>
+          <table><tr><th>现象</th><th>说明</th><th>代价</th></tr><tr><td>平均响应 token 数上升</td><td>论文 Figure 3 记录训练全程平均响应长度持续增长</td><td>推理成本随长度上升</td></tr><tr><td>自我检查 / 回溯</td><td>出现"等一下，这里不对"式的回头重算</td><td>重复劳动、偶发绕圈</td></tr><tr><td>可读性差 / 语言混杂</td><td>R1-Zero 的已知缺陷</td><td>难以直接上线，需后续阶段修</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">这里要小心一个<strong>因果误读</strong>：<strong>"变长"与"变强"是同时发生，不等于"变长"就是"变强"的原因</strong>——后续研究（arXiv:2503.20783）指出，"aha moment"式的自省痕迹在基座模型里也能找到。所以下一张卡片要专门算"长度"这笔账。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>R1-Zero 说明的是<strong>当奖励够纯、够可验证时，RL 能在基座之上自己找到提升路径</strong>——自我检查、回溯都不是被教的，而是"有利于答对"被强化的结果。但同时要记住两件事：<strong>① 这些行为的代价是输出变长、变难读；② "同时发生"不等于"因果"</strong>。把长度直接当成"变强的原因"去追求，正是下一张卡片的坑。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','12-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','12-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-12-3" class="llm-section"><button class="llm-btn" onclick="startChat('12-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="12-3"><div class="chat-toolbar"><button onclick="copyChat('12-3')">📋 复制对话</button><button onclick="clearChat('12-3')">🗑 清空</button><button onclick="stopLLM('12-3')" id="stop-btn-12-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('12-3')" id="regen-btn-12-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="12-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对纯 RL 涌现有疑问？比如"为什么不做 SFT 反而更行？""aha moment 是真的顿悟吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="12-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('12-3')}" rows="1" placeholder="例如：如果奖励里只留正确性、不留格式，会发生什么？"></textarea><button onclick="sendLLM('12-3')">发送</button></div></div></div>
+      <div id="tab-qna-12-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('12-3')">🔄 换一批</button></div><div class="qna-list" data-qna="12-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="12-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">模型发现"写更长"更容易得分之后，会发生什么？</div><div class="card-q-hint">提示：如果"长"和"对"在统计上相关，优化器会去优化哪一个？它分得清"因为想清楚了所以写长了"和"单纯写长"吗？想想损失函数里有没有跟长度有关的项。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Dr. GRPO</strong>（Sea AI Lab，arXiv:2503.20783, 2025-03）指出：GRPO 的目标函数里含<strong>长度项（逐条除以 |o<sub>i</sub>|）与标准差项</strong>，会产生<strong>有偏优化</strong>——答对时偏向短回答、<strong>答错时反而"越长越不吃亏"</strong>，于是训练中错误回答的长度被一路拉长；去掉这两项归一化即得到无偏的 Dr. GRPO，它在 7B 基座上把 AIME 2024 做到 <strong>43.3%</strong>。这条线的另一支是 <strong>DAPO</strong>（ByteDance Seed + 清华 AIR，arXiv:2503.14476, 2025-03）：它用 <strong>Overlong Reward Shaping</strong> 给超长输出一个"软惩罚区间"，同规模下 AIME 2024 做到 <strong>50 分</strong>。</div>
+      <div class="content-section"><p>上一张卡片我们发现"平均响应长度"一路在涨。长度本身不是坏事，问题是——<strong>它也会被优化器当成捷径。</strong></p><p>关键在损失怎么算：GRPO 会把一条回答的总损失按 <strong>token</strong> 数做<strong>归一化（normalization）</strong>，而每条回答的贡献又要在组内取平均。可以把这<strong>类比</strong>成按"每道题的平均分"给班级排名：一个学生交的题越少，他每道题占的权重就越大——于是"少做题"意外变成了一种策略。<strong>所以</strong>只要长度进了分母或求和，它就不再是中性的，而是一个可以被优化的维度。</p><p>更早的做法是<strong>只用最终对错、对长度不加任何约束</strong>——看上去最干净，但损失里的长度项会悄悄把「答错就多写」变成划算的选择：同组里答错的回答从 <strong>100</strong> 个 token 拉到 <strong>300</strong> 个，每个 token 分到的惩罚就从 <strong>0.01</strong> 摊薄到 <strong>0.0033</strong>——总惩罚不变，但长回答的逐 token 梯度被摊薄了。训练越久，错误回答被拉得越长。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 长度偏差账：一条"越长越不吃亏"的路径</div>
+        <div class="step"><div class="step-title">Step 1：分母效应具体长什么样</div>
+          <table><tr><th>回答</th><th>结果</th><th>token 数</th><th>组内优势 A</th><th>逐 token 权重</th></tr><tr><td>①</td><td>对</td><td>100</td><td>+1</td><td>1 ÷ 100 = <strong>0.010</strong></td></tr><tr><td>②</td><td><strong>错</strong></td><td>300</td><td>−1</td><td>−1 ÷ 300 = <strong>−0.0033</strong></td></tr><tr><td>③</td><td>对</td><td>300</td><td>+1</td><td>1 ÷ 300 = <strong>0.0033</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">前提是沿用第 11 课 Card 6 的组内归一化（设同组 2 对 2 错，则答对优势 +1、答错 −1）——两两对照才说明问题：<strong>同为答对</strong>时，短回答每 token 权重更大（① 的 0.010 ＞ ③ 的 0.0033）；<strong>答错</strong>时权重为负（② 的 −0.0033），<strong>回答越长，每个 token 被罚得越轻</strong>——于是"答错就写更长"变成了摊薄逐 token 梯度的办法（总惩罚不变）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：换一种损失口径会怎样</div>
+          <table><tr><th>口径</th><th>逐 token 权重</th><th>对长度的偏好</th></tr><tr><td>样本级（除以 |o<sub>i</sub>| 再组内平均）</td><td>1 / |o<sub>i</sub>| × A<sub>i</sub></td><td>答错时偏向<strong>长</strong>回答</td></tr><tr><td>token 级（全批总 token 归一）</td><td>1 / Σ|o<sub>j</sub>| × A<sub>i</sub></td><td>长度<strong>不再进分母</strong>，偏差消除</td></tr><tr><td>DAPO 的超长奖励塑形</td><td>超过软阈值后奖励线性下降</td><td>给"过长"一个连续代价</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">三者是三种不同思路：Dr. GRPO 直接<strong>删掉长度归一化</strong>；DAPO 则保留长度作为<strong>显式惩罚项</strong>（超过软阈值后线性加重，到硬上限截断）。一个是"别让它进分母"，一个是"给它标个价"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：这条线在榜单上的读数</div>
+          <table><tr><th>方案</th><th>基座</th><th>AIME 2024</th><th>备注</th></tr><tr><td>朴素 GRPO 复现</td><td>Qwen2.5-32B</td><td>30 分</td><td>DAPO 论文自述的起点</td></tr><tr><td>DeepSeek-R1-Zero-<strong>Qwen-32B</strong>（Qwen 基座复现）</td><td>Qwen-32B</td><td>47 分</td><td><strong>非官方 V3-Base 版</strong>；官方 R1-Zero 的读数见 Card 3（71.0%）</td></tr><tr><td>DAPO</td><td>Qwen2.5-32B</td><td><strong>50 分</strong></td><td>只用了一半训练步数</td></tr><tr><td>Dr. GRPO</td><td>Qwen2.5-Math-7B</td><td><strong>43.3%</strong></td><td>7B 规模</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">读表要注意两点：<strong>① 前三行同为 32B 量级（30 → 47 → 50），可以横向比；第 4 行是 7B 规模，不能与前三行直接比</strong>。② 第 2 行的 47 分来自社区用 Qwen-32B 复现的 R1-Zero 配方，<strong>与 Card 3 里官方 R1-Zero 的 71.0% 不是同一个模型</strong>。另一侧的成本证据是：推理模型在 AIME 上的输出长度可达同规模 instruct 模型的 <strong>5~10 倍</strong>（arXiv:2505.22017 v1 引言）——这正是下一张卡片要算的账。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>长度膨胀不是"模型变啰嗦"的性格问题，而是<strong>目标函数里的结构性偏差</strong>：只要长度以分母或求和的形式进入损失，优化器就有动机去操纵它。处置方式有两条——<strong>把长度从归一化里拿掉</strong>（Dr. GRPO），或<strong>给它一个显式价格</strong>（DAPO 的超长惩罚）。两条路指向同一件事：<strong>凡是能被优化的量，都必须先想清楚给它定的价对不对。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','12-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','12-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-12-4" class="llm-section"><button class="llm-btn" onclick="startChat('12-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="12-4"><div class="chat-toolbar"><button onclick="copyChat('12-4')">📋 复制对话</button><button onclick="clearChat('12-4')">🗑 清空</button><button onclick="stopLLM('12-4')" id="stop-btn-12-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('12-4')" id="regen-btn-12-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="12-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对长度膨胀有疑问？比如"长度惩罚会不会把它压得太短？""为什么简单题也写很长？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="12-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('12-4')}" rows="1" placeholder="例如：如果不做任何长度控制，训练到后期会怎样？"></textarea><button onclick="sendLLM('12-4')">发送</button></div></div></div>
+      <div id="tab-qna-12-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('12-4')">🔄 换一批</button></div><div class="qna-list" data-qna="12-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="12-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">让模型多想一会儿确实更准，那这笔思考预算，能不能花得更聪明一点？</div><div class="card-q-hint">提示：花同样的算力，是让一个模型想 10 倍久更好，还是并行采 10 个答案再投票更好？还有——难题和简单题，该给一样的预算吗？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>OpenAI o1</strong>（2024-09-12 发布）第一次把"测试时算力"讲成一条独立的路：用大规模 RL 训练模型"用思维链思考"，并报告性能随训练时算力与测试时算力同时提升。把它系统化的两项工作：<strong>Snell et al.（arXiv:2408.03314, 2024-08）</strong>发现"按题目难度自适应分配"的 compute-optimal 策略，效率比 best-of-N 高 <strong>4 倍以上</strong>，在 FLOPs 匹配时可超过 <strong>14 倍</strong>大的模型；<strong>s1（Muennighoff et al., arXiv:2501.19393, 2025-01）</strong>只用 1,000 条样本微调 + <strong>budget forcing</strong>（模型想收尾时强行续写"Wait"以延长思考），在竞赛数学上最多超过 o1-preview <strong>27%</strong>。</div>
+      <div class="content-section"><p>上一张卡片我们算清了"想太久"的代价。既然长度既是成本、又能换来能力，那正确的问法就不是"要不要想久"，而是<strong>这笔预算怎么分配</strong>。</p><p>三种花法摆在一起看：<strong>串行</strong>（一条回答想更久）、<strong>并行</strong>（多条独立回答，投票或挑最好的）、<strong>验证器搜索</strong>（让另一个模型逐步打分并剪枝）。可以把这<strong>类比</strong>成解题时间：你可以一道题死磕一小时，也可以十分钟做一份、做四份再对答案——哪种更划算，取决于这道题值不值得死磕。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 推理预算账：四种花法，一张账单</div>
+        <div class="step"><div class="step-title">Step 1：四种策略在同样的算力下差在哪</div>
+          <table><tr><th>策略</th><th>怎么花算力</th><th>需要的额外组件</th><th>典型适用</th></tr><tr><td>串行延长（budget forcing）</td><td>把单条思考拉长（续写"Wait"）</td><td>无</td><td>难题、单次生成</td></tr><tr><td>并行采样 + 多数投票</td><td>同题采 N 条，取出现最多的答案</td><td>无</td><td>答案短、可投票</td></tr><tr><td>best-of-N</td><td>采 N 条，用打分器挑最好</td><td>打分器（奖励/验证模型）</td><td>有可靠打分器</td></tr><tr><td>验证器搜索（PRM/ORM：PRM = 对每一步中间推理打分的奖励模型；ORM = 只看最终答案对错的奖励模型）</td><td>逐步打分 + 剪枝 / 回溯</td><td>过程奖励模型</td><td>步骤可判的推理</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">四种都要花算力，区别在于<strong>算力花在"更长"还是"更多"，以及要不要额外训练一个打分器</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：一次具体走查——"想更久"能换多少分</div>
+          <table><tr><th>项</th><th>数值</th><th>说明</th></tr><tr><td>基准思考长度</td><td>约 800 token（示意）</td><td>单条回答的平均长度</td></tr><tr><td>延长后思考长度</td><td>约 3,200 token</td><td>拉长 <strong>4 倍</strong></td></tr><tr><td>AIME24 pass@1</td><td><strong>50% → 57%</strong></td><td>s1 项目页报告的 budget forcing 外推读数（论文口径为 56.7%，arXiv:2501.19393）</td></tr><tr><td>AIME24 题量</td><td><strong>15</strong> 题 / 年</td><td>官方赛制</td></tr><tr><td>换算成题</td><td>15 × (57% − 50%) = <strong>1.05 题</strong></td><td>算术</td></tr><tr><td>额外 token</td><td>15 × (3,200 − 800) = <strong>36,000</strong> token</td><td>按示意长度算</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">这条走查要说明的是<strong>边际收益的形状</strong>：思考长度翻 4 倍，换来的是 1 道题左右的差距（15 题的小样本还带统计噪声）。<strong>所以"多想"既不免费、也不线性</strong>——800 与 3,200 是示意值（论文未逐题给出长度），但"投入翻几倍、收益只有几个百分点"这个形状来自论文结论。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：为什么"按难度分配"更划算</div>
+          <table><tr><th>题目难度</th><th>加算力的收益</th><th>该怎么做</th></tr><tr><td>简单（模型本来就对）</td><td>接近 0，甚至变差（绕圈）</td><td><strong>不要加</strong>预算</td></tr><tr><td>中等（有时对有时错）</td><td><strong>最高</strong></td><td>加预算最划算</td></tr><tr><td>过难（几乎总错）</td><td>很低</td><td>加预算也难救</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">Snell 等给出的 compute-optimal 分配之所以比 best-of-N 效率高 <strong>4 倍以上</strong>，靠的就是这件事：<strong>把算力从"已经会"和"怎么想都不会"的题上挪开，集中到"差一点就能对"的题上</strong>。这也解释了为什么"统一加长思考"是一种浪费。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>test-time scaling 不是"想得越久越好"，而是<strong>一笔要按题分配的预算</strong>。同一份算力，串行拉长、并行投票、验证器搜索各有适用面；而<strong>最关键的旋钮是"把预算给哪些题"</strong>——按难度自适应分配，效率能比均匀分配高数倍。这也给工程上留下空间：<strong>思考长度、context 占用与单位成本，其实是同一个旋钮的三个面。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','12-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','12-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-12-5" class="llm-section"><button class="llm-btn" onclick="startChat('12-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="12-5"><div class="chat-toolbar"><button onclick="copyChat('12-5')">📋 复制对话</button><button onclick="clearChat('12-5')">🗑 清空</button><button onclick="stopLLM('12-5')" id="stop-btn-12-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('12-5')" id="regen-btn-12-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="12-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对推理预算有疑问？比如"怎么判断一道题值不值得加预算？""投票和延长能叠加吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="12-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('12-5')}" rows="1" placeholder="例如：如果给所有题都统一加长思考，成本会涨多少？"></textarea><button onclick="sendLLM('12-5')">发送</button></div></div></div>
+      <div id="tab-qna-12-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('12-5')">🔄 换一批</button></div><div class="qna-list" data-qna="12-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="12-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">大模型花长思考换来的推理能力，能不能直接"搬"进一个 7B 模型的权重里？</div><div class="card-q-hint">提示：先想两条路——让 7B 模仿大模型的完整思考轨迹，还是给 7B 同样的奖励让它自己 RL？这两条路的数据成本、上限、风险各是什么？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>DeepSeek-R1 的蒸馏</strong>走的是第一条路：用 R1 生成约 <strong>80 万条</strong>蒸馏样本（约 60 万推理 + 20 万通用），<strong>只做 SFT、不做 RL</strong>，得到 1.5B / 7B / 8B / 14B / 32B / 70B 六个稠密模型（基座为 Qwen2.5 与 Llama）。论文给出的关键结论是：以 Qwen2.5-32B 为基座时，<strong>直接蒸馏 R1 的效果优于在该基座上直接做 RL</strong>。其中 <strong>R1-Distill-Qwen-7B</strong> 报告 MATH-500 <strong>92.8%</strong>、AIME 2024 <strong>55.5%</strong>、GPQA Diamond 49.1%。</div>
+      <div class="content-section"><p>上一张卡片我们把"想多久"算成了一笔预算。那还有一条更省的路：<strong>不让小模型自己想，而是让它学会大模型怎么想。</strong></p><p>这里有两种"搬"的方式，容易混：经典的知识蒸馏让学生的 <strong>logits</strong> 去逼近教师的 <strong>logits</strong> 分布（学的是"每个位置上老师会怎么选"）；而 R1 蒸馏是小模型直接模仿教师写出来的<strong>思考轨迹</strong>（一条条 token 序列）。可以把这<strong>类比</strong>成学做菜：前者是站在旁边看师傅每一步的手感，后者是照着师傅写好的菜谱一句句练。<strong>因此</strong>后者的实现简单得多——它就是一次普通的 SFT。</p><p>更自然的做法是<strong>让 7B 也自己跑 RL</strong>（和训大模型一样的流程）——但那需要环境、验证器与持续的在线采样，成本随采样量线性增长，7B 靠自己探索的上限也更低。R1 蒸馏先用 <strong>671B</strong> 的 R1 生成约 <strong>80 万</strong>条轨迹，小模型只做一次 SFT 就拿到 AIME 2024 <strong>55.5%</strong>——用一次性、可预估的离线成本，换教师已经探明的那条路径。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 蒸馏账：把 671B 的思考装进 7B</div>
+        <div class="step"><div class="step-title">Step 1：这批数据是什么、有多大</div>
+          <table><tr><th>项</th><th>数值</th><th>说明</th></tr><tr><td>总样本</td><td>约 <strong>80 万</strong>条</td><td>R1 生成（论文口径）</td></tr><tr><td>其中推理相关</td><td>约 60 万条</td><td>论文口径</td></tr><tr><td>其余（通用类）</td><td>约 20 万条</td><td>由 80 − 60 推得，具体构成以论文原表为准</td></tr><tr><td>训练方式</td><td><strong>只做 SFT，不做 RL</strong></td><td>关键差别</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">80 万 − 60 万 = 20 万。注意这是<strong>一次性离线数据</strong>：没有环境、没有验证器、没有在线采样——这既是它便宜的原因，也是它上限的来源。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：效果对比（7B 量级）</div>
+          <table><tr><th>模型</th><th>规模</th><th>AIME 2024 pass@1</th><th>MATH-500</th><th>训练方式</th></tr><tr><td>DeepSeek-R1</td><td>671B 总 / 37B 激活</td><td><strong>79.8%</strong></td><td>97.3%</td><td>多阶段 RL</td></tr><tr><td>R1-Distill-Qwen-7B</td><td>7B 稠密</td><td><strong>55.5%</strong></td><td>92.8%</td><td>纯 SFT 蒸馏</td></tr><tr><td>R1-Distill-Qwen-7B（cons@64）</td><td>7B 稠密</td><td><strong>83.3%</strong></td><td>—</td><td>推理时多数投票</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">一个 7B 稠密模型靠模仿拿到 55.5%（单次）/ 83.3%（多数投票）；<strong>参数规模差接近两个数量级</strong>（按总参数 671B vs 7B ≈ 96 倍；按激活参数 37B vs 7B ≈ 5 倍），<strong>分数差只有二十几个百分点</strong>——这就是"把推理过程当数据"的杠杆。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：两条路怎么选</div>
+          <table><tr><th>维度</th><th>蒸馏（模仿轨迹）</th><th>RL（自己探索）</th></tr><tr><td>需要什么</td><td>教师 + 一次 SFT</td><td>环境 / 验证器 + 在线采样</td></tr><tr><td>成本形态</td><td>一次性、可预估</td><td>持续、随采样量增长</td></tr><tr><td>上限</td><td>受教师限制</td><td><strong>可能超过教师</strong>（R1-Zero 从 15.6% 一路爬到 71.0%）</td></tr><tr><td>风险</td><td>会把教师的坏习惯一起学走</td><td>长度膨胀、训练不稳</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">论文里一个反直觉的结论值得记住：<strong>在强基座上，蒸馏可以比 RL 更有效</strong>——因为教师已经把"该往哪想"探索完了，学生只需高效复制这条路径。反过来，<strong>要把上限再往上推，就只能靠 RL</strong>。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>蒸馏和 RL 不是替代关系，而是<strong>两种不同的"思考从哪来"</strong>：蒸馏把已有的推理模式高效复制到小模型（便宜、可预估、上限被教师封顶）；RL 则让模型自己探索（贵、可能超车，但更容易踩长度膨胀这类坑）。工程上常见的组合是：<strong>先用 RL 把大模型的上限推上去，再蒸馏给小模型落地。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','12-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','12-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-12-6" class="llm-section"><button class="llm-btn" onclick="startChat('12-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="12-6"><div class="chat-toolbar"><button onclick="copyChat('12-6')">📋 复制对话</button><button onclick="clearChat('12-6')">🗑 清空</button><button onclick="stopLLM('12-6')" id="stop-btn-12-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('12-6')" id="regen-btn-12-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="12-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对蒸馏有疑问？比如"为什么蒸馏不用 RL 也能这么强？""蒸馏能超过教师吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="12-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('12-6')}" rows="1" placeholder="例如：如果拿 7B 直接做 RL、不蒸馏，结果会更好吗？"></textarea><button onclick="sendLLM('12-6')">发送</button></div></div></div>
+      <div id="tab-qna-12-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('12-6')">🔄 换一批</button></div><div class="qna-list" data-qna="12-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 12 课完成 · 下一课：第 13 课「分布式训练」</p>
+    <a href="#" onclick="switchLesson(13);return false;">进入第 13 课：分布式训练 →</a>　·　<a href="#" onclick="switchLesson(11);return false;">← 上一课：对齐</a>
+  </div></div>

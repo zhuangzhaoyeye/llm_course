@@ -1,0 +1,203 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 8 课：数据工程</h2>
+    <p class="subtitle">上一课我们算清了"要多少数据"。但数据不是天上掉下来的——从 Common Crawl 的原始网页，到能喂给模型的干净 token，中间要经过采集、去重、过滤、配比、合成、评估六道工序。这一课讲清每一道工序在做什么、代价是什么。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清一条数据管线的六道工序，以及每道工序会扔掉多少数据<br>② 判断"去重"和"质量过滤"各自解决什么问题、代价是什么<br>③ 解释合成数据为什么会有"模型崩塌"风险，以及什么条件下可以安全使用</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：从"原始网页为什么不能用"到"怎么给语料做体检"；其中第 6 步为评估支链）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要把网页变成可训练的 <b class="rn-key">token</b>，<strong>必须先回答</strong>"原始抓取数据到底有多少能直接用"——<strong>因此</strong>要看清 Common Crawl 这类原始语料里混着导航栏、广告、乱码、重复页，<strong>否则</strong>会误以为"抓下来就能训"。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然原始 <b class="rn-key">token</b> 里混着大量重复页，<strong>这就要求</strong>先做去重——<strong>因为</strong>重复内容会让模型"背下来"而不是"学会规律"，<strong>于是</strong>要用 MinHash + LSH 这类近似算法在万亿级规模上找近似重复。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">去过重之后仍有一堆"语法没错但没价值"的 <b class="rn-key">token</b>，<strong>因此</strong>要定义"什么是好数据"——规则过滤（长度/非字母词占比/重复率）负责快速筛掉垃圾，模型过滤（分类器打分）负责挑出真正有信息量的段落，<strong>这就要求</strong>两条路配合，而不是只用一条。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">干净了还不够，<strong>因为</strong>不同来源的 <b class="rn-key">token</b> 占比会明显改变模型的能力分布，<strong>所以</strong>要定"数据配比"——用代理模型（如 DoReMi）自动搜索各领域的采样权重，而不是靠直觉拍脑袋。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">真实 <b class="rn-key">token</b> 快不够用了，<strong>于是</strong>引入合成数据——<strong>但</strong>纯合成会导致"模型崩塌"（分布尾部消失），<strong>因此</strong>必须保证真实数据作为锚点持续累积，而不是被合成数据替换掉。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text"><strong>【支链 · 评估维度】</strong>做完上面五步，<strong>这就要求</strong>有一套评估闭环——用 <b class="rn-key">perplexity</b> 与下游基准判断这份语料到底有没有变好，<strong>于是</strong>才能把"数据工程"从手工艺变成可迭代的工程流程。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">Data Pipeline</span><span class="meta-tag">Deduplication</span><span class="meta-tag">Quality Filter</span><span class="meta-tag">Data Mixing</span><span class="meta-tag">Synthetic Data</span><span class="meta-tag">Model Collapse</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="8-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">抓下来的原始网页，能不能直接拿来训练？</div><div class="card-q-hint">提示：先想一个真实网页里有什么——正文之外还有导航栏、广告、版权声明、推荐链接。再想这些内容占整页的比例大概是多少。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Common Crawl</strong> 是最大的公开网页语料库：每轮抓取超过 <strong>20 亿个网页</strong>，累计存档已超 <strong>10 PiB</strong>（来源：Common Crawl 官方 About 页 https://www.commoncrawl.org/about）；单轮原始体积在数百 TiB 量级（未压缩口径，量级示意）。它提供三种格式：WARC（原始抓取）、WET（抽取后的纯文本）、WAT（元数据）。但 WET 里的文本仍混着导航栏、广告、模板文本与重复页面，需要进一步清洗（引自 Liang et al.,《Data Preparation for Large Language Models》, JCST 2026；文献题名与刊期待人工核实）。</div>
+      <div class="content-section"><p>上一课我们算清了"要多少 token"。现在问下一个问题：<strong>这些 token 从哪来？</strong></p><p><strong>因为</strong>最直接的答案是"从网上抓"，<strong>所以</strong>必须先看清：抓下来的原始网页，到底有多少能直接用。可以把这<strong>类比</strong>成从河里打水——水是免费的，但要喝还得过滤、煮沸、去掉泥沙，真正能入口的比例远小于打上来的量。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 从原始抓取到可用语料：每一道工序扔掉多少</div>
+        <div class="step"><div class="step-title">Step 1：Common Crawl 的三种格式</div>
+          <table><tr><th>格式</th><th>内容</th><th>体积量级</th><th>能否直接训练</th></tr><tr><td>WARC</td><td>原始 HTTP 响应（含 HTML 标签）</td><td>最原始、最大</td><td>不能</td></tr><tr><td>WET</td><td>抽取后的纯文本</td><td>比 WARC 小一个量级以上</td><td>仍不能（含模板文本）</td></tr><tr><td>WAT</td><td>元数据（URL、时间、链接）</td><td>小</td><td>不用于训练</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">第一步是<strong>正文抽取</strong>：从 HTML 里把"主要内容"抠出来。常用工具是 trafilatura、resiliparse、cc_net、datatrove。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：正文抽取之后还要过哪些筛子</div>
+          <table><tr><th>工序</th><th>典型判据</th><th>作用</th></tr><tr><td>长度过滤</td><td>少于 50 个词 或 多于 10 万个词 → 丢弃</td><td>去掉碎片与超长噪声</td></tr><tr><td>字母词占比</td><td>非字母词占比 &gt; 20%（即至少 80% 的词须含字母）→ 丢弃</td><td>去掉二进制、日志、代码混淆串</td></tr><tr><td>重复率过滤</td><td>n-gram 重复 &gt; 30% → 丢弃</td><td>去掉刷屏、模板化文本</td></tr><tr><td>语种过滤</td><td>目标语种之外 → 丢弃</td><td>用 fastText 分类器判断语种</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">这些是<strong>规则过滤</strong>——不依赖模型，速度快、成本低，负责把明显的垃圾挡在门外。这些阈值来自 Gopher 等早期大规模语料工作（Rae et al., 2021）并被后续管线广泛沿用：Gopher 系要求"至少 80% 的词含字母（即非字母词占比 &gt; 20% 才丢）"，NeMo 的同类过滤器取"非字母数字占比 ≤ 25%"（来源：https://docs.nvidia.com/nemo-framework/user-guide/25.07/datacuration/api/filters.html，Adapted from Gopher）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：算一下"存活率"</div>
+          <table><tr><th>工序级联</th><th>相对剩余量（量级示意）</th><th>说明</th></tr><tr><td>原始抓取（HTML）</td><td>100%</td><td>含全部标签与元数据</td></tr><tr><td>正文抽取后</td><td>约 10%~20%</td><td>只剩正文文本</td></tr><tr><td>去重后</td><td>再降至约 50%~70%</td><td>公开数据集的去重削减率多在 30%~50%（口径差异大）</td></tr><tr><td>叠加质量过滤后</td><td>进一步下降</td><td>最终可用比例通常远低于一半</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">光去重就砍掉约 <strong>30%~50%</strong>（各数据集口径不同：有的是纯去重、有的是全管线）；再叠加长度、非字母词占比、重复率、语种等规则过滤，最终存活率通常远低于一半——这就是"抓下来大部分不能用"的量化含义。<strong>表中数值为量级示意</strong>，用于说明各工序的相对削减量级，不是某一数据集的精确统计。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>数据工程的第一性认识是：<strong>原始语料的价值密度极低</strong>。Common Crawl 单轮未压缩体积达数百 TiB 量级，经过抽取与多轮过滤后剩下的可用 token 只是零头。<strong>所以"数据不够用"往往不是抓得少，而是没洗干净</strong>——这也是为什么 DCLM 的实验里，数据筛选的差异能让 7B 模型在少用 40% 算力的前提下 MMLU 还高 6.6 个百分点。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','8-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','8-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-8-1" class="llm-section"><button class="llm-btn" onclick="startChat('8-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="8-1"><div class="chat-toolbar"><button onclick="copyChat('8-1')">📋 复制对话</button><button onclick="clearChat('8-1')">🗑 清空</button><button onclick="stopLLM('8-1')" id="stop-btn-8-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('8-1')" id="regen-btn-8-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="8-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对数据管线有疑问？比如"WET 里的模板文本长什么样？""正文抽取算法怎么找到正文？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="8-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('8-1')}" rows="1" placeholder="例如：中文网页的正文抽取比英文难在哪？"></textarea><button onclick="sendLLM('8-1')">发送</button></div></div></div>
+      <div id="tab-qna-8-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('8-1')">🔄 换一批</button></div><div class="qna-list" data-qna="8-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="8-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">为什么训练前要花大力气做去重？</div><div class="card-q-hint">提示：先想同一篇新闻被 100 个网站转载时，这 100 份样本几乎完全一样。再想：训练数据里同一内容反复出现，模型会倾向于"记住"还是"泛化"？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>业界标准的近似去重方案是 <strong>MinHash + LSH</strong>（Locality-Sensitive Hashing）：先做 shingling（把文档切成 5-gram），再用一组哈希函数得到签名，最后用 LSH 分桶比较 <strong>Jaccard 相似度</strong>（两集合交集 ÷ 并集，衡量文档重合程度），超过阈值（常见 0.75~0.8，随管线而异）判为重复。<strong>哈希函数个数按精度需求设定</strong>——公开实现里从 112 个（FineWeb）到约 9000 个（RefinedWeb）不等；RedStone 在跨快照去重时用了 <strong>117 个 64 位 MinHash 签名</strong>（Chang et al., arXiv:2412.03398）。</div>
+      <div class="content-section"><p>上一张卡片我们看到去重会砍掉约 1/3 的数据。直觉上"数据变少了应该更差"，但事实相反——<strong>为什么？</strong></p><p><strong>因为</strong>重复数据会让模型把"记住原文"当成"学会规律"，<strong>所以</strong>去掉重复反而提升泛化。可以把这<strong>类比</strong>成备考：同一道题抄 100 遍，你记住的是这道题的答案；做 100 道不同的题，你学会的是解题方法。</p><p><strong>更自然的第一反应是用精确哈希去重</strong>（如 MD5 / SHA256），但它只认「一模一样」的字节：转载页往往只改一个标点或加一行页脚，就会被判成两篇不同的文档。而大规模网页抓取里，精确或近似重复的页面可占 <strong>30%~50%</strong>（统计口径因抓取范围而异），精确哈希基本抓不到后面这一大类——所以必须上近似去重。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 去重账：为什么要用近似算法，以及它能省多少</div>
+        <div class="step"><div class="step-title">Step 1：精确去重为什么不够</div>
+          <table><tr><th>方法</th><th>能发现什么</th><th>发现不了什么</th></tr><tr><td>精确哈希（MD5/SHA256）</td><td>完全相同的文档</td><td>改了一个标点的同一篇文章</td></tr><tr><td>近似去重（MinHash+LSH）</td><td>相似度 &gt; 阈值的文档</td><td>语义相同但用词完全不同的改写</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">转载、镜像站、模板页往往只改少量字符，精确哈希抓不到——必须用<strong>近似去重</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：MinHash 的复杂度账</div>
+          <table><tr><th>方法</th><th>两两比较次数（n 篇文档）</th><th>复杂度</th></tr><tr><td>暴力两两比较</td><td>n(n−1)/2</td><td>O(n²)：n = 100 亿时 ≈ 5 × 10¹⁹ 次</td></tr><tr><td>MinHash + LSH 分桶</td><td>只比同桶内的文档</td><td>近似 O(n)：规模随 n 线性增长，不再爆炸</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">这就是 LSH 的价值：<strong>把 O(n²) 的两两比较降到近似线性</strong>——把相似的文档放进同一个桶，只比桶内。具体吞吐随实现与硬件差异很大，这里只给<strong>复杂度的量级差</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：不照样做会怎样</div>
+          <table><tr><th>场景</th><th>重复率</th><th>后果</th></tr><tr><td>不去重</td><td>约 30%~50%</td><td>算力有 1/3 花在重复内容上；模型倾向记忆原文</td></tr><tr><td>去重后</td><td>接近 0</td><td>同样算力覆盖更多不同内容；下游表现提升</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">关键在于<strong>算力是固定预算</strong>：不去重等于把 1/3 的算力浪费在重复样本上。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>去重是"<strong>用数据量换数据多样性</strong>"的交易：砍掉 1/3 的 token，但换来的是同样算力下更广的覆盖。DCLM 的实验显示，<strong>数据筛选策略的差异可以让 7B 模型在少用 40% 算力的情况下还高出 6.6 个百分点</strong>（对比基线为 MAP-Neo，arXiv:2406.11794）——数据质量不是"锦上添花"，而是与算力同等量级的杠杆。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','8-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','8-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-8-2" class="llm-section"><button class="llm-btn" onclick="startChat('8-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="8-2"><div class="chat-toolbar"><button onclick="copyChat('8-2')">📋 复制对话</button><button onclick="clearChat('8-2')">🗑 清空</button><button onclick="stopLLM('8-2')" id="stop-btn-8-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('8-2')" id="regen-btn-8-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="8-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对去重有疑问？比如"阈值取 0.8 是怎么定的？""文档内重复怎么处理？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="8-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('8-2')}" rows="1" placeholder="例如：语义去重和近似去重的成本差多少？"></textarea><button onclick="sendLLM('8-2')">发送</button></div></div></div>
+      <div id="tab-qna-8-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('8-2')">🔄 换一批</button></div><div class="qna-list" data-qna="8-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="8-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">怎么判定一段文本是"好数据"？规则和模型各管什么？</div><div class="card-q-hint">提示：先想"语法通顺但毫无信息"的文本长什么样（比如产品页的规格罗列）。规则能筛掉它吗？如果不能，需要什么才能筛掉？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>质量过滤分两类（CuraWeb 与 DCLM, arXiv:2406.11794；CuraWeb 的编号未能逐字核到一手来源、待人工核实）：<strong>规则过滤</strong>（Rule Filter）用可解释的启发式规则——长度、非字母词占比、停用词占比、重复率，速度快、成本低；<strong>模型过滤</strong>（Model Filter）用分类器（如 fastText、BERT/RoBERTa 微调模型）给文本打"教育价值"分，能筛掉语法通顺但无信息量的内容。DCLM 的实验结论是：<strong>模型过滤是组装高质量训练集的关键</strong>。</div>
+      <div class="content-section"><p>上一张卡片讲完去重。但去过重之后，语料里还有大量"语法没问题、就是没价值"的文本——比如产品页的参数罗列。<strong>怎么把它们筛掉？</strong></p><p><strong>因为</strong>规则只能识别"形式特征"（太短、符号太多），<strong>所以</strong>必须再加一层"内容判断"。可以把这<strong>类比</strong>成招聘：简历初筛看硬性条件（学历、年限）是规则过滤；面试官判断"这人能力如何"是模型过滤——两者缺一不可。</p><p><strong>更省成本的做法是只用规则过滤</strong>（不跑模型推理），但它只能筛「形式」、筛不出「价值」——产品页规格、SEO 拼凑文都语法通顺，规则一条都不触发；DCLM 的对照实验显示，补上模型过滤后，7B 模型在少用 40% 算力的情况下 MMLU 反而高 6.6 个百分点。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 两类过滤器：各自管什么、成本差多少</div>
+        <div class="step"><div class="step-title">Step 1：规则过滤能识别什么</div>
+          <table><tr><th>规则</th><th>阈值（示例）</th><th>筛掉的典型内容</th></tr><tr><td>长度</td><td>少于 50 个词 或 多于 10 万个词</td><td>碎片标题、网页日志</td></tr><tr><td>字母词占比</td><td>至少 80% 词含字母（非字母词占比 &gt; 20%）</td><td>数值表、代码混淆串</td></tr><tr><td>n-gram 重复率</td><td>&gt; 30%</td><td>模板化文本、刷屏内容</td></tr><tr><td>语种识别</td><td>非目标语种</td><td>混入的外语文档</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">规则的特点是<strong>可解释、可复算</strong>——你能说清一段文本因为哪条规则被删。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：模型过滤补什么</div>
+          <table><tr><th>过滤器</th><th>训练目标</th><th>能识别</th><th>识别不了</th></tr><tr><td>fastText 语种分类</td><td>176 语种分类</td><td>语种</td><td>内容质量</td></tr><tr><td>质量分类器</td><td>高分文本 vs 低分文本</td><td>"像教科书"的段落</td><td>领域外的专业内容</td></tr><tr><td>有害内容分类</td><td>毒性识别</td><td>攻击性内容</td><td>——</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">模型过滤能识别"价值"这种规则写不出来的维度，代价是<strong>要为全量语料跑一遍推理</strong>——这是数据管线里最贵的一步。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：过滤带来的实际收益（DCLM 对照实验）</div>
+          <table><tr><th>数据集</th><th>模型规模</th><th>训练 token</th><th>MMLU 5-shot</th><th>训练算力</th></tr><tr><td>MAP-Neo（此前开源最佳）</td><td>7B</td><td>——</td><td>基线</td><td>基线</td></tr><tr><td><strong>DCLM-BASELINE</strong></td><td>7B</td><td>2.6T</td><td><strong>+6.6 个百分点</strong></td><td><strong>少 40%</strong></td></tr><tr><td>对照：Mistral-7B-v0.3</td><td>7B</td><td>——</td><td>63%</td><td>——</td></tr><tr><td>对照：Llama 3 8B</td><td>8B</td><td>——</td><td>66%</td><td>比 DCLM 多 6.6 倍</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">DCLM-BASELINE 训出的 7B 模型在 MMLU 上到 64% ≈ Llama 3 8B 的 66%（差 2 个百分点），但<strong>算力只有 Llama 3 8B 的约 1/6.6</strong>——差距完全来自数据筛选。（注意区分两个"6.6"：本表的 +6.6 个百分点是 MMLU 分数上 vs MAP-Neo；这里的 1/6.6 是训练算力 vs Llama 3 8B，两个对比不同。）</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>规则过滤管"<strong>形式</strong>"，模型过滤管"<strong>价值</strong>"。前者便宜但不能判断内容好坏，后者能判断但要为全量语料付一次推理成本。<strong>两者是串联关系而不是二选一</strong>：先用规则快速砍掉大部分垃圾（省下模型推理的成本），再用模型过滤在剩余部分里精挑——这也是几乎所有主流数据集的共同做法。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','8-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','8-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-8-3" class="llm-section"><button class="llm-btn" onclick="startChat('8-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="8-3"><div class="chat-toolbar"><button onclick="copyChat('8-3')">📋 复制对话</button><button onclick="clearChat('8-3')">🗑 清空</button><button onclick="stopLLM('8-3')" id="stop-btn-8-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('8-3')" id="regen-btn-8-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="8-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对质量过滤有疑问？比如"质量分类器的训练数据从哪来？""过滤太狠会不会丢掉重要数据？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="8-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('8-3')}" rows="1" placeholder="例如：过滤阈值调高会不会把数学内容也筛掉？"></textarea><button onclick="sendLLM('8-3')">发送</button></div></div></div>
+      <div id="tab-qna-8-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('8-3')">🔄 换一批</button></div><div class="qna-list" data-qna="8-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="8-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">各领域的数据该按什么比例混合？</div><div class="card-q-hint">提示：先想如果 90% 都是网页文本、只有 1% 是代码，模型会写代码吗？再想这个比例该怎么定，才能既不浪费算力、又不让模型偏科。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>数据配比（Data Mixing）决定各领域 token 的采样权重，显著影响最终能力。<strong>The Pile</strong> 的配比是按各领域现有 token 量结合人工判断启发式定的（Gao et al., 2020）。<strong>DoReMi</strong>（Xie et al., arXiv:2305.10429）提出用 <strong>Group DRO</strong>（按"表现最差的领域"来动态调整权重的优化方法）训练一个 <strong>280M 代理模型</strong>来自动搜索配比，再用该配比训练 <strong>8B 模型</strong>：在 The Pile 上平均 few-shot 准确率提升 <strong>6.5 个百分点</strong>，且只需 <strong>1/2.6 的训练步数</strong>就达到基线精度。</div>
+      <div class="content-section"><p>上一张卡片把垃圾筛掉了。但剩下的"好数据"来自不同领域——网页、代码、论文、百科。<strong>它们该按什么比例混合？</strong></p><p><strong>因为</strong>配比直接决定模型的能力分布，<strong>所以</strong>它不能拍脑袋。可以把这<strong>类比</strong>成配营养餐：蛋白质、碳水、脂肪各占多少，决定了运动员练出什么体质——配方错了，练得再多也补不到该补的地方。</p><p><strong>更自然的做法是按语料里各领域现成的 token 量来分配</strong>（The Pile 早期就这么做）——但这等于假设「量多就该多用」，并不保证对下游能力最优；DoReMi 只把采样权重换一换，在同一份语料上平均 few-shot 就高了 6.5 个百分点，且用 1/2.6 的步数就追平基线。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 数据配比：三种定法，成本差 30 倍</div>
+        <div class="step"><div class="step-title">Step 1：三种确定配比的路线</div>
+          <table><tr><th>路线</th><th>怎么做</th><th>优点</th><th>代价</th></tr><tr><td>启发式</td><td>按各领域现有 token 量分配（The Pile 做法）</td><td>零额外成本</td><td>可能次优</td></tr><tr><td>面向下游任务调</td><td>在多个下游任务上搜最优权重</td><td>目标明确</td><td>可能要训上千个模型；过拟合任务集</td></tr><tr><td><strong>代理模型搜索</strong>（DoReMi）</td><td>用小模型自动搜权重，再用到大模型</td><td>成本低、不依赖下游任务</td><td>需一次代理模型训练</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：为什么可以用小模型定大模型的配比</div>
+          <table><tr><th>项目</th><th>数值</th><th>说明</th></tr><tr><td>代理模型规模</td><td>280M 参数</td><td>用于搜索权重</td></tr><tr><td>目标模型规模</td><td>8B 参数</td><td>约 30 倍大（280M → 8B）</td></tr><tr><td>参数量比</td><td>约 1/30</td><td>代理模型参数量仅为目标的约 1/30，实际搜索成本还取决于 token 预算与搜索轮数</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">关键假设：<strong>配比的优劣在小模型上已可分辨</strong>。这条假设成立，搜索才划算——参数量比约 1/30，实际搜索成本还取决于 token 预算与搜索轮数。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：DoReMi 的实际收益</div>
+          <table><tr><th>指标</th><th>基线（The Pile 默认配比）</th><th>DoReMi 配比</th><th>变化</th></tr><tr><td>平均 few-shot 准确率</td><td>基线</td><td>——</td><td><strong>+6.5 个百分点</strong></td></tr><tr><td>达到基线精度所需步数</td><td>1.0×</td><td>——</td><td><strong>1/2.6</strong></td></tr><tr><td>是否用到下游任务</td><td>——</td><td>不使用</td><td>可跨任务复用</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">注意第二行：<strong>用 1/2.6 的训练步数就追平基线</strong>——换算成算力，相当于省了近 60% 的预训练成本。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>数据配比是<strong>被低估的算力杠杆</strong>：不改模型、不改算力，只调各领域的采样权重，就能让模型少跑 60% 的步数达到同样精度（DoReMi）。<strong>而它之所以长期靠直觉，是因为"试错成本高"</strong>——代理模型把试错成本压到约 1/30（参数量比），才让自动搜索变得可行。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','8-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','8-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-8-4" class="llm-section"><button class="llm-btn" onclick="startChat('8-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="8-4"><div class="chat-toolbar"><button onclick="copyChat('8-4')">📋 复制对话</button><button onclick="clearChat('8-4')">🗑 清空</button><button onclick="stopLLM('8-4')" id="stop-btn-8-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('8-4')" id="regen-btn-8-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="8-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对数据配比有疑问？比如"如果只想要强代码能力，代码该占多少？""配比会随训练阶段变化吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="8-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('8-4')}" rows="1" placeholder="例如：训练后期调高代码比例有用吗？"></textarea><button onclick="sendLLM('8-4')">发送</button></div></div></div>
+      <div id="tab-qna-8-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('8-4')">🔄 换一批</button></div><div class="qna-list" data-qna="8-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="8-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">合成数据能补上数据缺口吗？为什么会有"模型崩塌"？</div><div class="card-q-hint">提示：先想模型生成的数据是从哪个分布里采样出来的——是真实世界的分布，还是它自己学到的近似分布？如果一代代只用自己生成的数据训练，会丢掉什么？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>模型崩塌（Model Collapse）</strong>：Shumailov 等在 Nature（2024, 631, 755-759）证明，"不加区分地使用模型生成内容"会让模型出现<strong>不可逆缺陷</strong>——原始分布的尾部（罕见事件）被逐代抹掉。Seddik 等（arXiv:2404.05090）给出理论结论：<strong>纯合成数据必然崩塌</strong>；而真实+合成混合时，存在一个合成数据量的上界，低于它可避免崩塌。Gerstgrasser 等（arXiv:2404.01413）进一步指出：<strong>关键在于"替换"还是"累积"——累积可防止崩塌，替换则导致崩塌。</strong></div>
+      <div class="content-section"><p>上一张卡片讲完配比。但真实数据快用完了（第 7 课的数据墙），于是自然想到：<strong>用模型生成数据来补，行不行？</strong></p><p><strong>因为</strong>模型生成的内容只覆盖它学到的分布，<strong>所以</strong>一代代只用它训练会让"罕见情况"被逐步抹掉——这就是模型崩塌。可以把这<strong>类比</strong>成复印件的复印件：每复印一次就丢一点细节，几十代后只剩一团模糊；只有把原件一直留在纸堆里，才不会再模糊。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 模型崩塌账：三种用法，三种结局</div>
+        <div class="step"><div class="step-title">Step 1：三种训练方式的结局</div>
+          <table><tr><th>方式</th><th>训练集构成</th><th>结局（理论结论）</th></tr><tr><td>纯合成</td><td>第 N 代全部用第 N−1 代生成</td><td><strong>必然崩塌</strong>（无法避免）</td></tr><tr><td>替换式混合</td><td>每代用"新合成"替换掉部分真实数据</td><td>逐步崩塌（真实数据被侵蚀）</td></tr><tr><td><strong>累积式混合</strong></td><td>真实数据<strong>不删</strong>，合成数据不断追加</td><td><strong>可避免崩塌</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">三种方式的差别不在"用不用合成数据"，而在<strong>真实数据是被留下还是被替换</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：为什么会丢"尾部"</div>
+          <table><tr><th>环节</th><th>发生了什么</th><th>后果</th></tr><tr><td>第 1 代采样</td><td>从真实分布里采样，稀有事件本来就少</td><td>采样样本里尾部已欠代表</td></tr><tr><td>第 2 代模型</td><td>学的是"已欠代表的样本"</td><td>生成时尾部更少</td></tr><tr><td>第 3~4 代</td><td>偏差逐代累积</td><td><strong>模型忘记稀有事件存在</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">三个误差来源会复合：统计近似误差（有限采样）、函数表达能力误差（网络拟合不完美）、学习过程偏差（SGD 等）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：合成数据的安全边界</div>
+          <table><tr><th>合成占比</th><th>是否有崩塌风险</th><th>建议</th></tr><tr><td>100%（纯合成）</td><td><strong>必然崩塌</strong></td><td>不可用</td></tr><tr><td>较高比例 + 真实数据被替换</td><td>有</td><td>不可取</td></tr><tr><td>合成占少数 + 真实数据累积不删</td><td>可避免</td><td><strong>推荐</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">论文的定量建议是：<strong>合成 token 的量应显著小于真实 token</strong>；同时保留一撮人类撰写的"种子数据"作为锚点，任何时候都不删。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>合成数据不是"能用/不能用"的二元问题，而是<strong>用法问题</strong>：<strong>替换真实数据 → 崩塌；累积而不删真实数据 → 安全</strong>。所以工程上的铁律是——<strong>永远保留一份人类撰写的真实数据作为锚点，合成数据只做增量</strong>。这也再次印证第 7 课的数据墙：数据不够不能靠纯合成绕过去。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','8-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','8-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-8-5" class="llm-section"><button class="llm-btn" onclick="startChat('8-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="8-5"><div class="chat-toolbar"><button onclick="copyChat('8-5')">📋 复制对话</button><button onclick="clearChat('8-5')">🗑 清空</button><button onclick="stopLLM('8-5')" id="stop-btn-8-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('8-5')" id="regen-btn-8-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="8-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对合成数据有疑问？比如"怎么判断合成数据有没有害？""蒸馏算不算合成数据？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="8-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('8-5')}" rows="1" placeholder="例如：用强模型生成的数据训小模型，会崩塌吗？"></textarea><button onclick="sendLLM('8-5')">发送</button></div></div></div>
+      <div id="tab-qna-8-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('8-5')">🔄 换一批</button></div><div class="qna-list" data-qna="8-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="8-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">怎么知道一份语料"变好了"？</div><div class="card-q-hint">提示：先想"清洗得干净"能不能当结论——干净但能力没提升的语料有价值吗？那该用什么指标来判断？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>数据工程的评估闭环有两个层次：<strong>语料层指标</strong>（规模、去重率、领域分布熵、文本多样性）与<strong>模型层指标</strong>（用小模型做对照实验，看同一算力下的 <strong>perplexity</strong> 与下游基准分数）。DCLM（arXiv:2406.11794）正是用"固定模型与算力、只换数据集"的对照实验，才量化出数据筛选带来的 +6.6 个百分点。</div>
+      <div class="content-section"><p>上一张卡片讲完合成数据的边界。现在把整条管线收口：<strong>怎么知道一份语料真的变好了？</strong></p><p><strong>因为</strong>"洗得干净"本身不是目标（干净但没提升能力的语料毫无价值），<strong>所以</strong>必须用模型层的对照实验来判断。可以把这<strong>类比</strong>成换食材：菜谱不变、厨师不变，只换食材，然后请同一批人盲测——这样才知道变好是不是食材的功劳。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 语料体检：两层指标 + 对照实验设计</div>
+        <div class="step"><div class="step-title">Step 1：语料层指标（便宜，先跑）</div>
+          <table><tr><th>指标</th><th>怎么算</th><th>健康信号</th></tr><tr><td>去重率</td><td>去重前后 token 差 ÷ 去重前</td><td>约 30%~50%（过低可能没去干净）</td></tr><tr><td>领域分布熵</td><td>各领域占比的<strong>香农熵</strong>（衡量分布均匀程度）</td><td>不宜过低（过低=过度集中）</td></tr><tr><td>平均文档长度</td><td>token 总数 ÷ 文档数</td><td>不宜过短（过短=碎片多）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">语料层指标<strong>只能发现明显异常，不能证明语料更好</strong>——干净不等于有用。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：模型层指标（贵，但是唯一可信判据）</div>
+          <table><tr><th>做法</th><th>控制变量</th><th>读数</th></tr><tr><td>固定小模型 + 固定算力，只换数据集</td><td>架构、超参、token 预算全不变</td><td>验证集 perplexity、下游基准分</td></tr><tr><td>DCLM 的实际做法</td><td>7B 模型、2.6T token</td><td>MMLU 5-shot 提升 6.6 个百分点</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">关键在<strong>只改一个变量</strong>：如果同时换了模型和数据集，就分不清收益来自哪里。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：把代价算清——为什么不直接上大模型测</div>
+          <table><tr><th>方案</th><th>对照成本</th><th>结论可信度</th></tr><tr><td>用 7B 模型测每组语料</td><td>每次完整预训练（极高）</td><td>高</td></tr><tr><td>用 400M~1B 小模型测</td><td>约 1/50~1/100（估算）</td><td>中（趋势可信，绝对值不可外推）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">实践中是<strong>两级筛选</strong>：先用小模型淘汰明显差的方案，只对少数候选做全尺寸验证。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>数据工程的闭环判据是<strong>"同一算力下模型是否更强"</strong>，而不是"语料是否更干净"。这条判据决定了数据工程必须与训练实验绑定——<strong>没有对照实验，就只是手工艺，不是工程</strong>。这也是为什么第二部分把数据工程放在预训练之前：先学会怎么判断数据好坏，才知道预训练该喂什么。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','8-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','8-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-8-6" class="llm-section"><button class="llm-btn" onclick="startChat('8-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="8-6"><div class="chat-toolbar"><button onclick="copyChat('8-6')">📋 复制对话</button><button onclick="clearChat('8-6')">🗑 清空</button><button onclick="stopLLM('8-6')" id="stop-btn-8-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('8-6')" id="regen-btn-8-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="8-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对语料评估有疑问？比如"小模型结论能外推到大模型吗？""perplexity 和下游分数不一致怎么办？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="8-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('8-6')}" rows="1" placeholder="例如：怎么设计一组公平的数据集对照实验？"></textarea><button onclick="sendLLM('8-6')">发送</button></div></div></div>
+      <div id="tab-qna-8-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('8-6')">🔄 换一批</button></div><div class="qna-list" data-qna="8-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 8 课完成 · 下一课：第 9 课「预训练全流程」</p>
+    <a href="#" onclick="switchLesson(9);return false;">进入第 9 课：预训练全流程 →</a>　·　<a href="#" onclick="switchLesson(7);return false;">← 上一课：Scaling Laws 与算力预算</a>
+  </div></div>

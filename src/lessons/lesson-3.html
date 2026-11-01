@@ -1,0 +1,222 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 3 课：现代 Transformer 的五大改造</h2>
+    <p class="subtitle">2017 年的 Transformer 只是个起点。从 Llama 到 Qwen，现代大模型对原始 Transformer 做了五处关键改造——每一处都在解决一个具体的工程痛点。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 5 项改造（推理链 6 步）你将能够：</div>
+      <div class="goal-text">① 用自己的话说清 RoPE（按位置给词向量拧一个旋转角度）如何用旋转编码相对位置，以及为什么它比绝对位置编码更利于外推<br>② 画出 MHA → MQA（所有 Query 头共享同一份 K/V）→ GQA（把多个 Query 头分成几组、每组共享同一份 K/V）的演进链，算出 GQA 省了多少 KV Cache（把已算过的键和值存下来复用）<br>③ 指出 RMSNorm（砍掉减均值、只保留缩放）、SwiGLU（用门控决定信息通过多少）、Pre-Norm 各自解决了什么训练/推理瓶颈</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：约束一「位置」→ 逼出 RoPE；约束二/三/四「显存·算力·梯度」是三条并列支链，各逼出一个解；最后汇总成一个 Block。↓ 表示并列归属，不是先后递进）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text"><strong>约束一：位置信息必须能外推</strong> — 要在 4096 长序列上工作、训练却只见过固定长度；「绝对坐标 + 加法」给不出相对距离，<strong>这就要求</strong>先看清它加在 <strong>embedding</strong> 上的死穴</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text"><strong>既然要相对位置，就用旋转注入</strong> — 把「角度差」直接编码进 Q·K 的打分里，<strong>这就要求</strong>旋转是连续数学操作（cos/sin 对任意角度都有定义），<strong>因此</strong>可外推 → 逼出 <strong>RoPE</strong></span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text"><strong>约束二 · 支链（显存）：位置解决了，显存却成了新瓶颈</strong> — 推理要缓存全部历史 K/V（KV Cache），随上下文线性膨胀，不压缩就 OOM，<strong>因此</strong>必须减少 KV 头数 → 32 个 Q 头分 8 组共享 KV → 逼出 <strong>GQA</strong></span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text"><strong>约束三 · 支链（算力）：显存压住了，算力预算仍紧</strong> — 同预算下要更低困惑度、还要少一次跨卡同步，<strong>这就要求</strong>砍掉 normalization 里多余的一步（减均值），<strong>于是</strong>用门控替代 FFN 里的一刀切 → <strong>RMSNorm</strong> + <strong>SwiGLU</strong></span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text"><strong>约束四 · 支链（梯度）：还差最后一条——梯度要能穿过 32+ 层回到第 1 层</strong> — Norm 堵在残差主干上会让梯度衰减到 0.5³²，<strong>因此</strong>必须把 Norm 移出主干、让残差成为直通路径 → 逼出 <strong>Pre-Norm</strong></span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text"><strong>四条约束的解互不冲突，所以能拼成一个 Block</strong> — 把 RoPE / GQA / RMSNorm / SwiGLU / Pre-Norm 装进同一个 Block，重复 32 次，<strong>于是</strong> KV Cache 只占 1/4、梯度可直达第 1 层 → <strong>Llama</strong></span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">RoPE</span><span class="meta-tag">GQA</span><span class="meta-tag">RMSNorm</span><span class="meta-tag">SwiGLU</span><span class="meta-tag">Pre-Norm</span><span class="meta-tag">Llama</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="3-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">"我打你"和"你打我"——三个字一模一样，模型怎么知道意思完全相反？</div><div class="card-q-hint">提示：把每个字转成向量后，两句的向量组有什么区别？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a"><div class="card-bg"><div class="bg-label">知识背景</div><strong>Sinusoidal 绝对位置编码</strong>（Vaswani et al., 2017，《Attention Is All You Need》）。用固定公式 PE(pos,2i)=sin(pos/10000^(2i/d))、PE(pos,2i+1)=cos(pos/10000^(2i/d)) 为每个位置生成唯一的向量，直接加到词向量上。参数为零、可算任意位置，但只表达"绝对坐标"，不直接表达"相对距离"。</div><div class="content-section"><p>把"我打你"和"你打我"的每个字转成向量——"我"永远是 [0.5,0.3,0.8]，"打"永远是 [0.2,0.9,0.4]。<strong>三个字的 Embedding 完全相同，顺序不同但模型看到的向量集合一样。</strong>不加位置信息的话，模型分不清谁打了谁。打个比方：一副扑克牌洗过之后张数没变、点数也没变，可你再也说不出谁在谁前面——拿到的就是这副洗过的牌。所以位置编码要回答的不是这个词是什么，而是这个词排在第几位。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 完整走查：同一个 Embedding 表，两个完全不同的句子</div>
+        <div class="step"><div class="step-title">Step 1：Embedding 表（3个词 × 3维）</div>
+          <table><tr><th>字</th><th>d₁</th><th>d₂</th><th>d₃</th></tr><tr><td>"我"</td><td>0.5</td><td>0.3</td><td>0.8</td></tr><tr><td>"打"</td><td>0.2</td><td>0.9</td><td>0.4</td></tr><tr><td>"你"</td><td>0.7</td><td>0.1</td><td>0.6</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：不加位置 — 模型眼里两句是同一组向量</div>
+          <table><tr><th></th><th>位置1</th><th>位置2</th><th>位置3</th></tr><tr><td>"我打你"</td><td>[0.5,0.3,0.8]</td><td>[0.2,0.9,0.4]</td><td>[0.7,0.1,0.6]</td></tr><tr><td>"你打我"</td><td>[0.7,0.1,0.6]</td><td>[0.2,0.9,0.4]</td><td>[0.5,0.3,0.8]</td></tr></table>
+          <div class="step-desc" style="color:#ef4444;font-weight:600;">"打"在位置2，两个句子拿到的都是 [0.2,0.9,0.4]——模型看不出它在"我打你"里还是在"你打我"里。顺序信息丢失了。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：原始 Transformer 的补救——Sinusoidal 绝对位置编码</div>
+          <div class="step-desc">Vaswani 2017 的原始方案：用 sin/cos 函数为每个位置生成一个唯一的向量，加到词向量上。PE(pos,2i)=sin(pos/10000^(2i/d)), PE(pos,2i+1)=cos(pos/10000^(2i/d))。</div>
+          <table><tr><th>位置</th><th>Sinusoidal 编码（前2维）</th><th>"我打你"每个位置 = 词向量 + 编码</th></tr><tr><td>位置1</td><td>[sin(1)≈0.84, cos(1)≈0.54, 0]</td><td>我: [0.5+0.84, 0.3+0.54, 0.8] = <strong>[1.34, 0.84, 0.8]</strong></td></tr><tr><td>位置2</td><td>[sin(2)≈0.91, cos(2)≈−0.42, 0]</td><td>打: [0.2+0.91, 0.9−0.42, 0.4] = <strong>[1.11, 0.48, 0.4]</strong></td></tr><tr><td>位置3</td><td>[sin(3)≈0.14, cos(3)≈−0.99, 0]</td><td>你: [0.7+0.14, 0.1−0.99, 0.6] = <strong>[0.84, −0.89, 0.6]</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">"你打我"的位置1是"你"向量+Sinusoidal(1) = [0.7+0.84, 0.1+0.54, 0.6] = <strong>[1.54, 0.64, 0.6]</strong>——和"我打你"完全不同了。✅ 绝对位置编码让两个句子产生了区别。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 4：但有个致命问题——只编码了"你在第几位"，没编码"你和别人差多远"</div>
+          <table><tr><th>场景</th><th>位置1的向量</th><th>位置3的向量</th><th>能否看出"距离=2"？</th></tr><tr><td>"我打你"</td><td>[1.34, 0.84, 0.8]</td><td>[0.84, −0.89, 0.6]</td><td style="color:#ef4444;">不能——点积 1.34×0.84+0.84×(−0.89)+0.6×0.8 = <strong>0.858</strong></td></tr><tr><td>"你打我"</td><td>[1.54, 0.64, 0.6]</td><td>[0.64, −0.69, 0.8]</td><td style="color:#ef4444;">也不能——点积 1.5415×0.6411+0.6403×(−0.69)+0.6×0.8 = <strong>1.026</strong>，和上面不相等</td></tr></table>
+          <div class="step-desc" style="color:#ef4444;font-weight:600;margin-top:6px;">核心矛盾：同样是位置1和位置3（距离都是 2），两个句子的点积却并不相同（0.858 vs 1.026）。因为点积里混入了词向量本身的内容，不是纯净的"距离=2"信号。Sinusoidal 编码在训练长度 512 之外会显著退化（ALiBi 论文 Press et al. 2021 实测超出训练长度后困惑度大幅上升）——它理论上能线性表示相对位置，但无法保证超出训练长度仍可外推。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 核心矛盾</div><p>绝对位置编码像给每个座位贴一个 GPS 坐标（第 1 排、第 2 排…）。模型拿到的是"你在 36.5°N, 120.3°E"，但它真正需要知道的是"你离我 2 米远"——<strong>相对距离</strong>。不管用 Sinusoidal 函数还是查表，只要是"绝对位置 + 加法"，都绕不开这个限制。RoPE 的答案：不要 GPS 了，改成记录<strong>"你在我左边还是右边，离多远"</strong>——通过旋转操作把相对距离信息直接编码进 Attention 的点积里。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','3-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','3-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-3-1" class="llm-section"><button class="llm-btn" onclick="startChat('3-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="3-1"><div class="chat-toolbar"><button onclick="copyChat('3-1')">📋 复制对话</button><button onclick="clearChat('3-1')">🗑 清空</button><button onclick="stopLLM('3-1')" id="stop-btn-3-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('3-1')" id="regen-btn-3-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="3-1"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对位置编码有疑问？比如"为什么不能用位置1/总长度这种简单方式？""Sinusoidal 的 sin/cos 频率是怎么选的？"<br><br>我会用具体数字帮你走一遍。</div></div></div><div class="chat-input-row"><textarea data-input="3-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('3-1')}" rows="1" placeholder="例如：如果直接用 1,2,3… 作为位置编码会怎样？"></textarea><button onclick="sendLLM('3-1')">发送</button></div></div></div>
+      <div id="tab-qna-3-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('3-1')">🔄 换一批</button></div><div class="qna-list" data-qna="3-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+  <div class="card" data-card="3-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">RoPE 怎么让"打"知道自己在"我打你"和"你打我"里位置不同？</div><div class="card-q-hint">提示：位置信息一定要"加"到词向量上吗？想一想，还有什么数学操作，会让同一个词在两个位置"看起来"不一样。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>RoPE</strong> = Rotary Position Embedding（Su et al., 2021，追一科技）。通过旋转矩阵对 Q 和 K 向量施加位置相关的旋转，使 Q·K 点积天然包含相对位置信息（只依赖旋转角差）。替代了 Transformer 原始 Sinusoidal 和 BERT 可学习编码。Llama、Qwen、Mistral、Gemma 均使用 RoPE。</div>
+<div class="content-section"><p>上一张卡片我们看清了绝对位置编码的死穴：只编码了"你在第几位"（绝对坐标），没编码"你离我多远"（相对距离）。RoPE 换了一种思路——<strong>不把位置信息当成"加法标签"，而是把每个词的向量"旋转"一个角度，角度大小由位置决定。</strong></p><p>核心数学：在二维平面里，把一个向量旋转 θ 角：x' = x·cosθ - y·sinθ，y' = y·cosθ + x·sinθ。关键性质：<strong>两个旋转后的向量做点积，结果里天然包含了它们的相对角度差——也就是相对位置。</strong></p><p>打个比方：把每个词的向量想成钟表上的指针，位置决定它被拨到几点——两根指针的夹角只取决于"拨过的格数之差"，而不取决于它们在表盘上的绝对位置。</p><p>注意这里的关键是「旋转」而不是「相加」：把位置向量直接加到词向量上，会同时改动这个向量的长度和方向——[0.8, 0.6] 加上位置编码 [0.84, 0.54] 后变成 [1.64, 1.14]，模长从 1.00 变成约 2.00，方向也从 36.9° 偏到 34.8°，词本身的语义就被搅动了。旋转只改方向、不改长度（[0.8, 0.6] 旋转 0.03 弧度后模长仍是 1.00），于是点积里就只剩「两个方向差多少」这一个变量，相对位置才干净地浮现。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 完整走查："打"在位置 1 vs 位置 3，旋转后模型自己就能看出区别</div>
+        <div class="step"><div class="step-title">Step 1：两个位置的"打"向量 + 各自旋转角</div>
+          <table><tr><th></th><th>原始向量（取前2维）</th><th>旋转角（位置×角速度）</th></tr><tr><td>位置1的"打"</td><td>[0.8, 0.6]</td><td>θ₁ = 1×0.01 = <strong>0.01 rad</strong></td></tr><tr><td>位置3的"打"</td><td>[0.8, 0.6]</td><td>θ₃ = 3×0.01 = <strong>0.03 rad</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">为便于手算，这里把角速度固定为 0.01 rad/step（位置差 100 步才转 1 rad，约 57°）；真实 RoPE 是分维多频——每维角速度 ω_i = 1/10000^(2i/d)，从高频≈1 到低频≈1/10000 不等（公式见本课 L2-C2）。此处单一 0.01 仅为示意。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：旋转计算（cos(0.01)≈0.99995, sin(0.01)≈0.0100）</div>
+          <table><tr><th></th><th>x' = x·cosθ - y·sinθ</th><th>y' = y·cosθ + x·sinθ</th></tr><tr><td>位置1旋转后</td><td>0.8×0.99995 - 0.6×0.0100 = 0.79996 - 0.006 = <strong>0.794</strong></td><td>0.6×0.99995 + 0.8×0.0100 = 0.59997 + 0.008 = <strong>0.608</strong></td></tr><tr><td>位置3旋转后</td><td>0.8×0.99955 - 0.6×0.0300 = 0.79964 - 0.018 = <strong>0.782</strong></td><td>0.6×0.99955 + 0.8×0.0300 = 0.59973 + 0.024 = <strong>0.624</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">cos(0.03)≈0.99955, sin(0.03)≈0.0300</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：旋转后做点积——相对位置自动出现</div>
+          <table><tr><th>对比</th><th>旋转后点积</th><th>旋转前点积</th></tr><tr><td>位置1的"打" × 位置3的"打"</td><td>0.794×0.782 + 0.608×0.624 = 0.621 + 0.379 = <strong>1.000</strong></td><td>0.8×0.8 + 0.6×0.6 = <strong>1.000</strong></td></tr></table>
+          <div class="step-desc" style="color:var(--success);font-weight:600;margin-top:6px;">都是同一个词"打"→旋转前点积=1.0，旋转后仍≈1.0。因为两个向量旋转方向相同、角度差很小（0.02 rad），几乎不影响相似度。</div>
+          <div class="step-desc" style="margin-top:4px;">但如果位置差很大（比如位置1和位置100）：角度差 = 99×0.01 = 0.99 rad ≈ 57° → 旋转后点积会从1.0降到约 cos(0.99)≈0.55——<strong>点积随着距离衰减，相对位置信息被自动编码进去了。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 RoPE 为什么比绝对位置编码更利于外推？</div><p>标签表方式的死穴是"没见过位置257的标签"。旋转是连续数学操作——<strong>cos 和 sin 对任意角度都有定义</strong>，位置 257 的旋转角 257×0.01 = 2.57 rad 仍可算出。模型学会"旋转角越大、点积衰减越多"后，相对位置性质比绝对编码更好。但这不等于"天然支持任意长度"——超出训练长度后模型从未在这些角度上训练过，实测仍会退化，长文本外推需要 <strong>RoPE scaling</strong>（位置插值 / 调大 base）。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','3-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','3-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-3-2" class="llm-section"><button class="llm-btn" onclick="startChat('3-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="3-2"><div class="chat-toolbar"><button onclick="copyChat('3-2')">📋 复制对话</button><button onclick="clearChat('3-2')">🗑 清空</button><button onclick="stopLLM('3-2')" id="stop-btn-3-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('3-2')" id="regen-btn-3-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="3-2"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 RoPE 旋转编码有疑问？比如"为什么用旋转而不是平移？""角速度 0.01 怎么选的？"<br><br>我会用具体数字帮你走一遍。</div></div></div><div class="chat-input-row"><textarea data-input="3-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('3-2')}" rows="1" placeholder="例如：如果角速度改成 0.001 或 1.0 会怎样？"></textarea><button onclick="sendLLM('3-2')">发送</button></div></div></div>
+      <div id="tab-qna-3-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('3-2')">🔄 换一批</button></div><div class="qna-list" data-qna="3-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+  <div class="card" data-card="3-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">生成第 5 个字时，前 4 个字的 Key 和 Value 不能扔——显存撑不住了怎么办？</div><div class="card-q-hint">提示：GPT 逐字生成，"吃苹果"的"果"时需要回忆"我爱吃"三个字——每次重算太慢，存着又太占地方</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>GQA</strong> = Grouped-Query Attention（Ainslie et al., Google, 2023）。介于 MHA（Multi-Head，每头独立 Q/K/V）和 MQA（Multi-Query，所有 Q 共享一个 KV）之间。将 Q 头分组共享 KV——如 32 个 Q 头分为 8 组 → 8 个 KV 头。KV Cache 显存降至原来的 25%。Llama 2 的 34B 与 70B、Llama 3、Gemma 使用 GQA（34B 已训练但未发布）。</div>
+<div class="content-section"><p>上一张卡片我们用 RoPE 让"打"知道了自己的位置。但生成时还有一个瓶颈：<strong>GPT 逐 token 生成"我爱吃苹果"，生成"果"时，需要看"我""爱""吃""苹"四个字的 Key 和 Value。</strong>每次都重算前 4 个字太慢——所以把它们的 K、V 缓存起来，这就是 <strong>KV Cache</strong>。</p><p>问题：KV Cache 占多少显存？</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 KV Cache 有多大？生成一个 1024 token 的回复</div>
+        <div class="step"><div class="step-title">Step 1：一个 token 的 Key 或 Value 大小</div>
+          <div class="step-desc">假设：4 个头、每头 64 维、8 层</div>
+          <div class="step-desc">一个 token 的 Key = 4头 × 64维 = <strong>256 个数</strong>（float16，每个 2 字节 = 512 字节）</div>
+          <div class="step-desc">一个 token 的 K+V = <strong>1024 字节 ≈ 1 KB</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：生成 1024 个 token 的最坏情况</div>
+          <table><tr><th>阶段</th><th>需要缓存多少 token 的 KV？</th><th>显存</th></tr><tr><td>生成第 1 个字时</td><td>0 个历史的 KV</td><td>0</td></tr><tr><td>生成第 512 个字时</td><td>511 个历史的 KV</td><td>511 KB × 8层 = <strong>4 MB</strong></td></tr><tr><td>生成第 1024 个字时</td><td>1023 个历史的 KV</td><td>1023 KB × 8层 = <strong>8 MB</strong></td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 3：真实规模放大——32 头、128 维、32 层</div>
+          <table><tr><th>配置</th><th>KV Cache 总量（1024 token）</th></tr><tr><td>MHA：32 头独立 K、V</td><td>32头 × 2(K+V) × 128维 × 1024token × 32层 × 2字节 = <strong>512 MB</strong></td></tr><tr><td>MQA：32 头共享 1 对 K、V</td><td>1组 × 2 × 128 × 1024 × 32 × 2 = <strong>16 MB</strong>（省了 97%）</td></tr><tr><td>GQA：32 头分 8 组共享 KV</td><td>8组 × 2 × 128 × 1024 × 32 × 2 = <strong>128 MB</strong>（省了 75%）</td></tr></table>
+          <div class="step-desc" style="color:#ef4444;font-weight:600;margin-top:6px;">MQA 省了 97% 显存，但代价是所有头被强制用同一种注意力模式——Shazeer 2019 实测 PPL（困惑度，越小说明模型预测下一个词越准）从 29.9 升到 30.2（约 +1%，原文结论为"仅轻微退化"），生成质量有可感知下降。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 4：GQA——分 8 组，每组内共享 KV</div>
+          <table><tr><th>方案</th><th>KV Cache</th><th>质量损失</th><th>代表模型</th></tr><tr><td>MHA（全独立）</td><td>512 MB</td><td>0%</td><td>原始 Transformer</td></tr><tr><td>MQA（全共享）</td><td>16 MB</td><td style="color:#ef4444;">PPL +1%（估算）</td><td>PaLM</td></tr><tr><td style="color:var(--success);font-weight:600;">GQA（8组）</td><td style="color:var(--success);font-weight:600;">128 MB</td><td style="color:var(--success);font-weight:600;">接近 MHA</td><td style="color:var(--success);font-weight:600;">Llama 2/3</td></tr></table>
+          <div class="step-desc" style="color:var(--success);font-weight:600;margin-top:4px;">GQA 省了 75% KV Cache 显存，质量损失却很小（GQA 论文称接近 MHA）——几乎白捡。这就是为什么 Llama 选了它。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 为什么不全部共享（MQA）？</div><p>不同注意力头会关注不同语义（示意：有的头偏向语法、有的偏向指代、有的偏向情感——具体分工因模型而异，来自事后探针分析，非固定编号）。全共享把所有头的视野压缩到一个 K/V 里，就像让所有医生共看同一张 X 光片——省胶片但丢诊断精度。GQA 给每组留下了独立的 K/V，保留了注意力多样性。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','3-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','3-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-3-3" class="llm-section"><button class="llm-btn" onclick="startChat('3-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="3-3"><div class="chat-toolbar"><button onclick="copyChat('3-3')">📋 复制对话</button><button onclick="clearChat('3-3')">🗑 清空</button><button onclick="stopLLM('3-3')" id="stop-btn-3-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('3-3')" id="regen-btn-3-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="3-3"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 GQA 和 KV Cache 有疑问？比如"为什么不分 16 组？""不用 KV Cache 有什么替代方案？"<br><br>我会用具体数字帮你算。</div></div></div><div class="chat-input-row"><textarea data-input="3-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('3-3')}" rows="1" placeholder="例如：KV Cache 和上下文窗口长度是什么关系？"></textarea><button onclick="sendLLM('3-3')">发送</button></div></div></div>
+      <div id="tab-qna-3-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('3-3')">🔄 换一批</button></div><div class="qna-list" data-qna="3-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+  <div class="card" data-card="3-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">LayerNorm 的"减均值"和 ReLU 的"负值截断"——这两个操作能不能砍？怎么砍？</div><div class="card-q-hint">提示：先分别问一句——LayerNorm 的"减均值"和 ReLU 的"负值截断"，各自究竟改变了向量的什么？少了这一步，谁受影响最大？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>RMSNorm</strong> = Root Mean Square Layer Normalization（Zhang &amp; Sennrich, 2019）：砍掉 LayerNorm 的"减均值"，只保留缩放。这里要说清一个常见误传：<strong>LayerNorm 是逐 token 在特征维上归约，本不需要跨卡通信</strong>——当年被批评"要跨 GPU 同步统计量"的其实是 <strong>BatchNorm</strong>（按批次维统计）。RMSNorm 的收益来自少算"减均值/中心化"这一步，论文实测运行时间降低 7%~64%。Llama、T5、PaLM 使用 RMSNorm。<br><strong>SwiGLU</strong> = Swish-Gated Linear Unit（Shazeer, Google, 2020）：用门控替代单激活——多出一个"阀门"分支，让每一维的信息通过量由数据自己决定（它的算式、以及它为什么让 FFN 的中间维变成 11008 这种"怪数字"，放在第 5 课逐层解剖时算）。GLU 门控思想源自 Dauphin et al.（2017）。</div>
+<div class="content-section"><p>上一张卡片我们用 GQA 省了 KV Cache 的 75% 显存。现在解决两个计算瓶颈：<strong>归一化层太慢、激活函数丢信息。</strong></p></div>
+      <div class="calc-block">
+        <div class="label">🧮 改造一：砍掉 LayerNorm 的"减均值"，变为 RMSNorm</div>
+        <div class="step"><div class="step-title">Step 1：LayerNorm 做了什么？（以 4 维向量 [1.2, -0.8, 0.5, -1.5] 为例）</div>
+          <table><tr><th>步骤</th><th>操作</th><th>结果</th></tr><tr><td>① 减均值</td><td>μ = (1.2-0.8+0.5-1.5)/4 = <strong>-0.15</strong></td><td>[1.2+0.15, -0.8+0.15, 0.5+0.15, -1.5+0.15] = [1.35, -0.65, 0.65, -1.35]</td></tr><tr><td>② 除标准差</td><td>σ = √((1.35²+0.65²+0.65²+1.35²)/4) = √(1.1225) ≈ <strong>1.06</strong></td><td>[1.27, -0.61, 0.61, -1.27]</td></tr><tr><td>③ 乘 γ</td><td>可学习参数缩放</td><td>最终输出</td></tr></table>
+          <div class="step-desc" style="color:#ef4444;margin-top:4px;">注意：这一步的"算均值"是对<b>每个 token 自己的特征维</b>做的归约，本不需要跨卡通信（真正需要跨 GPU 同步"批次统计量"的是 <b>BatchNorm</b>）。RMSNorm 省掉的是这一步中心化的计算量。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：RMSNorm——砍掉减均值，只保留缩放</div>
+          <table><tr><th>步骤</th><th>操作</th><th>结果</th></tr><tr><td>① 算 RMS</td><td>RMS = √(mean(x²)) = √((1.44+0.64+0.25+2.25)/4) = √(4.58/4) = <strong>1.07</strong></td><td>—</td></tr><tr><td>② 直接除</td><td>x / 1.07 × γ</td><td>[1.2/1.07, -0.8/1.07, 0.5/1.07, -1.5/1.07] = [1.12, -0.75, 0.47, -1.40]</td></tr></table>
+          <div class="step-desc" style="color:var(--success);font-weight:600;margin-top:4px;">少算一次"减均值/中心化"，计算量更小（同样不涉及跨卡统计）。RMSNorm 原文实测运行时间降低 7%~64%（规模越大越明显）。</div>
+        </div>
+      </div>
+      <div class="calc-block">
+        <div class="label">🧮 改造二：ReLU → SwiGLU，给 FFN 加门控</div>
+        <div class="step"><div class="step-title">Step 3：ReLU 的问题——负值全扔掉</div>
+          <div class="step-desc">输入向量 [0.6, -0.3, 0.9, -0.2] 经过 ReLU → <strong>[0.6, 0, 0.9, 0]</strong></div>
+          <div class="step-desc" style="color:#ef4444;">-0.3 和 -0.2 的信息全丢了。在深层网络中，负值里可能藏着有用的抑制信号。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 4：SwiGLU——让网络自己决定保留多少</div>
+          <table><tr><th>组件</th><th>作用</th><th>类比</th></tr><tr><td>W_gate（门控权重）</td><td>算出每个维度"该不该过"</td><td>水龙头阀门</td></tr><tr><td>Swish(x·W_gate)</td><td>Swish 门控值（Swish 即 SiLU，一种平滑激活）</td><td>阀门开多大（关小≈0, 开大≈原值）</td></tr><tr><td>W_up·x</td><td>信息本身</td><td>水管里的水流</td></tr><tr><td style="font-weight:600;">Swish(x·W_gate) × (x·W_up)</td><td style="font-weight:600;">门控值 × 信息</td><td style="font-weight:600;">阀门控制流量</td></tr></table>
+          <div class="step-desc" style="color:var(--success);font-weight:600;margin-top:6px;">关键差异：SwiGLU 对负值的抑制是"部分关阀门"（比如 0.3），不是 ReLU 的"直接截断为 0"。信息没有完全丢失。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 5：同等参数量下的效果对比</div>
+          <table><tr><th>激活函数</th><th>验证 PPL（示意）</th><th>说明</th></tr><tr><td>ReLU</td><td style="color:#ef4444;">9.7</td><td>max(0,x)：负值全截断，信息损失大</td></tr><tr><td>GELU</td><td>8.9</td><td>GELU(x)=x·Φ(x)：负值被软抑制，不再硬截断，但所有维度共用同一处理</td></tr><tr><td style="color:var(--success);font-weight:600;">SwiGLU</td><td style="color:var(--success);font-weight:600;">8.5</td><td style="color:var(--success);font-weight:600;">门控机制 Swish(x·W_gate)⊙(x·W_up)：示意 PPL 低于前两者</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">表中 PPL 为<strong>示意值</strong>，只用于展示三种激活的相对高低；不同论文的量级与口径（如 log-PPL）不同，此处不指向某一篇实测数字。（可核验的一手对照见 Shazeer 2020：C4 文段填充任务 524k 步的 log-PPL 为 SwiGLU 1.636、GELU 1.679、ReLU 1.677。）</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 不做这两个改进会怎样？</div><p>保留 LayerNorm 的减均值 → 每层都要多算一次中心化（每层每步都生效，累积起来是可观的算子开销）。保留 ReLU → 负半轴信息直接清零。两者叠加：<strong>同等训练预算下，训练运行时间可降 7%~64%（RMSNorm 原文口径），困惑度也有改善——对大规模训练，这是实打实的算力与成本。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','3-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','3-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-3-4" class="llm-section"><button class="llm-btn" onclick="startChat('3-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="3-4"><div class="chat-toolbar"><button onclick="copyChat('3-4')">📋 复制对话</button><button onclick="clearChat('3-4')">🗑 清空</button><button onclick="stopLLM('3-4')" id="stop-btn-3-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('3-4')" id="regen-btn-3-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="3-4"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 RMSNorm 和 SwiGLU 有疑问？比如"RMSNorm 不稳定的情况存在吗？""SwiGLU 的门控（Swish/SiLU）为什么不换成别的？"<br><br>我会用具体数字回答。</div></div></div><div class="chat-input-row"><textarea data-input="3-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('3-4')}" rows="1" placeholder="例如：RMSNorm 和 LayerNorm 在实际训练中 PPL 差多少？"></textarea><button onclick="sendLLM('3-4')">发送</button></div></div></div>
+      <div id="tab-qna-3-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('3-4')">🔄 换一批</button></div><div class="qna-list" data-qna="3-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+  <div class="card" data-card="3-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">为什么 Post-Norm 难堆到几十层，而 Pre-Norm 能做到 80 层？Norm 放残差里面还是外面，天差地别？</div><div class="card-q-hint">提示：先想一件事——从 loss 一路回传到第 1 层，这条路上要经过哪些运算？把 Norm 挪个位置，这条路的"堵点"会变吗？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Pre-Norm</strong>（Pre-Layer Normalization）——把 LayerNorm 放在子层的输入侧，而不是输出侧。这里的子层指 Attention 与 FFN。GPT-2、T5 等 2019 年已采用；Xiong et al.（2020）给出梯度层面的理论解释（原文把 Pre-LN 称为 "recently proposed"，说明该术语与做法在 2020 年前已在社区使用，并非该文首创命名）。原版 Post-Norm 在 ~24 层之后需要非常小心地调 warmup / 学习率才训得动，再深就难以为继（教学近似，经验值；BERT-large 本身就是 24 层，此处说的不是"24 层训不动"），Pre-Norm 让 80+ 层的训练成为可能。</div>
+<div class="content-section"><p>上一张卡片我们砍掉了 LayerNorm 的减均值。现在看 Norm 的<strong>位置</strong>——放在残差连接的入口还是出口？这决定了模型能叠多少层，<strong>因为</strong> Norm 挡在残差主干上时，梯度回传到浅层会被逐层压缩。</p><p>打个比方：它就是主水管上的减压阀——装在主管道上（Post-Norm），水压（梯度）要先过阀门才到上游；改装在支路上（Pre-Norm），主管道就是一根直通管，上游水压几乎不受影响。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 反向传播走一遍：梯度每层衰减多少？</div>
+        <div class="step"><div class="step-title">Step 1：Post-Norm（原始 Transformer）——Norm 在残差出口</div>
+          <div class="step-desc">x_{l+1} = Norm(x_l + F(x_l))——做完 Attention 再 Norm，Norm 堵在了梯度回传的路上。</div>
+          <table><tr><th>层数</th><th>梯度累积（示意：每层乘 0.5）</th></tr><tr><td>第 1 层</td><td>0.5</td></tr><tr><td>第 4 层</td><td>0.5⁴ = 0.0625</td></tr><tr><td>第 12 层（BERT）</td><td>0.5¹² ≈ <strong>0.00024</strong></td></tr><tr><td>第 24 层</td><td>0.5²⁴ ≈ <strong>5.9 × 10⁻⁸</strong>（几乎为零）</td></tr><tr><td style="color:#ef4444;">第 32 层</td><td style="color:#ef4444;">0.5³² ≈ <strong>2.3 × 10⁻¹⁰</strong>（彻底为零，训不动）</td></tr></table>
+          <div class="step-desc" style="color:#ef4444;font-weight:600;margin-top:4px;">这就是 BERT 做到 24 层就到头的根本原因——再深梯度就"饿死在半路"了。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：Pre-Norm（现代 Llama）——Norm 在残差入口</div>
+          <div class="step-desc">x_{l+1} = x_l + F(Norm(x_l))——先 Norm 再 Attention，梯度通过残差连接直通底层，不经过 Norm。</div>
+          <table><tr><th>层数</th><th>梯度累积</th></tr><tr><td>无论多少层</td><td>1^N = <strong>1</strong>（不变）</td></tr></table>
+          <div class="step-desc" style="color:var(--success);font-weight:600;margin-top:4px;">残差连接像高速公路，Norm 在匝道上而不在主路上——梯度畅通无阻。这就是 Llama 能堆到 80 层的原因。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：一句话对比</div>
+          <table><tr><th></th><th>Post-Norm（BERT）</th><th>Pre-Norm（Llama）</th></tr><tr><td>公式</td><td>Norm(x + Sublayer(x))</td><td>x + Sublayer(Norm(x))</td></tr><tr><td>梯度路径</td><td style="color:#ef4444;">经过 Norm → 被压缩</td><td style="color:var(--success);">不经过 Norm → 直达</td></tr><tr><td>最大深度</td><td style="color:#ef4444;">~24 层</td><td style="color:var(--success);">80+ 层</td></tr><tr><td>32 层时梯度</td><td style="color:#ef4444;">0.5³² ≈ 2.3×10⁻¹⁰</td><td style="color:var(--success);">1³² = 1</td></tr></table>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 为什么这件事如此关键？</div><p>Pre-Norm 是工程上最简单但影响最深远的改造——只换了一行代码的位置（Norm 放前面而不是后面），就让模型层数从 20+ 突破到 80+。没有 Pre-Norm，ChatGPT 级别的模型根本堆不起来。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','3-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','3-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-3-5" class="llm-section"><button class="llm-btn" onclick="startChat('3-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="3-5"><div class="chat-toolbar"><button onclick="copyChat('3-5')">📋 复制对话</button><button onclick="clearChat('3-5')">🗑 清空</button><button onclick="stopLLM('3-5')" id="stop-btn-3-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('3-5')" id="regen-btn-3-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="3-5"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 Pre-Norm 有疑问？比如"Pre-Norm 有缺点吗？""为什么 BERT 不用 Pre-Norm 重新训练一版？"<br><br>我会用具体例子回答。</div></div></div><div class="chat-input-row"><textarea data-input="3-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('3-5')}" rows="1" placeholder="例如：Pre-Norm 训练初期效果比 Post-Norm 差吗？"></textarea><button onclick="sendLLM('3-5')">发送</button></div></div></div>
+      <div id="tab-qna-3-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('3-5')">🔄 换一批</button></div><div class="qna-list" data-qna="3-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+  <div class="card" data-card="3-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">四条硬约束各自逼出一个解——能不能同时装进同一个 Block？装进去之后收益到底有多大？</div><div class="card-q-hint">提示：和原始 Transformer 对比，你认出了几个改造？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>LLaMA</strong> = Large Language Model Meta AI（Touvron et al., Meta, 2023）。较早把这些改造系统组合起来的开源模型之一。它把 Pre-Norm、RMSNorm 与 SwiGLU 拼进同一个 Block。位置信息则交给 RoPE。Llama 1（2023）展示了"小模型+多数据"的可比性。Llama 2（2023）新增 GQA。Llama 3（2024）扩展至 405B。催生了整个开源 LLM 生态（Alpaca、Vicuna 等）。</div>
+<div class="content-section"><p>前面 5 张卡片我们走完了 RoPE 和 GQA 两步改造。后面三步是 RMSNorm、SwiGLU 与 Pre-Norm。这五条约束的解互不冲突，<strong>因此</strong>可以同时装进同一个 Block。打个比方：装修一套房子，水电、地板、门窗是不同工种的活，最后都装进同一个空间——但能这样拼装的根本原因，是它们各自作用在 Block 的不同环节，彼此不抢工位。把它们拼起来之后，从 2017 年的原始 Transformer 到 2024 年的 Llama，每一处改动的数值收益才能放在同一口径下算清。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 走查：把五处改造放进同一个模型算一遍（32 头 / 128 维 / 32 层 / 1024 token / fp16）</div>
+        <div class="step"><div class="step-title">Step 1：KV Cache 账——同一组配置，MHA 512 MB → GQA(8 组) 128 MB</div>
+          <table><tr><th>方案</th><th>KV 头数</th><th>算式（字节）</th><th>结果</th></tr><tr><td>MHA：每头独立 K、V</td><td>32</td><td>32 × 2 × 128 × 1024 × 32 × 2</td><td>536,870,912 B = <strong>512 MB</strong></td></tr><tr><td>GQA：32 头分 8 组共享 KV</td><td>8</td><td>8 × 2 × 128 × 1024 × 32 × 2</td><td>134,217,728 B = <strong>128 MB</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">式中第一个 2 是 K、V 两份，128 是每头维度，1024 是 token 数，32 是层数，末位 2 是 fp16 = 2 字节。与 Card 3 的 Step 3 和下方对比表同一口径（Card 3 的入门例子用小配置 4 头 / 64 维 / 8 层，口径不同已注明）。省下 (512−128)/512 = <strong>75%</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：深度账——Post-Norm 的 0.5³²，Pre-Norm 的 1³²（示意：假设每层乘 0.5）</div>
+          <table><tr><th>结构</th><th>梯度逐层回传倍数</th><th>32 层后</th></tr><tr><td>Post-Norm（原始 Transformer）</td><td>0.5³²</td><td>≈ <strong>2.3 × 10⁻¹⁰</strong>（≈ 0）</td></tr><tr><td>Pre-Norm（Llama）</td><td>1³²</td><td><strong>1</strong></td></tr></table>
+          <div class="step-desc" style="color:#ef4444;font-weight:600;margin-top:4px;">0.5³² = 2.3283 × 10⁻¹⁰ ≈ 2.3 × 10⁻¹⁰，与 Card 5 的 Step 1 / Step 3 同一「示意：假设每层乘 0.5」口径——Post-Norm 下第 1 层几乎收不到梯度，这就是它堆不过 ~24 层的原因。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：三类收益小结——每项都写明口径与置信度</div>
+          <table><tr><th>改造</th><th>量</th><th>口径 / 置信度</th></tr><tr><td>GQA</td><td>KV Cache 512 MB → 128 MB（−75%）</td><td>按 32 头 / 128 维 / 32 层 / 1024 token / fp16 算得，可复算</td></tr><tr><td>Pre-Norm</td><td>可堆层数 ~24 → 80+；32 层梯度 2.3×10⁻¹⁰ → 1</td><td>0.5 衰减为「示意」；层数上限 24 / 80+ 为经验值（估算）</td></tr><tr><td>RMSNorm + SwiGLU</td><td>运行时间降低 7%~64%；SwiGLU 示意 PPL 8.5 vs ReLU 9.7</td><td>7%~64% 为 RMSNorm 论文实测口径；PPL 为示意值</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">三处数字都能从本课前面卡片导出：−75% 由 Step 1 算出，梯度由 Step 2 算出，7%~64% 与示意 PPL 与 Card 4 同源。</div>
+        </div>
+      </div>
+      <table class="compare-table">
+        <tr><th>改造</th><td>原始 Transformer (2017)</td><td>现代 Llama (2023+)</td><td>数值收益</td></tr>
+        <tr><th>位置编码</th><td>Sinusoidal 绝对位置</td><td><span class="winner">RoPE 旋转编码</span></td><td>编码相对距离，外推性优于绝对位置编码，但超出训练长度仍需 RoPE scaling（位置插值 / 调大 base）</td></tr>
+        <tr><th>注意力</th><td>MHA（全头独立 KV）</td><td><span class="winner">GQA（分组共享 KV）</span></td><td>KV Cache 512MB→128MB (-75%)，质量损失很小（估算）</td></tr>
+        <tr><th>归一化</th><td>LayerNorm</td><td><span class="winner">RMSNorm</span></td><td>砍掉减均值，论文实测运行时间降低 7%~64%</td></tr>
+        <tr><th>激活函数</th><td>ReLU</td><td><span class="winner">SwiGLU</span></td><td>门控机制替代一刀切（示意 PPL 8.5 vs 9.7）</td></tr>
+        <tr><th>Norm 位置</th><td>Post-Norm</td><td><span class="winner">Pre-Norm</span></td><td>梯度不再衰减 (0.5³²→1³²)，可堆 80 层 vs 24 层</td></tr>
+      </table>
+      <div class="step-desc" style="margin-top:4px;">注：表中 KV Cache 的 512MB→128MB 按「32 头 / 128 维 / 32 层 / 1024 token」口径计算；Card 3 的入门例子用小配置（4 头 / 64 维 / 8 层），两处基础量不同。</div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>这些改造不是"锦上添花"——GQA 没有的话 70B 模型推理根本跑不动显存，Pre-Norm 没有的话 32 层以上就训不动。它们是现代 LLM 的<strong>生存必需品</strong>，不是优化项。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','3-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','3-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-3-6" class="llm-section"><button class="llm-btn" onclick="startChat('3-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="3-6"><div class="chat-toolbar"><button onclick="copyChat('3-6')">📋 复制对话</button><button onclick="clearChat('3-6')">🗑 清空</button><button onclick="stopLLM('3-6')" id="stop-btn-3-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('3-6')" id="regen-btn-3-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="3-6"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对这张卡片有疑问？我会用<strong>具体数字和计算例子</strong>来回答。</div></div></div><div class="chat-input-row"><textarea data-input="3-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('3-6')}" rows="1" placeholder="输入你的问题…"></textarea><button onclick="sendLLM('3-6')">发送</button></div></div></div>
+      <div id="tab-qna-3-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('3-6')">🔄 换一批</button></div><div class="qna-list" data-qna="3-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 3 课完成 · 下一课：第 4 课「Tokenization 机制」</p>
+    <a href="#" onclick="switchLesson(4);return false;">进入第 4 课：Tokenization 机制 →</a>　·　<a href="#" onclick="switchLesson(2);return false;">← 上一课：Transformer 模型结构全景</a>
+  </div></div>

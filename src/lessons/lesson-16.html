@@ -1,0 +1,205 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 16 课：量化与压缩</h2>
+    <p class="subtitle">上一课我们把推理的瓶颈定位到了显存与带宽。这一课回答一个更直接的问题：能不能让每个参数少占几个字节？量化的动作只有一个——用一把粗糙的尺子替掉高精度数字；但它牵出三个必须分开对待的对象——权重、激活、以及 KV Cache（把每个 token 算过的 Key/Value 存下来、后面直接复用不重算）；还有一条被反复误用的质量指标（困惑度），以及一个绕不开的边界：什么时候压精度就够了、什么时候必须换一个更小的模型。本课只讲推理侧量化，训练侧的 FP8 已在第 14 课讲过。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 写出量化的 scale / zero-point 公式，并算出对称、非对称、分组三种选择的误差差多少<br>② 用一个离群值算例解释"为什么 int8 几乎无损、int4 开始塌"<br>③ 说清权重 / 激活 / KV Cache 三种量化对象的差异，并算出 4-bit 能换回多少显存与吞吐、以及怎么评测才不骗自己</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步逻辑递进：从"有损替换"到"量化的边界"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">模型要上线服务，<strong>必须</strong>同时把显存占用压下去、把每个 <b>token</b> 的搬运量压下去——<strong>这就要求</strong>先看懂量化对这堆数字做了什么：它用一把只有 16 个刻度的尺子替掉高精度浮点，每个数只能落在最近的刻度上。<b class="rn-key">量化的本质是有损的刻度替换</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然「<b>量化的本质是有损的刻度替换</b>」，<strong>所以</strong>要问：为什么 8 位几乎不掉分、4 位却断崖？——<strong>因为</strong>隐藏状态里藏着极少数幅度极大的离群值，它们把刻度范围整条撑开，让绝大多数正常值挤在零附近；8 位还剩几十个刻度能容纳，4 位只剩 16 格就被撑爆，<b>perplexity</b> 这时反而看不出变化。<b class="rn-key">离群值决定低位宽的成败</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然「<b>离群值决定低位宽的成败</b>」，<strong>所以</strong>不能把所有权重与激活一视同仁——<strong>因此</strong>要把量化对象拆成三种分别对待：静态的权重（可离线慢慢校准）、动态的激活（每次输入都变、离群最凶）、以及运行时才长出来的 KV <b>cache</b>。<b class="rn-key">三种对象的难度不同</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">既然「<b>三种对象的难度不同</b>」，<strong>所以</strong>工业界默认只动最容易的那一类（W4A16）——<strong>因为</strong>权重静态、离群可离线处理，压到 4 位就能把 140 GB 变成 35 GB，decode 每个 <b>token</b> 的搬运量也一起降到四分之一。<b class="rn-key">先压权重换取显存与带宽</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>先压权重换取显存与带宽</b>」，<strong>这就要求</strong>能证明"确实没掉分"——<strong>于是</strong>必须先看清困惑度（<b>perplexity</b>）这个指标有多迟钝：它只涨 0.03 时，任务分可能已经掉了好几个点。<b class="rn-key">困惑度不足以证明无损</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>困惑度不足以证明无损</b>」，<strong>这就要求</strong>给量化划出一条可判定的边界——它能压权重、激活与 KV <b>cache</b>，但只改每个参数的字节数、改不动参数量级，<strong>所以</strong>一旦显存目标跨过量化能到的下界，就必须靠蒸馏换一个更小的模型，最后在"压精度"与"换小模型"之间做选择。<b class="rn-key">量化有边界</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">PTQ / QAT</span><span class="meta-tag">Scale / Zero-point</span><span class="meta-tag">Outlier</span><span class="meta-tag">W4A16 / W8A8</span><span class="meta-tag">GPTQ / AWQ</span><span class="meta-tag">Perplexity vs 任务评测</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="16-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">把 fp16 权重压成 int4，一个浮点数凭什么能塞进 16 个刻度里？</div><div class="card-q-hint">提示：先想清「尺子」上有几格、格距由谁定；再想非对称和分组为什么能把误差压得更小。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>量化的标准写法是 <strong>q = round(x / s) + z</strong>，还原时 <strong>x̂ = (q − z) × s</strong>：<strong>s 是缩放因子（scale）</strong>，决定相邻刻度隔多远；<strong>z 是零点（zero-point）</strong>，决定刻度从哪开始。z = 0 时叫<strong>对称量化</strong>，z ≠ 0 叫<strong>非对称量化</strong>。GPTQ（Frantar 等，arXiv:2210.17323，2023）与 AWQ（Lin 等，arXiv:2306.00978，MLSys 2024 最佳论文）都采用<strong>分组（group-wise）</strong>方案：把权重切成若干组，每组共享一套 s 与 z——GPTQ / AutoAWQ 的实现默认 <strong>group_size = 128</strong>，而更小的 64 也常见（QIGen，arXiv:2307.03738，示例即为每 64 个权重共享一套 scale 与 zero-point）。本课只讲推理侧量化；训练侧的 FP8 已在第 14 课讲过。</div>
+      <div class="content-section"><p>前几课我们把模型"服务出去"了：先看清推理被 KV 卡住（第 15 课）。这一课回到模型本身——<strong>能不能让每个参数少占几个字节</strong>。</p><p>量化的全部动作只有一句话：<strong>给一串浮点数定一把尺子，再把每个数挪到最近的刻度上</strong>——因为模型里每个 <strong>token</strong> 都要乘过这些权重矩阵，权重少占一个字节，显存与搬运量就少一分。位数决定尺子上有几格——4 bit 就是 16 格。这就像把一张高精度照片另存为低质量版本：格子越少，颜色越容易被"就近归并"，丢掉的是细节（数字<strong>精度</strong>），保住的是轮廓（模型的<strong>行为</strong>）。</p><p>真正决定成败的不是"用了几个 bit"，而是<strong>格距 s 怎么定</strong>：s 定小了，超出范围的值会被截断；定大了，绝大多数值又都挤在零附近。下面用一组具体权重，把这把尺子画出来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：三个决定格距的选择</div>
+        <div class="step"><div class="step-title">Step 1：4 bit 就是把浮点数映射到 16 个刻度</div>
+          <table><tr><th>数据格式</th><th>刻度数</th><th>取值范围</th><th>相对精度</th></tr><tr><td>fp16</td><td>约 1,024 档（尾数 10 位）</td><td>−65,504 ~ 65,504</td><td>≈ 0.00049</td></tr><tr><td>int8</td><td>256</td><td>−128 ~ 127（通用范围，对称量化取 −127 ~ 127）</td><td>1/256 ≈ 0.0039</td></tr><tr><td><strong>int4</strong></td><td><strong>16</strong></td><td>−8 ~ 7</td><td><strong>1/16 = 0.0625</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：4 bit = 2⁴ = <strong>16</strong> 格；8 bit = 2⁸ = <strong>256</strong> 格。fp16 相对精度 2⁻¹¹ ≈ <strong>0.00049</strong>（尾数 10 位 + 隐含位 ⇒ 相对精度 2⁻¹¹），int4 相对精度 1/16 = <strong>0.0625</strong>，<strong>差了约 128 倍</strong>——这就是"量化必然有损"的算术来源。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：同一组权重，对称与非对称的格距差多少</div>
+          <table><tr><th>方案</th><th>扫过的范围</th><th>格距 s</th><th>一个数的最大误差 s/2</th></tr><tr><td>对称（z = 0，用 −7 ~ 7）</td><td>[−1.6, 1.6]</td><td>1.6 / 7 = <strong>0.229</strong></td><td><strong>0.114</strong></td></tr><tr><td><strong>非对称（z = 9，用 0 ~ 15）</strong></td><td>[−1.6, 1.2]</td><td>2.8 / 15 = <strong>0.187</strong></td><td><strong>0.093</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：一组权重 <strong>[0.8, −0.4, 1.2, −1.6]</strong>。对称方案最大绝对值 1.6，格距 1.6 ÷ 7 = <strong>0.229</strong>；非对称方案只扫真实范围 1.2 − (−1.6) = 2.8，格距 2.8 ÷ 15 = <strong>0.187</strong>，误差上限从 0.114 降到 <strong>0.093</strong>，<strong>小了约 18%</strong>（0.229 ÷ 0.187 = 1.22）。这一步的直觉是：对称为了保住"0 必须落在刻度上"多扫了一段对称空间，非对称则把每一格都花在真实数据上。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：分组为什么能救回大值旁边的小值</div>
+          <table><tr><th>8 个权重（示意）</th><th>整层共用一个 s</th><th>0.05 会被还原成</th><th>每 4 个分一组</th><th>0.05 会被还原成</th></tr><tr><td>前 4 个：0.05, 0.1, −0.08, 0.12</td><td>3.2 / 7 = 0.457</td><td>round(0.109) = 0 → <strong>0（丢光）</strong></td><td>0.12 / 7 = <strong>0.0171</strong></td><td>round(2.92) = 3 → <strong>0.051 ✓</strong></td></tr><tr><td>后 4 个：3.0, −2.5, 2.8, 3.2</td><td>同上 0.457</td><td>—</td><td>3.2 / 7 = 0.457</td><td>—</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：整层最大绝对值 3.2，格距 3.2 ÷ 7 = <strong>0.457</strong>，于是 0.05 除以 0.457 只有 <strong>0.109</strong>，四舍五入到 0——<strong>直接被抹掉</strong>。切成每 4 个一组后，前半组的最大值只有 0.12，格距降到 <strong>0.0171</strong>，0.05 落在第 <strong>3</strong> 格上，还原成 0.051。这就是所有主流方法都把 <strong>group size = 128</strong> 当默认值的原因：分组把"一层的动态范围"拆成"每组各自的范围"。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>量化有三个旋钮：<strong>位宽</strong>（决定刻度总数）、<strong>对称性</strong>（决定刻度怎么摆）、<strong>分组粒度</strong>（决定每套 s/z 管多少个数）。位宽决定上限，后两者决定<strong>实际能不能逼近这个上限</strong>。所以"4 bit"从来不是简单地把 16 个格子铺开——它是"非对称 + 分组"之后每个数尽可能贴近刻度的结果。代价是每组要多存一套 s 与 z：group = 128 时约 <strong>0.031 B/参数</strong>（折合 0.25 bit/参数），这是下张卡片里"4× 压缩为什么实际只有 3.8×"的来源。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','16-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','16-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-16-1" class="llm-section"><button class="llm-btn" onclick="startChat('16-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="16-1"><div class="chat-toolbar"><button onclick="copyChat('16-1')">📋 复制对话</button><button onclick="clearChat('16-1')">🗑 清空</button><button onclick="stopLLM('16-1')" id="stop-btn-16-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('16-1')" id="regen-btn-16-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="16-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 scale / zero-point 有疑问？比如「非对称是不是一定更好」「group size 取多小才合适」？<br><br>报一组权重的数值范围，我帮你把格距和误差算出来。</div></div><div class="chat-input-row"><textarea data-input="16-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('16-1')}" rows="1" placeholder="例如：一组权重范围是 [-2, 3]，4-bit 对称和非对称各是什么格距？"></textarea><button onclick="sendLLM('16-1')">发送</button></div></div></div>
+      <div id="tab-qna-16-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('16-1')">🔄 换一批</button></div><div class="qna-list" data-qna="16-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="16-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">为什么 8 位几乎不掉分、4 位却开始塌？</div><div class="card-q-hint">提示：找一个"正常值都在 0.1~2 之间、却混进一个 50"的通道，看看这个 50 会把格距推到多大。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>这个问题由 LLM.int8() 给出关键观察（Dettmers 等，arXiv:2208.07339，NeurIPS 2022）：当模型超过约 <strong>6.7B 参数</strong>后，隐藏状态里会出现<strong>系统性的极大幅值特征</strong>——它们高度稀疏却极其稳定，在 6.7B 规模上每序列约 <strong>150,000</strong> 个离群值，却只集中在整个 Transformer 的 <strong>6 个特征维度</strong>上。论文的做法是把这些离群维度单独用 fp16 计算，其余 <strong>99.9%</strong> 的值仍走 int8，于是 175B 模型可无损降到 8 bit。另一条路线是 SmoothQuant（Xiao 等，arXiv:2211.10438，ICML 2023）：承认"权重好量化、激活难量化"，用一个数学等价变换把量化难度从激活<strong>搬到权重</strong>上，从而实现 W8A8。</div>
+      <div class="content-section"><p>上一张卡片说了量化是一把有损的尺子；这一张回答最常被问的那个问题——<strong>为什么位宽一降到 4 位就崩，8 位却几乎没事</strong>？</p><p>答案不在"4 比 8 少 4 个 bit"这个数量上，而在<strong>离群值</strong>上——因为尺子的格距是按<strong>最大值</strong>定的，最大值一离群，格距就被整条撑开。可以随便挑一个隐藏层通道，它的值大多安静地待在 0.1 ~ 2 之间，偶尔却蹦出一个 50。格距被这个 50 撑开后，绝大多数正常值的间距就被压缩到不足一格。<strong>8 位还有几十个格子可分，4 位只有 16 格——一格都不剩</strong>。而这个过程中，<strong>困惑度（perplexity）</strong>往往还看不出异常。</p><p>这可以<strong>类比</strong>成"用一把以公里为刻度的尺子去量一根头发"：不是尺子不准，是它把全部分辨率都花在了那个最长的东西上。下面用具体数字把这条曲线算出来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：一个离群值如何吃掉全部刻度</div>
+        <div class="step"><div class="step-title">Step 1：8 位时，正常值还剩几格</div>
+          <table><tr><th>通道里的激活值</th><th>x ÷ s（s = 50/127 = 0.394）</th><th>取整</th><th>还原（× 0.394）</th><th>误差</th></tr><tr><td>0.1</td><td>0.254</td><td>0</td><td>0</td><td><strong>0.100</strong></td></tr><tr><td>0.3</td><td>0.762</td><td>1</td><td>0.394</td><td>0.094</td></tr><tr><td>0.5</td><td>1.270</td><td>1</td><td>0.394</td><td>0.106</td></tr><tr><td>1.0</td><td>2.539</td><td>3</td><td>1.181</td><td>0.181</td></tr><tr><td>2.0</td><td>5.079</td><td>5</td><td>1.969</td><td>0.031</td></tr><tr><td>50.0</td><td>126.9</td><td>127</td><td>50.0</td><td>0</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：int8 对称范围 −127 ~ 127，格距 s = 50 ÷ 127 = <strong>0.394</strong>。正常值区 [0.1, 2.0] 只用到 <strong>0、1、3、5</strong> 这 4 个刻度——<strong>256 个格子实际只用到 4 个</strong>。掉分从这里开始：0.1 已被抹成 0，但多数正常值还没被抹零、量级尚存，所以还不致命。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：4 位时，正常值全部归零</div>
+          <table><tr><th>通道里的激活值</th><th>x ÷ s（s = 50/7 = 7.143）</th><th>取整</th><th>还原</th><th>结果</th></tr><tr><td>0.1</td><td>0.014</td><td>0</td><td>0</td><td>丢失</td></tr><tr><td>0.5</td><td>0.070</td><td>0</td><td>0</td><td>丢失</td></tr><tr><td>1.0</td><td>0.140</td><td>0</td><td>0</td><td>丢失</td></tr><tr><td>2.0</td><td>0.280</td><td>0</td><td>0</td><td>丢失</td></tr><tr><td>50.0</td><td>7.0</td><td>7</td><td>50.0</td><td>保留</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：int4 对称范围 −7 ~ 7，格距 s = 50 ÷ 7 = <strong>7.143</strong>，能表示的最小非零值就是 <strong>7.143</strong>。整个 [0.1, 2.0] 区间除以 7.143 都小于 <strong>0.28</strong>，四舍五入全部变成 <strong>0</strong>——<strong>这一层等于只剩那个离群值</strong>。8 位与 4 位的差别不是"分辨率差一倍"，而是"4 位跨过了归零的临界点"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：三条应对路线，各自付什么代价</div>
+          <table><tr><th>路线</th><th>做法</th><th>换回什么</th><th>代价</th></tr><tr><td>LLM.int8() 混合精度</td><td>约 <strong>0.1%</strong> 离群维度走 fp16，其余 <strong>99.9%</strong> 走 int8</td><td>8 bit 无损</td><td>多一条 fp16 计算路径，内核更复杂</td></tr><tr><td><strong>SmoothQuant（W8A8）</strong></td><td>数学等价地把激活难度搬到权重</td><td>权重+激活都 int8，矩阵核加速约 2×</td><td>权重更难量化一点，需校准</td></tr><tr><td>W4A16（只量化权重）</td><td>根本不碰激活</td><td>权重显存与带宽降 4×</td><td>省不了激活侧的计算加速</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">判断依据很清楚：<strong>离群值出现在激活里，而不是权重里</strong>，所以"只动权重"（W4A16）天然绕开了最难的一环，这也是它成为工业默认的原因——下一张卡片把三种对象的差异列成一张表。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>"int8 近无损、int4 开始掉"不是玄学，而是<strong>离群值撑开格距</strong>的必然结果：格距由最大值定，离群值把格距放大到约 18 倍（本卡离群值是正常最大值的 25 倍），正常值就被挤到不足一格。8 bit 靠格子多，勉强还能分出 4 档；4 bit 直接归零。所以真正的分界线不是"几个 bit"，而是<strong>这一层有没有离群值、它比正常值大多少倍</strong>。反向证据同样重要：后续研究（arXiv:2405.20835）发现新模型（Llama-2/3、Mistral）的离群值已明显变温和，Mistral 7B 近乎免疫——<strong>别把 OPT 时代的老结论当定律</strong>。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','16-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','16-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-16-2" class="llm-section"><button class="llm-btn" onclick="startChat('16-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="16-2"><div class="chat-toolbar"><button onclick="copyChat('16-2')">📋 复制对话</button><button onclick="clearChat('16-2')">🗑 清空</button><button onclick="stopLLM('16-2')" id="stop-btn-16-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('16-2')" id="regen-btn-16-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="16-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对离群值有疑问？比如「为什么只有激活有动态离群值」「SmoothQuant 那个变换凭什么等价」？<br><br>给我一组数值分布，我帮你算格距与归零阈值。</div></div><div class="chat-input-row"><textarea data-input="16-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('16-2')}" rows="1" placeholder="例如：正常值最大 2、离群值 100，8-bit 和 4-bit 的格距各是多少？"></textarea><button onclick="sendLLM('16-2')">发送</button></div></div></div>
+      <div id="tab-qna-16-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('16-2')">🔄 换一批</button></div><div class="qna-list" data-qna="16-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="16-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">权重、激活、KV Cache，为什么只有激活最难量化？</div><div class="card-q-hint">提示：分别问一句"这个数什么时候才知道有多大、能不能离线反复试错"，答案就出来了。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>工业界用缩写标明量化对象：<strong>W4A16</strong> = 权重 4 bit、激活 16 bit；<strong>W8A8</strong> = 权重与激活都 8 bit；<strong>KV</strong> 量化则单独命名。SmoothQuant（arXiv:2211.10438，ICML 2023）点破了"激活难量化"的根因：激活里的离群值是<strong>输入相关的动态值</strong>，离线只能用校准集近似估计范围。KV Cache 的量化由 KIVI（Liu 等，arXiv:2402.02750，ICML 2024）给出关键结论：<strong>K 应逐通道（per-channel）量化</strong>。<strong>V 则相反，应逐 token（per-token）量化</strong>——因为 K 有跨 token 稳定的离群通道，V 没有。KIVI 做到 2-bit 时几乎不掉质量，峰值显存降 <strong>2.6×</strong>、批大小可到 <strong>4×</strong>、吞吐提升 <strong>2.35× ~ 3.47×</strong>。</div>
+      <div class="content-section"><p>上一张卡片说明离群值出在激活里；这一张把量化对象拆开——<strong>同样是"一组浮点数"，权重、激活、KV Cache 的难度为什么天差地别</strong>？</p><p>分界线只有一个问题：<strong>这个数是什么时候才知道它有多大的</strong>——因为"能离线反复优化"的前提，正是提前知道数值。权重在训练完就固定了，我们可以离线拿校准数据反复试、慢慢优化；激活是每次前向才算出来的，同一个通道这次是 0.1、下次可能是 50，离线只能估个近似范围；KV Cache 更晚——它是运行时<strong>逐 token 长出来</strong>的，连"一共有多少个数"都要等序列走完才知道。这就像做菜：<strong>冷冻食材</strong>（权重）可以提前腌好慢慢炖，<strong>现杀的鱼</strong>（激活）得当场处理，而 KV Cache 相当于边吃边上的菜——你没法提前准备。</p><p>正因为难度不同，三种对象的量化方案、粒度、代价也不同，下面逐项对齐。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：三种量化对象的对照表</div>
+        <div class="step"><div class="step-title">Step 1：为什么"什么时候知道"决定了难度</div>
+          <table><tr><th>对象</th><th>数值何时确定</th><th>离线能否反复优化</th><th>离群值程度</th><th>典型方案</th></tr><tr><td><strong>权重</strong></td><td>训练后固定（静态）</td><td><strong>能</strong>（可反复校准、可分组搜索）</td><td>静态显著通道，约 1%（此处指<strong>权重</strong>侧，与 Card 2 的<strong>激活</strong>离群不同）</td><td>W4A16（GPTQ / AWQ）</td></tr><tr><td><strong>激活</strong></td><td>每次前向才算（动态）</td><td>只能近似（校准集估范围）</td><td><strong>输入相关，可达 100×</strong></td><td>W8A8（SmoothQuant）</td></tr><tr><td>KV Cache</td><td>运行时逐 token 长出</td><td>只能按统计规律设计粒度</td><td>K 有稳定离群通道、V 没有</td><td>KIVI 2-bit（K 逐通道 / V 逐 token）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">判据就一句话：<strong>越晚知道数值，越难量化</strong>。权重在第 4 步之前就能把整套 s/z 调到最优；激活只能靠"典型输入"猜一个范围，遇到训练时没见过的输入就可能失配——这就是激活量化的本质风险。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：收益要按"换回什么"分开算</div>
+          <table><tr><th>方案</th><th>权重要几个字节</th><th>激活要几个字节</th><th>省显存</th><th>省算力</th></tr><tr><td>bf16 基线</td><td>2</td><td>2</td><td>1.0×</td><td>1.0×</td></tr><tr><td><strong>W4A16</strong></td><td><strong>0.5</strong></td><td>2（不动）</td><td><strong>约 3.8×</strong>（权重侧）</td><td>1.0×（激活仍是 fp16 矩阵乘）</td></tr><tr><td>W8A8</td><td>1</td><td>1</td><td>约 2×</td><td><strong>约 2×</strong>（走 int8 矩阵核）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：W4A16 把每个权重的 2 字节压到 0.5 字节，<strong>权重显存降到 1/4</strong>，但激活没变，所以矩阵乘仍要先把 int4 反量化回 fp16——<strong>省的是显存与带宽，不是算力</strong>。W8A8 两端都是整数，才能真正用上硬件 2× 的 int8 矩阵核（SmoothQuant 报告最高 1.56× 端到端加速、2× 显存下降）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：KV 量化要分 K 和 V 用不同粒度</div>
+          <table><tr><th>张量</th><th>离群结构</th><th>该用哪种粒度</th><th>原因</th></tr><tr><td>Key cache</td><td>少数<strong>通道</strong>跨 token 持续偏大</td><td><strong>逐通道</strong>（per-channel）</td><td>把离群通道的宽范围限制在它自己的 scale 里，不污染其他通道</td></tr><tr><td>Value cache</td><td>没有稳定的通道结构</td><td><strong>逐 token</strong>（per-token）</td><td>注意力输出是 V 的加权和，逐 token 量化能限制误差传播</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">KIVI 的实测口径：2-bit 量化下质量几乎不变，峰值显存（含权重）降 <strong>2.6×</strong>，换来最多 <strong>4×</strong> 的批大小、吞吐提升 <strong>2.35× ~ 3.47×</strong>。这正好接上第 15 课的结论——KV 是并发上限的分母，把分母压小就等于把并发做上来。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>三种对象的困难排序由"数值何时确定"决定：<strong>权重（静态，最容易）&lt; KV Cache（运行时，但有统计规律）&lt; 激活（动态，离群最凶）</strong>。所以工业默认是 <strong>W4A16</strong>——只动最容易、收益又最大的权重，绕开最难的激活；想要算力加速才去做 W8A8（要付校准与 SmoothQuant 的功课）；KV 量化则通常用 fp8 打底、KIVI 类方案做更低比特。这条排序也是下一张卡片"4 bit 换来多少"的前提。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','16-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','16-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-16-3" class="llm-section"><button class="llm-btn" onclick="startChat('16-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="16-3"><div class="chat-toolbar"><button onclick="copyChat('16-3')">📋 复制对话</button><button onclick="clearChat('16-3')">🗑 清空</button><button onclick="stopLLM('16-3')" id="stop-btn-16-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('16-3')" id="regen-btn-16-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="16-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对三种对象有疑问？比如「W8A8 一定比 W4A16 好吗」「KV 量化为什么可以做到 2-bit」？<br><br>说清你的显存与延迟目标，我帮你选方案。</div></div><div class="chat-input-row"><textarea data-input="16-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('16-3')}" rows="1" placeholder="例如：我只想省显存、不在意算力，该选 W4A16 还是 W8A8？"></textarea><button onclick="sendLLM('16-3')">发送</button></div></div></div>
+      <div id="tab-qna-16-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('16-3')">🔄 换一批</button></div><div class="qna-list" data-qna="16-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="16-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">把 70B 从 bf16 压到 4 位，显存和吞吐各能换回多少？</div><div class="card-q-hint">提示：显存按"每个参数几个字节"算，吞吐按"每个 token 要搬多少字节 ÷ 带宽"算，再把分组常数的开销加回去。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>GPTQ（Frantar 等，arXiv:2210.17323，2023）报告：175B 模型可在约 <strong>4 个 GPU 小时</strong>内量化到 3 ~ 4 bit，端到端推理相对 FP16（即一种半精度浮点格式，作为对比基准）加速 <strong>A100 上 3.25×、A6000 上 4.5×</strong>（论文读数，对应其较激进的低位宽配置，4-bit 的实际收益通常更低）。AWQ（arXiv:2306.00978，MLSys 2024）的核心观察是"权重并非同等重要：保护 <strong>1%</strong> 的显著权重通道就能大幅降低量化误差"，且它不依赖反向传播，因此对指令微调模型与多模态模型泛化更好；配套的 TinyChat 在桌面与移动 GPU 上都达到 <strong>3× 以上</strong>加速。要提醒的是：这些是各家论文在特定硬件与配置下的读数，<strong>换模型、换引擎、换批量都会变</strong>。</div>
+      <div class="content-section"><p>上一张卡片把三种对象分开了；这一张算清最主流的方案——<strong>只量化权重（W4A16）</strong>——到底能换回多少显存与吞吐。</p><p>显存这笔账非常直白：<strong>权重显存 = 参数量 × 每个参数的字节数</strong>。bf16 是 2 字节，4 bit 是 0.5 字节，理论就是 4×。吞吐这笔账要用到第 15 课的结论：decode 是<strong>带宽受限</strong>的，每一步的耗时约等于"把权重读一遍 ÷ 显存带宽"——读得少，就快，就像搬砖时每次少搬几块，来回的趟数自然就少了。</p><p>但两笔账都要扣掉一个开销：分组量化每组要额外存一套 <strong>scale 与 zero-point</strong>（各 2 字节）。group = 128 意味着每 128 个权重多花 4 字节，折合约 <strong>0.031 B/参数</strong>（≈ 0.25 bit/参数）——这是"4× 压缩实际只有 3.8×"的来源。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：4 bit 换回多少显存与吞吐</div>
+        <div class="step"><div class="step-title">Step 1：显存为什么是 3.8× 而不是 4×</div>
+          <table><tr><th>项</th><th>bf16</th><th>int4（纯权重 0.5 B）</th><th>int4 + 分组常数</th></tr><tr><td>每参数字节</td><td>2</td><td>0.5</td><td><strong>0.531</strong></td></tr><tr><td>70B 权重（全模型）</td><td>140 GB</td><td>35 GB</td><td><strong>37.2 GB</strong></td></tr><tr><td>TP = 2 每卡</td><td>70 GB</td><td>17.5 GB</td><td><strong>18.6 GB</strong></td></tr><tr><td>相对 bf16 的压缩比</td><td>1.0×</td><td>4.0×</td><td><strong>3.76×</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：70e9 × 2 B = <strong>140 GB</strong>；70e9 × 0.5 B = <strong>35 GB</strong>（4×）。分组常数：每 128 个权重存 scale + zero-point 各 2 字节 = 4 B ÷ 128 = <strong>0.03125 B/参数</strong>，于是 0.5 + 0.03125 = <strong>0.531 B/参数</strong>，70e9 × 0.531 = <strong>37.2 GB</strong>，压缩比 140 ÷ 37.2 = <strong>3.76×</strong>。想更接近 4×，就把 group 调大（代价是精度），或对 scale 本身再做一次量化。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：吞吐为什么能接近 4×（且只在 decode 上兑现）</div>
+          <table><tr><th>精度</th><th>每卡每步搬运</th><th>一步耗时（÷ H100 的 3.35 TB/s）</th><th>单请求上限</th><th>相对</th></tr><tr><td>bf16</td><td>70 GB</td><td>20.9 ms</td><td>约 48 token/s</td><td>1.0×</td></tr><tr><td><strong>int4</strong></td><td><strong>17.5 GB</strong></td><td><strong>5.22 ms</strong></td><td><strong>约 191 token/s</strong></td><td><strong>4.0×</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：17.5e9 ÷ 3.35e12 = <strong>5.22 ms</strong>，1 ÷ 0.00522 = <strong>191 token/s</strong>，相对 48 是 <strong>4×</strong>——这就是第 15 课那句"量化加速 decode 不是算得更快，而是搬得更少"的具体读数。<strong>口径提醒</strong>：带宽取 H100 SXM 的 HBM3 3.35 TB/s（与第 15 课一致），且这里按<strong>纯权重上界</strong>估算、未计入分组常数——若按含常数的 18.6 GB 算是约 <strong>180 token/s</strong>（仍约 3.8×）。但 prefill 是<strong>算力受限</strong>的，它的搬运本来就不是瓶颈，所以 W4A16 对 prefill 几乎无加速；要加速 prefill 得走 W8A8 让矩阵核跑整数。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：理论 4× 与实测读数的差距从哪来</div>
+          <table><tr><th>来源</th><th>读数</th><th>条件</th></tr><tr><td>理论带宽上限</td><td>4.0×</td><td>纯权重、忽略一切开销</td></tr><tr><td><strong>GPTQ 论文端到端</strong></td><td><strong>A100 3.25× / A6000 4.5×</strong></td><td>175B、相对 FP16</td></tr><tr><td>含分组常数的显存</td><td>3.76×</td><td>group = 128</td></tr><tr><td>常见实测区间</td><td>约 2 ~ 3×（<strong>估算</strong>）</td><td>经验区间，要扣反量化开销与内核效率</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">差距有两个来源：① <strong>反量化开销</strong>——硬件没有 int4 × fp16 的乘法指令，得先把 int4 还原成 fp16 再算，这一步要额外时间；② <strong>内核效率</strong>——批量小、序列短时 GPU 更容易被调度与内存访问拖住。所以拿论文倍数做容量规划时要打折，<strong>真机跑一次才准</strong>。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>W4A16 的收益是<strong>不对称</strong>的：显存稳稳拿到约 3.8×，吞吐只在 <strong>decode</strong> 上兑现、且要打折到 2 ~ 3×。原因上一课已经给出——decode 带宽受限、prefill 算力受限。所以"该不该量化"要按业务问：如果是<strong>长输出、高并发</strong>（decode 主导），4-bit 收益最大；如果是<strong>长 prompt、短输出</strong>（prefill 主导），W4A16 主要帮你省显存，加速有限。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','16-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','16-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-16-4" class="llm-section"><button class="llm-btn" onclick="startChat('16-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="16-4"><div class="chat-toolbar"><button onclick="copyChat('16-4')">📋 复制对话</button><button onclick="clearChat('16-4')">🗑 清空</button><button onclick="stopLLM('16-4')" id="stop-btn-16-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('16-4')" id="regen-btn-16-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="16-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 4-bit 的收益有疑问？比如「为什么 prefill 不加速」「GPTQ 和 AWQ 该选哪个」？<br><br>报模型与卡型，我把显存与吞吐一起算给你。</div></div><div class="chat-input-row"><textarea data-input="16-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('16-4')}" rows="1" placeholder="例如：70B 4-bit 放在两张 80 GB 卡上，并发和吞吐各是多少？"></textarea><button onclick="sendLLM('16-4')">发送</button></div></div></div>
+      <div id="tab-qna-16-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('16-4')">🔄 换一批</button></div><div class="qna-list" data-qna="16-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="16-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">困惑度只涨了 0.03，就能说明量化没掉分吗？</div><div class="card-q-hint">提示：困惑度是"平均到每个 token 的惊讶程度"，它会掩盖少数任务上的塌方——想想你的业务到底靠哪种能力。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>困惑度（perplexity）是语言模型的经典指标，本质是"平均每个 token 的预测不确定度"，它天然是<strong>一个被平均掉的数</strong>。GPTQ 论文报告 4-bit 的 OPT-175B 困惑度只涨 <strong>0.03</strong>，看起来无损；但 Qwen3 量化的系统评测（arXiv:2505.02214，2025）显示，<strong>4-bit 下 Qwen-8B 的 MMLU 从 74.7 掉到 69.3</strong>（−5.4 分）。另一项覆盖 7B ~ 405B 的评测（arXiv:2409.11055）进一步指出：量化后的模型在<strong>指令跟随与幻觉检测</strong>上的退化最明显，且 MT-Bench 这类评测对高能力模型的区分力有限。结论是：<strong>用一个平均值去验收量化，等于用平均体温判断一个发烧的人。</strong></div>
+      <div class="content-section"><p>上一张卡片把 4 bit 的收益算清了；但"省了显存"只是半个答案——<strong>另一半是它掉了多少分，而这个"多少"极大程度上取决于你用什么尺子量</strong>。</p><p>困惑度低，只说明模型对"常见文本的下一个词"依然猜得准；它衡量不了模型会不会<strong>听懂指令</strong>、会不会<strong>编造事实</strong>、能不能在<strong>长上下文</strong>里找到关键信息。这些能力恰恰是量化最容易伤到的地方，因为它们依赖少数"关键权重/激活"，而困惑度把损失平摊到了全部 token 上，把塌方稀释成了看不出的波纹。这就像一个学生的平均分：总分看着没变，但偏科可能已经很严重了。</p><p>所以真正的问题不是"困惑度涨了多少"，而是"<strong>我的业务能力掉没掉</strong>"——下面用一个反差极大的例子说明。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：同一个模型、两把尺子、两个结论</div>
+        <div class="step"><div class="step-title">Step 1：困惑度 vs 任务分，敏感度差多少个数量级</div>
+          <table><tr><th>例子</th><th>量化前</th><th>4-bit 后</th><th>变化</th><th>直观感受</th></tr><tr><td>OPT-175B 困惑度（GPTQ 论文）</td><td>（论文基线）</td><td>—</td><td><strong>+0.03</strong></td><td>「几乎无损」</td></tr><tr><td>Qwen-8B 的 MMLU（Qwen3 量化研究）</td><td>74.7</td><td>69.3</td><td><strong>−5.4 分</strong></td><td>「明显掉分」</td></tr><tr><td>指令跟随 / 幻觉检测（7B~405B 评测）</td><td>—</td><td>—</td><td>退化最明显</td><td>「业务会出问题」</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：74.7 − 69.3 = <strong>5.4</strong>（分），相对降幅 5.4 ÷ 74.7 ≈ <strong>7.2%</strong>；而困惑度只动了 0.03。两行来自不同模型与论文，不能直接相减，但方向一致：<strong>困惑度这个"平均值"对量化损伤极不敏感，而任务分是敏感的</strong>。原因是困惑度把全部 token 平摊，任务分只看那些真正决定成败的 token（指令格式、关键实体、推理步骤）。所以"困惑度 +0.03"绝对不能推导出"没掉分"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：掉分幅度还随模型大小剧烈变化</div>
+          <table><tr><th>模型规模</th><th>4-bit 典型掉分（估算，需按具体模型实测）</th><th>为什么</th></tr><tr><td>70B 及以上</td><td>通常 &lt; 1 分</td><td>参数冗余大，量化误差被大量通道摊薄</td></tr><tr><td>7B ~ 13B</td><td>数分</td><td>冗余中等，GPTQ 类方法开始吃力</td></tr><tr><td>&lt; 3B</td><td>可达十几分</td><td>冗余最少，每个参数都更"关键"</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">这也解释了为什么"大模型量化"常常比"小模型原精度"更划算：一个 70B 4-bit（约 35 GB）在多数基准上优于一个 13B fp16（约 26 GB）——<strong>参数量的收益大于量化损失</strong>（arXiv:2409.11055 的第一条结论）。但注意例外：指令跟随与幻觉检测上，这个结论不总是成立。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：验收量化该跑哪几把尺子</div>
+          <table><tr><th>你的业务能力</th><th>该看什么</th><th>为什么不能只靠困惑度</th></tr><tr><td>通用对话质量</td><td>MT-Bench 类（多轮对话打分基准，注意区分力有限）</td><td>困惑度测不出"答非所问"</td></tr><tr><td>知识与推理</td><td>MMLU（多学科选择题基准）/ 数学基准</td><td>困惑度对少数难题的塌方不敏感</td></tr><tr><td>指令跟随</td><td>IFEval 类（指令格式遵循评测）</td><td>这是量化退化最明显的一类</td></tr><tr><td>长上下文</td><td>LongBench / RULER（长文本检索与理解基准）</td><td>困惑度通常在短文本上算，测不到长程检索</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">方法上的要求有两条：① <strong>必须和"量化前的同一个模型"对照</strong>，而不是跟论文里的数字比；② <strong>优先测你的真实任务</strong>——一个客服模型和一个代码模型，最该盯的指标完全不同。工具层面，`lm-evaluation-harness`（开源评测框架）能一次跑完整套基准，但选哪些基准仍要人判断。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>验收量化有一条铁律：<strong>困惑度是"及格线"而不是"验收线"</strong>。它涨一点点只能说明"没有灾难性崩坏"，证明不了任务能力没退化。正确的做法是——先看困惑度排除崩坏，再用<strong>与业务对齐的任务基准</strong>（指令跟随 / 幻觉 / 长上下文）和量化前基线做对照。反向证据也要记住：新模型对量化越来越稳健（arXiv:2405.20835），老论文的"掉分幅度"不能直接套到今天的模型上。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','16-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','16-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-16-5" class="llm-section"><button class="llm-btn" onclick="startChat('16-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="16-5"><div class="chat-toolbar"><button onclick="copyChat('16-5')">📋 复制对话</button><button onclick="clearChat('16-5')">🗑 清空</button><button onclick="stopLLM('16-5')" id="stop-btn-16-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('16-5')" id="regen-btn-16-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="16-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对量化评测有疑问？比如「为什么困惑度不敏感」「我的任务该测什么」？<br><br>告诉我业务类型，我帮你定验收清单。</div></div><div class="chat-input-row"><textarea data-input="16-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('16-5')}" rows="1" placeholder="例如：我做的是长文档问答，量化后该重点测哪些指标？"></textarea><button onclick="sendLLM('16-5')">发送</button></div></div></div>
+      <div id="tab-qna-16-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('16-5')">🔄 换一批</button></div><div class="qna-list" data-qna="16-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="16-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">都想要更小更快，什么时候压精度就够了、什么时候得换个模型？</div><div class="card-q-hint">提示：量化改的是"每个参数几个字节"，蒸馏改的是"一共有几个参数"——先判断你的瓶颈卡在哪一边。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>把模型做小有两条正交的路：<strong>量化</strong>（压每个参数的字节数，部署时做，通常只要几小时）与<strong>蒸馏</strong>（训练一个更小的学生模型去模仿教师，训练时做，要一次完整训练）。蒸馏的概念由 Hinton 等提出（arXiv:1503.02531，2015）；在 LLM 上的著名实践是 DeepSeek-R1 蒸馏出 1.5B ~ 70B 的一系列小模型。两项技术可以叠加：先蒸馏出更小的模型，再对它做量化。2026 年的统一评测 UniComp（arXiv:2602.09130）给出的结论是：<strong>量化在"效率 vs 成本"上的综合权衡最好</strong>——蒸馏能达到更高效率，但代价是一次完整训练。</div>
+      <div class="content-section"><p>上一张卡片讲了怎么验收量化；这一张回答最后一个决策问题——<strong>当你需要"更小更快"时，应该压精度，还是换一个更小的模型</strong>？</p><p>关键是把两条路改的东西分开：<strong>量化改的是"每个参数几个字节"，蒸馏改的是"一共有几个参数"</strong>。这就像搬家：量化是把每件行李压缩打包（件数不变、每件更小），蒸馏是干脆换一批更少的行李（件数变少）。两者作用在不同维度上，所以原则上可以叠加。</p><p>判断顺序也很明确：<strong>先问"模型放得下吗、服务得起吗"</strong>——放得下就用量化，收益快、成本低；只有当量化到底也放不下、或延迟预算仍然超标时，才需要动用蒸馏。另外要分清作用对象：量化不只作用于权重，也能压激活与 KV cache——所以"要不要量化"和"要不要蒸馏"是两个独立的问题。下面把三条路线的账一起算。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：三条路线的压缩账</div>
+        <div class="step"><div class="step-title">Step 1：量化与蒸馏改的是不同的量</div>
+          <table><tr><th>手段</th><th>改变什么</th><th>什么时候做</th><th>典型压缩</th><th>代价</th></tr><tr><td><strong>量化</strong></td><td>每参数字节数（2 B → 0.5 B）</td><td>部署时（几小时）</td><td><strong>约 4×</strong></td><td>掉 1 ~ 3 分，需评测兜底</td></tr><tr><td>蒸馏</td><td>参数个数（70B → 8B）</td><td>训练时（一次完整训练）</td><td><strong>2 ~ 10×</strong></td><td>训练算力与数据</td></tr><tr><td>蒸馏 + 量化</td><td>两者叠加（相乘）</td><td>先训后压</td><td><strong>可到几十×</strong></td><td>两者代价都要付</td></tr></table>
+        <div class="step-desc" style="margin-top:4px;">判断依据：两者作用在<strong>不同的乘数</strong>上，所以能相乘。举例：70B 量化到 4-bit 是 4×；若先蒸馏到 8B 再量化，是"参数 ÷ 8.75（70÷8）"再"字节 ÷ 4"，合计约 <strong>35×</strong>——量级完全不同，代价也完全不同。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：放进不同显存档位，各需要什么</div>
+          <table><tr><th>目标</th><th>方案</th><th>权重显存</th><th>能否放下</th></tr><tr><td>单张 80 GB 卡</td><td>70B @ 4-bit</td><td>35 GB</td><td><strong>可以</strong>（还要留 KV 的空间）</td></tr><tr><td>单张 24 GB 卡</td><td>70B @ 4-bit</td><td>35 GB</td><td><strong>不行</strong>（模型本身就超了）</td></tr><tr><td>单张 24 GB 卡</td><td>8B @ bf16</td><td>16 GB</td><td>可以</td></tr><tr><td>单张 8 GB 卡</td><td><strong>8B @ 4-bit</strong></td><td><strong>4 GB</strong></td><td><strong>可以</strong>（先蒸馏再量化）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：8e9 × 2 B = <strong>16 GB</strong>；8e9 × 0.5 B = <strong>4 GB</strong>（8×0.5 = 4）。这行数字就是"先蒸馏再量化"的驱动力：<strong>量化只能把 140 GB 压到 35 GB，跨不过 24 GB 这道坎；换个 8B 模型再压，才真正进得了消费级显存。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：量化做不到的几件事</div>
+          <table><tr><th>诉求</th><th>量化能做到吗</th><th>该用什么</th></tr><tr><td>服务成本降下来</td><td><strong>能</strong>（4× 显存、decode 加速）</td><td>GPTQ / AWQ</td></tr><tr><td>延迟预算是硬上限</td><td>通常能（decode 加速）</td><td>量化 + 引擎优化（第 18 课）</td></tr><tr><td>要进手机 / 边缘设备</td><td>不够，参数量仍太大</td><td><strong>蒸馏</strong>（+ 量化）</td></tr><tr><td>要换掉模型的能力上限</td><td>不能（参数量的差距压不出来）</td><td>蒸馏 / 换模型</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">一句话判据：<strong>量化优化的是"同一个模型的服务成本"，蒸馏优化的是"模型本身的大小与能力上限"</strong>。前者几小时、有几倍收益；后者一次训练、能改量级。UniComp 的结论与此一致——量化是综合权衡最好的那一个，蒸馏则在"必须根本变小"的场合不可替代。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>决策顺序只有三步：① <strong>先试量化</strong>（几小时、约 4×、掉 1 ~ 3 分）——它解决绝大多数"服务太贵"的问题；② 量化到底仍放不下、或延迟仍超标，再<strong>考虑蒸馏</strong>（一次训练、改参数量的量级）；③ 两端都要，就<strong>先蒸馏再量化</strong>，两个乘数相乘。而这一切的前提是上一张卡片那句——<strong>量化之后必须用任务基准验收，不能只看困惑度</strong>。到这里，推理侧的显存与压缩讲完了；下一课我们把镜头拉远，看这些组件怎么被一个<strong>推理引擎</strong>组装起来。</p></div>
+      <div class="content-section"><p>最后一个常被混淆的概念：<strong>GGUF</strong>（GPT-Generated Unified Format，llama.cpp 的模型文件格式——把权重、分词器、元数据打包进一个文件，支持 2~8 bit 档位，Ollama、LM Studio 直接读取）属于<strong>部署格式</strong>，和上面讲的量化原理是两个层次：量化决定「每个权重用几位表示」，GGUF 决定「这些权重怎么装进一个文件、被谁读出来」——选量化方案时看精度与吞吐，选部署格式时看推理框架与硬件。</p></div>
+    <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','16-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','16-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-16-6" class="llm-section"><button class="llm-btn" onclick="startChat('16-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="16-6"><div class="chat-toolbar"><button onclick="copyChat('16-6')">📋 复制对话</button><button onclick="clearChat('16-6')">🗑 清空</button><button onclick="stopLLM('16-6')" id="stop-btn-16-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('16-6')" id="regen-btn-16-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="16-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"量化还是蒸馏"有疑问？比如「什么时候量化一定不够」「先蒸后量化怎么排」？<br><br>告诉我目标卡型与延迟预算，我给你一条决策路径。</div></div><div class="chat-input-row"><textarea data-input="16-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('16-6')}" rows="1" placeholder="例如：要把模型放到 16 GB 的消费级卡上，该先做什么？"></textarea><button onclick="sendLLM('16-6')">发送</button></div></div></div>
+      <div id="tab-qna-16-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('16-6')">🔄 换一批</button></div><div class="qna-list" data-qna="16-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 16 课完成 · 下一课：第 17 课「微调工程」</p>
+    <a href="#" onclick="switchLesson(17);return false;">进入第 17 课：微调工程 →</a>　·　<a href="#" onclick="switchLesson(15);return false;">← 上一课：KV Cache 与推理内存</a>
+  </div></div>

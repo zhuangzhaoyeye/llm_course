@@ -1,0 +1,204 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 13 课：分布式训练</h2>
+    <p class="subtitle">上一课我们把"怎么把参数练出来"这条线走完了：从预训练到对齐、再到推理模型。但那些方法默认了一件事——模型训得动。这一课补上前提：405B 的模型，光训练状态就有 6.5 TB，怎么切到上千张卡上？讲清四把刀（数据并行、张量并行、流水线并行、专家/上下文并行）各切什么、各自付出什么代价（数据并行那一档的分片做法叫 FSDP，即把参数、梯度、优化器状态都切开放到各卡），最后看 LLaMA-3 405B 的 1024 卡配置是怎么配出来的。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 用「16 B/参数」现算任何模型的训练显存账，并判断该切数据还是切模型<br>② 说清 DP / ZeRO（把优化器状态也切开、分片存到各张卡）、TP、PP、CP / EP 四把刀各切什么、各付出什么代价<br>③ 会拆解一个真实的并行配置（TP×PP×CP×DP = 总卡数），并给出 TP 为何 ≤8 的理由</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（4 把刀的判据递进 + 3 条支链：长序列 / MoE（即混合专家，每层用多个专家网络、每个 token 只激活其中少数几个）专用刀 / 选型；从"装不下"到"该切哪把刀"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">训一个 405B 稠密模型，<strong>要求</strong>把 6.5 TB 的训练状态分摊到每张只有 80 GB 的卡上，而这一批 <b>token</b> 的激活还要另占地方——<strong>这就要求</strong>把"数据"和"模型"切成两块不同的刀。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">承接上一步的「<b class="rn-key">切的维度</b>」：切"数据"的那把刀（DP）把整份模型复制到每张卡，<strong>这就要求</strong>单卡必须装得下整个模型——<strong>于是</strong>它只能解决"训得慢"，要靠切分优化器状态与 <b>gradient</b> 才勉强解决"装不下"，代价是通信涨、每层峰值仍在。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">要真正放不下就得切模型本身，即 <b class="rn-key">TP 的通信瓶颈</b>：把一层矩阵按列/行切开、注意力 <b>heads</b> 分到不同卡，<strong>所以</strong>每层要多做 4 次 all-reduce；通信量 ∝ b·s·h 且与 TP 度数无关，而每卡算力 ∝ 1/TP——<strong>于是</strong>通信/计算比随 TP 上升，TP 必须待在 NVLink 域内。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">TP 跨不了节点，<strong>这就要求</strong>一把能跨节点、且通信量小的刀——<strong>因此</strong>沿层数切出 pipeline parallelism（PP）：stage 之间只传这一批 <b>token</b> 的中间激活，但要付出流水线<b class="rn-key">气泡</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">气泡<strong>所以</strong>不能靠无限加卡解决，<strong>于是</strong>用虚拟流水线把气泡缩小 v 倍。【支链 · 长序列】序列一长（128K）激活又爆，<strong>这就</strong>撞上「<b class="rn-key">长序列的显存墙</b>」，需要第四把刀 context parallelism（CP）沿序列维切；【支链 · MoE】MoE 模型则另用 expert parallelism（EP）沿专家切——两者都要交换 <b>attention</b> 的 K/V 或 token。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text"><strong>【支链 · 选型】</strong><b>长序列的显存墙</b>逼出最后一步<b class="rn-key">组合拳</b>：<strong>因此</strong> 1024 卡的推荐配置是 TP8 × PP8 × CP2 × DP8；MoE 则用 EP 换掉 TP——每张卡只放一部分专家，输出 <b>logits</b>（即模型输出的、还没做归一化的原始分数向量）前要跨卡做 all-to-all 汇总，而最小卡数按 PP × max(TP×CP, EP×ETP) 算，不是连乘。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">Data Parallelism</span><span class="meta-tag">Tensor Parallelism</span><span class="meta-tag">Pipeline Parallelism</span><span class="meta-tag">Context Parallelism</span><span class="meta-tag">Expert Parallelism</span><span class="meta-tag">ZeRO / FSDP</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="13-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">80GB 装不下的 405B，要想训起来，第一刀该切在哪？</div><div class="card-q-hint">提示：先算一笔账——一个参数在混合精度训练里同时要占几份内存？把权重、梯度、优化器状态都算上，再除以一张 80 GB 的卡。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>LLaMA-3 405B</strong>（Meta，2024-07）：126 层、模型维度 16,384、128 个注意力头、FFN 维 53,248，在 15.6T token 上用 3.8×10²⁵ FLOPs 预训练（Llama 3 论文 Table 3）。训练显存的行业口径（DeepSpeed/ZeRO 文档给出）是"每个参数 16 字节"：bf16 权重 2 B + bf16 梯度（gradient）2 B + fp32 master 权重 4 B + Adam 一阶动量 4 B + Adam 二阶动量 4 B。把"切模型"做成可复用方案的是 <strong>Megatron-LM</strong>（Shoeybi 等，arXiv:1909.08053，2019）。</div>
+      <div class="content-section"><p>上一课我们把"怎么把参数练出来"走完了——从预训练到对齐、再到推理模型。但那条线上的每一步都默认了一件事：<strong>模型训得动</strong>。这一课补上前提。</p><p>先统一口径：<strong>混合精度训练</strong>指的是"用 16 位算得快、用 32 位存得准"两种精度混着来。可以把训练一个参数<strong>类比</strong>成搬家：bf16 权重是家具本身，梯度是搬运清单，fp32 master 与 Adam 的两个动量是三本记账簿——<strong>搬一件家具，实际要带五样东西</strong>。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：405B 到底占多少</div>
+        <div class="step"><div class="step-title">Step 1：每参数 16 字节拆开看</div>
+          <table><tr><th>项</th><th>每参数字节</th><th>405B 总量</th></tr><tr><td>bf16 权重</td><td>2</td><td>405e9 × 2 = <strong>810 GB</strong></td></tr><tr><td>bf16 梯度</td><td>2</td><td>405e9 × 2 = <strong>810 GB</strong></td></tr><tr><td>fp32 master 权重</td><td>4</td><td>405e9 × 4 = <strong>1.62 TB</strong></td></tr><tr><td>Adam 一阶动量 m</td><td>4</td><td>405e9 × 4 = <strong>1.62 TB</strong></td></tr><tr><td>Adam 二阶动量 v</td><td>4</td><td>405e9 × 4 = <strong>1.62 TB</strong></td></tr><tr><td><strong>合计</strong></td><td><strong>16</strong></td><td><strong>6.48 TB</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">810 GB ×2 + 1.62 TB ×3 = <strong>6.48 TB</strong>。所以"405B 的权重有多大"这句话<strong>取决于算哪一份</strong>：只算 bf16 权重是 810 GB，只算 fp32 master 是 1.62 TB，两者都是"权重"，差在精度与用途。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：换成"至少要几张卡"</div>
+          <table><tr><th>口径</th><th>总量</th><th>一张 80 GB 卡需要几张</th></tr><tr><td>只放 bf16 权重</td><td>810 GB</td><td>810 ÷ 80 = 10.1 → <strong>至少 11 张</strong></td></tr><tr><td>只放 fp32 master</td><td>1.62 TB</td><td>1620 ÷ 80 = 20.3 → <strong>至少 21 张</strong></td></tr><tr><td><strong>训练全状态</strong></td><td>6.48 TB</td><td>6480 ÷ 80 = 81 → <strong>至少 81 张</strong></td></tr><tr><td>再留激活的地方（示意 +30%）</td><td>约 8.4 TB</td><td>8400 ÷ 80 ≈ <strong>105 张</strong>（示意）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">注意这些还只是<strong>"放得下"</strong>——没算能不能算得快、通信扛不扛得住。所以真实训练要的不是 81 张，而是数百到上万张。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：只有两把刀，切数据还是切模型</div>
+          <table><tr><th>切什么</th><th>刀</th><th>能解决的问题</th><th>不能解决的问题</th></tr><tr><td>切数据（同一份模型，不同数据）</td><td>DP</td><td>训得慢</td><td><strong>单卡放不下</strong></td></tr><tr><td>切模型（同一批数据，不同参数）</td><td>TP / PP / CP / EP</td><td>放不下</td><td>引入通信与流水线气泡</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">所以第一刀该先问一句：<strong>我缺的是"显存"还是"吞吐"？</strong>缺显存就切模型，缺吞吐就切数据——混着上也没关系，但要先知道每把刀各自在治什么。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>训练显存不是一个数字，而是一句乘法：<strong>每参数几字节 × 参数量</strong>。记住"混合精度 + Adam ≈ 16 B/参数"这个口径，任何模型的账都能当场算出来：405B 是 6.48 TB，70B 是 1.12 TB，7B 是 112 GB。算完账才知道该切哪一刀——<strong>不先算账就堆卡，是最常见的浪费</strong>。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','13-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','13-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-13-1" class="llm-section"><button class="llm-btn" onclick="startChat('13-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="13-1"><div class="chat-toolbar"><button onclick="copyChat('13-1')">📋 复制对话</button><button onclick="clearChat('13-1')">🗑 清空</button><button onclick="stopLLM('13-1')" id="stop-btn-13-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('13-1')" id="regen-btn-13-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="13-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对显存账有疑问？比如"为什么 master 要用 fp32？""LoRA（即冻结大部分权重、只训练一小部分低秩增量参数的省显存微调）微调能不能少算几份？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="13-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('13-1')}" rows="1" placeholder="例如：训一个 70B 模型，显存账该怎么算？"></textarea><button onclick="sendLLM('13-1')">发送</button></div></div></div>
+      <div id="tab-qna-13-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('13-1')">🔄 换一批</button></div><div class="qna-list" data-qna="13-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="13-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">每张卡都拿着完整模型副本时，堆更多卡能解决"单层放不下"吗？</div><div class="card-q-hint">提示：先分清 DP 里每张卡手里拿的是什么——是"模型的一部分"还是"整套模型的完整副本"？再想：要让一份副本变小，靠的是"副本多几份"，还是"每份更小"？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>DP 的经典形态是 <strong>DDP</strong>：每张卡放一份完整模型、各算一部分数据，反向结束后用 all-reduce 平均梯度（gradient）。通信原语先说白：<strong>all-reduce</strong> = 所有卡把各自的值求和后同步给每张卡；<strong>reduce-scatter</strong> = 求和后只把结果<strong>按片分给</strong>各卡（每人只拿一份）；<strong>all-gather</strong> = 把各卡手里的一小片<strong>拼回</strong>完整张量。三者是"求和+分发"的三种切法。<strong>ZeRO</strong>（Rajbhandari 等，arXiv:1910.02054，2019-10）把 DDP 改造成"不切计算、只切状态"——ZeRO-1 切优化器状态，ZeRO-2 再切梯度，ZeRO-3 连参数也切；PyTorch 里的实现叫 <strong>FSDP</strong>（Fully Sharded Data Parallel）。</div>
+      <div class="content-section"><p>上一张卡片说有两把刀：切数据（DP）和切模型。这一张先看第一把刀到底能治什么、治不了什么。</p><p>DDP 里每张卡都拿着一份完整模型。<strong>类比</strong>一下：这就像全班每人手里都有一本一模一样的教材——加人只是让你同时改更多本作业，<strong>并不会让每本书变薄</strong>。所以加卡能提吞吐，但单卡的显存占用一动不动。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：ZeRO 把状态摊薄到什么程度</div>
+        <div class="step"><div class="step-title">Step 1：DDP 加卡不省显存</div>
+          <table><tr><th>DP 规模 N</th><th>每卡要放</th><th>405B 每卡显存</th><th>80 GB 装得下吗</th></tr><tr><td>N = 8</td><td>完整模型状态（16 B/参数）</td><td>6.48 TB</td><td><strong>否</strong></td></tr><tr><td>N = 512</td><td>完整模型状态（16 B/参数）</td><td>6.48 TB</td><td><strong>否</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">两行的每卡占用<strong>完全一样</strong>——因为 DDP 里 N 只对应"多存几份副本"，不改变"一份副本多大"。这就是"加卡救不了显存"的准确含义。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：ZeRO 三个阶段各切掉什么</div>
+          <table><tr><th>方案（N = 512）</th><th>每参数显存</th><th>405B 每卡</th><th>装得下吗</th></tr><tr><td>DDP</td><td>16 B</td><td>6.48 TB</td><td>否</td></tr><tr><td>ZeRO-1：切优化器状态（12 B ÷ N）</td><td>2 + 2 + 12÷512 ≈ 4.02 B</td><td>约 1.63 TB</td><td>否</td></tr><tr><td>ZeRO-2：再切梯度（14 B ÷ N）</td><td>2 + 14÷512 ≈ 2.03 B</td><td>约 821 GB</td><td>否</td></tr><tr><td><strong>ZeRO-3：连参数也切（16 B ÷ N）</strong></td><td>16÷512 = 0.031 B</td><td><strong>约 12.7 GB</strong></td><td><strong>是</strong></td></tr><tr><td>ZeRO-3（N = 1024）</td><td>16÷1024 = 0.0156 B</td><td>约 6.3 GB</td><td>是</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术校验：405e9 × 0.03125 = 12.7 GB；405e9 × 0.015625 = 6.3 GB。关键在最后两行——<strong>ZeRO-3 把 16 B 全部按 N 平分</strong>，卡越多每卡越小，这才是真正意义上的"切"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：为什么它仍有边界</div>
+          <table><tr><th>情形</th><th>ZeRO-3（切状态）</th><th>TP（切层内计算）</th></tr><tr><td>参数总量</td><td>可按卡数继续摊薄</td><td>也能摊，但受"矩阵能切多细"限制</td></tr><tr><td><strong>单层峰值</strong></td><td>用到某层时要先把那层 all-gather 回来，<strong>峰值仍是整层</strong></td><td>每卡只留 1/TP，峰值同步下降</td></tr><tr><td>每卡计算量</td><td>不变（每卡仍要算完整层）</td><td>降到 1/TP</td></tr><tr><td>额外通信</td><td>all-gather + reduce-scatter，约为 DDP 的 1.5 倍</td><td>每层 4 次 all-reduce</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">405B 单层约 3.22e9 个参数（12 × 16,384² ≈ 3.22e9；<strong>12h² 是用"4h 的标准 FFN"做快速估算的经验近似</strong>，与 405e9 ÷ 126 ≈ 3.21e9 恰好接近，用来判断量级足够），bf16 下 all-gather 回来约 6.4 GB——<strong>这一层放得下</strong>，所以 ZeRO-3 在技术上能装 405B。真实原因在通信：Meta 的 Llama 3 并行论文在讨论并行组合时写明，他们<strong>没有选择"ZeRO-3 这一档叠加 PP"</strong>，理由是它会在 PP 每个 stage 的前向与反向都引入额外通信开销。<strong>注意别误读成"Meta 不用 FSDP"</strong>——该论文描述的 4D 并行里 FSDP 用在数据并行那个维度上（下一张卡片会看到具体配置）。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>纯 DP（DDP）救不了显存——加卡只增加副本数，不减少副本大小。ZeRO/FSDP 能救，靠的是"<strong>把 16 B 按卡数平分</strong>"，代价是通信量上升、且<strong>每层仍需临时凑回整层</strong>。所以工业界的超大模型更常走另一条路：<strong>DP 负责规模、TP/PP 负责把模型本身切小</strong>。下一张卡片从 TP 开始。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','13-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','13-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-13-2" class="llm-section"><button class="llm-btn" onclick="startChat('13-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="13-2"><div class="chat-toolbar"><button onclick="copyChat('13-2')">📋 复制对话</button><button onclick="clearChat('13-2')">🗑 清空</button><button onclick="stopLLM('13-2')" id="stop-btn-13-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('13-2')" id="regen-btn-13-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="13-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 ZeRO/FSDP 有疑问？比如"1.5 倍通信从哪来？""为什么不用 ZeRO-3 一路走到底？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="13-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('13-2')}" rows="1" placeholder="例如：ZeRO-3 的 all-gather 峰值具体是多少？"></textarea><button onclick="sendLLM('13-2')">发送</button></div></div></div>
+      <div id="tab-qna-13-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('13-2')">🔄 换一批</button></div><div class="qna-list" data-qna="13-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="13-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">TP 把一层矩阵切开，为什么通信会变成瓶颈？</div><div class="card-q-hint">提示：先数一个层里要做几次通信，再想每次通信搬多少数据。然后问一个关键问题：把计算分给更多卡之后，每张卡的计算量变了，通信量变了吗？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Megatron-LM</strong>（Shoeybi 等，arXiv:1909.08053，2019）给出一条极省通信的切法：MLP 按列切、128 个 <strong>attention heads</strong> 按头分到不同卡，于是<strong>一个 transformer 层只需 4 次 all-reduce</strong>（all-reduce = 所有卡把各自算出的部分结果求和、再把和同步给每一张卡；本层里注意力块与 FFN 块各自在前向 1 次、反向 1 次）。原文用 512 张 V100、8 路模型并行训 8.3B 模型，达到 15.1 PFLOP/s、相对单卡 76% 的扩展效率。</div>
+      <div class="content-section"><p>上一张卡片看到：DP 能摊薄状态，但每层还是要凑回整层、通信也不便宜，<strong>所以</strong>该动刀切模型本身了。第一把刀就是<strong>张量并行（TP，Tensor Parallelism）</strong>——把<strong>一层的权重矩阵</strong>切开，几张卡各算一部分，算完把结果加起来。</p><p>切计算确实能让每卡算得更少、装得更少。<strong>类比</strong>一下：TP 像几个人合写一份稿子——每人只写一段（算得快、纸也省），<strong>但每段写完都要互相读一遍</strong>（all-reduce）。人越多，读稿的时间越久。这张卡片就把"读稿"的时间算出来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：TP 的通信量</div>
+        <div class="step"><div class="step-title">Step 1：4 次 all-reduce 从哪来</div>
+          <table><tr><th>位置</th><th>前向</th><th>反向</th><th>小计</th></tr><tr><td>注意力块</td><td>1 次</td><td>1 次</td><td>2 次</td></tr><tr><td>FFN 块</td><td>1 次</td><td>1 次</td><td>2 次</td></tr><tr><td><strong>单层合计</strong></td><td>2 次</td><td>2 次</td><td><strong>4 次</strong></td></tr><tr><td>整个模型（126 层）</td><td>—</td><td>—</td><td>4 × 126 = <strong>504 次</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">次数与 TP 度数无关——不管切 2 路还是 64 路，<strong>每层固定 4 次</strong>。变的是每次要搬多少、以及每次要等多久。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：通信量按具体数字算一遍</div>
+          <table><tr><th>项</th><th>算式</th><th>结果</th></tr><tr><td>单次 all-reduce 元素数 S</td><td>b × s × h = 1 × 8192 × 16384（示意：b=1、s=8192 取自 Llama 3 训练配置）</td><td>1.34×10⁸ 个</td></tr><tr><td>S 的 bf16 字节数</td><td>1.34e8 × 2 B</td><td><strong>268 MB</strong></td></tr><tr><td>环状 all-reduce 每卡实际发送</td><td>2(TP−1)/TP × S；TP=8 → 1.75 × 268 MB</td><td>约 470 MB</td></tr><tr><td>单层 4 次</td><td>4 × 470 MB</td><td><strong>1.88 GB</strong></td></tr><tr><td>整个迭代（126 层）</td><td>1.88 GB × 126</td><td><strong>约 237 GB</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">237 GB 是"每卡每迭代要搬的量级"（简化口径：按每次搬一份完整激活算，未计与计算的重叠）。换成时间：<strong>237 GB ÷ 450 GB/s ≈ 0.53 s</strong>——H100 的 NVLink 标称 900 GB/s，此处按"双向合计"口径取单向 450 GB/s（不同资料对 900 是"双向合计"还是"单向 per-GPU"口径不一，来源：NVIDIA H100 官方规格与 NVLink 文档）。如果这些 all-reduce 走节点间的 InfiniBand（约 400 GB/s 双向、单向约 200 GB/s），时间还会更长；实际训练要靠"通信与计算重叠"把这部分尽量藏起来。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：为什么 TP 越大越亏</div>
+          <table><tr><th>TP 度数</th><th>每卡计算量（相对）</th><th>每卡通信量（每次 all-reduce）</th><th>通信 ÷ 计算（相对）</th></tr><tr><td>8</td><td>1/8</td><td>1.75 S</td><td>基准</td></tr><tr><td>64</td><td>1/64</td><td>1.97 S（只涨 13%）</td><td><strong>约 9 倍</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：通信量之比 1.97 ÷ 1.75 = 1.13；计算量之比 8 ÷ 64 = 0.125；两者相除得 1.13 ÷ 0.125 = <strong>9.0</strong>。<strong>通信量几乎不随 TP 变（每次都搬完整的激活），而计算量按 1/TP 掉</strong>——这就是 TP 的通信瓶颈，也是"TP 一般不超过 8"的根本原因。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>TP 切的是"<strong>每一层都要用的东西</strong>"（权重与激活），所以每层都得通信一次，次数固定 4 次、数据量固定 ∝ b·s·h。<strong>TP 度数越大，通信在总时间里的占比越高</strong>——到 64 路时通信/计算比涨约 9 倍。所以 TP 必须待在 NVLink 域内（NVLink = 同一服务器内 GPU 之间的高带宽直连；H100 一节点 8 卡、双向 900 GB/s；GB200 NVL72 才把上限抬到 72）。要跨节点，就得换一把通信量更小的刀。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','13-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','13-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-13-3" class="llm-section"><button class="llm-btn" onclick="startChat('13-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="13-3"><div class="chat-toolbar"><button onclick="copyChat('13-3')">📋 复制对话</button><button onclick="clearChat('13-3')">🗑 清空</button><button onclick="stopLLM('13-3')" id="stop-btn-13-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('13-3')" id="regen-btn-13-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="13-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 TP 通信有疑问？比如"序列并行能省多少通信？""为什么是 4 次而不是更多？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="13-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('13-3')}" rows="1" placeholder="例如：换成长序列，这个 237 GB 会怎么变？"></textarea><button onclick="sendLLM('13-3')">发送</button></div></div></div>
+      <div id="tab-qna-13-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('13-3')">🔄 换一批</button></div><div class="qna-list" data-qna="13-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="13-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">流水线并行为什么会产生气泡，虚拟流水线又是怎么减掉的？</div><div class="card-q-hint">提示：把模型按层切成几段、每段一台设备，数据像流水线一样流过。想想"开班"和"收班"那两段时间里，哪些设备在空转？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>GPipe</strong>（Huang 等，arXiv:1811.06965，NeurIPS 2019）提出"按层切 stage + 把批次拆成微批次"的流水线方案；<strong>1F1B</strong> 调度（PipeDream-Flush）把在飞微批次数限制在流水线深度，显存占用不再随微批次数增长。<strong>Megatron-LM</strong>（Narayanan 等，arXiv:2104.04473，2021）进一步提出<strong>交错（虚拟）流水线</strong>：把气泡缩小约 v 倍，代价是点对点通信次数约 ×v。该论文在 3072 张 A100 上以 502 PFLOP/s 跑通万亿参数模型（约 52% 峰值）。</div>
+      <div class="content-section"><p>上一张卡片说 TP 跨不了节点。要跨节点，就得换一把"通信量小"的刀——<strong>流水线并行（PP，Pipeline Parallelism）</strong>：把 126 层切成若干段（stage），每段放在不同卡上，一个批次里的 <strong>token</strong> 拆成若干微批次，像流水线一样依次流过各段。<strong>stage 之间只传激活</strong>，数据量比 all-reduce 小得多，所以能跑在慢速的跨节点网络上。</p><p><strong>类比</strong>一下：PP 像工厂流水线——第一站干完才能轮到第二站。于是"开班"时后面的站等着、"收班"时前面的站等着，<strong>那两段时间总有站在空转</strong>。这段空转就叫<strong>流水线气泡（bubble）</strong>。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：气泡有多大、怎么缩小</div>
+        <div class="step"><div class="step-title">Step 1：气泡占比的公式与算例</div>
+          <table><tr><th>项</th><th>取值</th></tr><tr><td>stage 数 P</td><td>8</td></tr><tr><td>每个批次的微批次数 M</td><td>48</td></tr><tr><td>气泡占比 = (P−1) ÷ (M+P−1)</td><td>7 ÷ 55 = <strong>12.7%</strong></td></tr><tr><td>常用近似 (P−1) ÷ M</td><td>7 ÷ 48 = 14.6%（偏悲观）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">想让气泡小，就要 M ≫ P。但 M 越多，同时在飞的微批次越多、要留的激活显存越大——<strong>气泡和显存是一对反向的旋钮</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：1F1B 换来了什么（以及没换来什么）</div>
+          <table><tr><th>调度</th><th>在飞微批次数</th><th>气泡占比</th><th>激活显存</th></tr><tr><td>GPipe（先全前向、再全反向）</td><td>M（全部，示例 48）</td><td>(P−1)/(M+P−1)</td><td>最大，随 M 增长</td></tr><tr><td><strong>1F1B（一个前向一个反向）</strong></td><td><strong>P（与 M 无关，示例 8）</strong></td><td>相同</td><td><strong>恒定</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">注意：<strong>1F1B 不改善气泡，只把显存从"随 M 增长"变成"只与 P 有关"</strong>。这两件事经常被混为一谈——一个治显存，一个治气泡。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：虚拟（交错）流水线把气泡再除 v</div>
+          <table><tr><th>配置</th><th>stage 数 P</th><th>每卡 chunk 数 v</th><th>气泡占比</th><th>点对点通信次数</th></tr><tr><td>普通 1F1B</td><td>8</td><td>1</td><td>7 ÷ 55 = <strong>12.7%</strong></td><td>2 × (P−1) = 14</td></tr><tr><td><strong>虚拟流水线（v = 2）</strong></td><td>8</td><td>2</td><td>约 <strong>6.4%</strong></td><td>约 28</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">思路是让每张卡负责多个"虚拟 stage"（chunk），把空转填上，气泡约缩小 v 倍；代价是每卡要多存 v 份激活与参数分片、点对点通信次数也约 ×v。（<strong>公式口径</strong>：这里按"精确式 ÷ v"估，即 12.7% ÷ 2 ≈ 6.4%；Megatron 原文给的是插值式 (1/v) × (P−1)/M ≈ 7.3%，两者不冲突、只是口径不同。）NVIDIA NeMo 的配置表里那个 "VP" 列就是这里的 v（例如 405B 用 VP=7）。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>PP 用"<strong>只传相邻 stage 的激活</strong>"换来跨节点能力，代价是气泡。三个旋钮分工明确：<strong>1F1B 治显存</strong>（在飞微批次固定为 P）、<strong>虚拟流水线治气泡</strong>（约 ÷v，代价是通信 ×v 与显存 +v）、<strong>加大 M 也能压气泡</strong>（但吃显存）。工程上三者一起调，目标通常是把气泡压到 10% 量级。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','13-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','13-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-13-4" class="llm-section"><button class="llm-btn" onclick="startChat('13-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="13-4"><div class="chat-toolbar"><button onclick="copyChat('13-4')">📋 复制对话</button><button onclick="clearChat('13-4')">🗑 清空</button><button onclick="stopLLM('13-4')" id="stop-btn-13-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('13-4')" id="regen-btn-13-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="13-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对气泡有疑问？比如"零气泡流水线是怎么做到的？""P 和 M 该怎么选？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="13-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('13-4')}" rows="1" placeholder="例如：如果 P=16、M=64，气泡是多少？"></textarea><button onclick="sendLLM('13-4')">发送</button></div></div></div>
+      <div id="tab-qna-13-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('13-4')">🔄 换一批</button></div><div class="qna-list" data-qna="13-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="13-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">MoE 模型和长序列，为什么各需要一把专门的刀？</div><div class="card-q-hint">提示：先想这两种模型的"可切点"在哪——MoE 里不同 token 走不同专家，长序列里 token 本来就排成一条链。它们和"每层都要用的权重"是同一种东西吗？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>DeepSeek-V3</strong>（arXiv:2412.19437，2024-12）：671B 总参数、每个 token 只激活 37B，在 <strong>2048 张 H800</strong> 上训练；并行配置是 <strong>16 路 PP + 64 路 EP（跨 8 节点）+ 跨 8 节点的 ZeRO-1 DP，完全不用 TP</strong>（原文明确写"without using costly Tensor Parallelism"），并用 DualPipe（DeepSeek 的双向流水线调度）把跨节点 all-to-all 与计算重叠；总成本 2.788M H800 GPU 小时。序列侧：<strong>ring attention</strong>（Liu 等，2023）把长序列切到多卡上，Llama 3 训练用的是 all-gather 式 pass-KV（PyTorch 上下文并行文档；Meta 的 CP 论文 arXiv:2411.01783 报告在 128 张 H100/16 节点上做 1M 上下文预填只用 77 s，并行效率 93%）。</div>
+      <div class="content-section"><p>上一张卡片发现：TP 受 NVLink 域限制、PP 有气泡。可还有两类模型会撞上更硬的墙——参数总量巨大的 MoE，和序列极长的长上下文训练。</p><p>先把两个术语说白：<strong>MoE（混合专家）</strong>= 把一个大 FFN 换成很多个小专家，每个 token 只走其中几个（所以总参数很大、激活参数很小）；<strong>EP（专家并行）= 把不同的专家放在不同的卡上</strong>。这两把刀的共同点是：<strong>它们切的东西本来就不需要"每张卡都有"</strong>——MoE 的专家天然分散，长序列的 token 天然排成一条链。</p><p><strong>类比</strong>一下 EP：它像把一家医院的科室分散到不同楼栋——病人（token）只去自己要挂的那几个科室，<strong>不必每栋楼都建一套完整科室</strong>。这正是它比 TP 便宜的根本原因。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：EP 与 CP 各切什么</div>
+        <div class="step"><div class="step-title">Step 1：EP 与 TP 的通信形态不一样</div>
+          <table><tr><th>对比项</th><th>TP（切每层都要用的权重）</th><th>EP（切本来就分散的专家）</th></tr><tr><td>通信原语</td><td>all-reduce</td><td><strong>all-to-all</strong></td></tr><tr><td>触发位置</td><td>每层固定 4 次</td><td>每个 MoE 层 2 次（dispatch 派发 + combine 收回）</td></tr><tr><td>单卡计算量</td><td>∝ 1/TP</td><td>∝ 本卡上的专家数 ÷ 总专家数</td></tr><tr><td>每卡显存</td><td>1/TP 的权重</td><td>1/EP 的专家</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">差别在"切的东西是不是每层都要用"：权重每层都要用，所以必须每层通信；专家的使用本来就是稀疏的（一个 token 只走少数专家），所以通信只在 MoE 层发生、且天然是小流量。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：算一算 EP 让单卡省了多少</div>
+          <table><tr><th>配置</th><th>TP</th><th>PP</th><th>EP</th><th>单卡权重（bf16，示意）</th></tr><tr><td>DeepSeek-V3 实际</td><td>1</td><td>16</td><td>64</td><td>671e9 ÷ 16 ÷ 64 = 0.66e9 → <strong>约 1.3 GB</strong></td></tr><tr><td>若按稠密思路切（TP=8）</td><td>8</td><td>16</td><td>1</td><td>671e9 ÷ 16 ÷ 8 = 5.24e9 → <strong>约 10.5 GB</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：671e9 ÷ 16 ÷ 64 = 6.55e8 个参数；× 2 B = 1.31 GB。而同样的模型用 TP=8 的稠密切法，每卡要放 5.24e9 个参数（约 10.5 GB）。<strong>注意这只是权重口径</strong>（未计梯度、优化器状态与激活，也未计 ZeRO-1 的再切分）——真正的省在于：MoE 的激活参数只有 37B，<strong>计算量按 37B 算</strong>，不是按 671B 算。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：CP 沿序列切，省的是激活</div>
+          <table><tr><th>项</th><th>不用 CP</th><th>用 CP = 16</th></tr><tr><td>每卡负责的序列长度</td><td>131,072</td><td>131,072 ÷ 16 = <strong>8,192</strong></td></tr><tr><td>每卡激活显存（相对）</td><td>1</td><td><strong>1/16</strong></td></tr><tr><td>额外通信</td><td>—</td><td>每个 <b>attention</b> 层要交换 K/V（环形传递或 all-gather）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">131072 ÷ 16 = 8192。CP 与 TP 的关键区别：TP 切"每层都要用的权重"，CP 切"沿序列天然可分的 token"——所以 CP 的通信量小得多，能在普通跨节点网络上跑（这正是 Meta 报告 93% 并行效率的原因）。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>四把刀的判据只有一句话：<strong>要切的东西是不是"每层都要用的"</strong>。<br>是（权重、激活这类每层都要过一遍的）→ 只能在 NVLink 域内切，即 <strong>TP ≤ 8</strong>；<br>不是（层、token、专家这类天然分散的）→ 可以跨节点切，即 <strong>PP / CP / EP</strong>。<br>这也解释了 DeepSeek-V3 为什么敢把 TP 设成 1：MoE 的专家本来就分散，<strong>不需要动 TP 这把最贵的刀</strong>。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','13-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','13-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-13-5" class="llm-section"><button class="llm-btn" onclick="startChat('13-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="13-5"><div class="chat-toolbar"><button onclick="copyChat('13-5')">📋 复制对话</button><button onclick="clearChat('13-5')">🗑 清空</button><button onclick="stopLLM('13-5')" id="stop-btn-13-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('13-5')" id="regen-btn-13-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="13-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 EP/CP 有疑问？比如"all-to-all 为什么比 all-reduce 便宜？""CP 和序列并行（SP）是一回事吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="13-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('13-5')}" rows="1" placeholder="例如：如果 CP=4、序列 32K，每卡分到多少？"></textarea><button onclick="sendLLM('13-5')">发送</button></div></div></div>
+      <div id="tab-qna-13-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('13-5')">🔄 换一批</button></div><div class="qna-list" data-qna="13-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="13-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">为什么 1024 张卡的推荐配置是 TP8 × PP8 × CP2，而不是把 TP 开到 64？</div><div class="card-q-hint">提示：先用"哪把刀能跨节点"给四个维度排序，再看总卡数怎么被一个乘法式拆开。别忘了 TP 上一张卡片刚算过的那笔账。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>NVIDIA Megatron-Core 的并行策略指南给出 LLaMA-3.1 405B 的推荐配置：<strong>1024 张卡，TP=8、PP=8、CP=2</strong>（称为 3D 并行，TP+PP+CP）。Meta 自己训 Llama 3 405B 用的是 4D 并行（FSDP + TP + PP + CP）：主训练跑在 <strong>8,192 张 H100</strong>（TP8 × PP16 × DP64，序列 8,192，BF16 MFU 43%——MFU 指"实际算力 ÷ 硬件峰值算力"，43% 就是跑到了峰值的 43%），也扩到过 <strong>16,384 张</strong>（TP8 × PP16 × DP128）；128K 长上下文那档再加 CP=16（Llama 3 论文 §3.3.1 的配置表）。NVIDIA NeMo 的 FP8 基准对应 TP8 × PP9 × CP2 × DP4（VP=7）——这一配置的总卡数在 NVIDIA 官方文档之间不一致：有文档记 512 张（https://docs.nvidia.com/dl-cuda-graph/examples/llama-31-405b.html），而按并行度连乘 8×9×2×4 = 576，两者对不上。本课不替它选定一个，引用时两处数字与来源都要注明。</div>
+      <div class="content-section"><p>上一张卡片把四把刀的判据收敛成一句话：<strong>每层都要用的只能在 NVLink 域内切（TP≤8），天然分散的可以跨节点切（PP/CP/EP）</strong>。<strong>所以</strong>这一张就用这句话去拆真实的配置——先从"每个维度为什么取这个值"开始推。</p><p>组合的原则可以<strong>类比</strong>成装箱：<strong>先按"不能跨箱的易碎品"（TP）确定内层格子，再按"可以摆远的东西"（PP/CP）确定外层货架，剩下的空间全部留给 DP</strong>（复制模型、铺开数据）。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：拆开 1024 这个数</div>
+        <div class="step"><div class="step-title">Step 1：每个维度为什么取这个值</div>
+          <table><tr><th>维度</th><th>取值</th><th>为什么是这个数</th></tr><tr><td>TP</td><td>8</td><td>一个 NVLink 域 8 张卡（H100 为 900 GB/s）；TP 跨节点会因通信而吃亏</td></tr><tr><td>PP</td><td>8</td><td>126 层 ÷ 8 ≈ 每段 16 层；跨节点只传激活，带宽要求低</td></tr><tr><td>CP</td><td>2</td><td>训练序列 ≥8K（含 8K）即可启用；切 2 份，每卡一半</td></tr><tr><td>DP</td><td>8</td><td>剩下的全给它：1024 ÷ (8 × 8 × 2) = 8</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">校验：8 × 8 × 2 × 8 = <strong>1024</strong> ✓。四个维度不是拍脑袋，而是<strong>按"能不能跨节点"的顺序依次定下来的</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：四种真实配置横向比</div>
+          <table><tr><th>来源</th><th>卡数</th><th>TP</th><th>PP</th><th>CP</th><th>DP</th><th>校验式</th></tr><tr><td>Megatron-Core 推荐（405B）</td><td>1,024</td><td>8</td><td>8</td><td>2</td><td>8</td><td>8×8×2×8 = 1024</td></tr><tr><td>NeMo FP8 基准（405B）</td><td>512 或 576（源不一致）</td><td>8</td><td>9</td><td>2</td><td>4</td><td>8×9×2×4 = 576（某文档记 512）</td></tr><tr><td>Meta 实际（8K 序列）</td><td>8,192</td><td>8</td><td>16</td><td>1</td><td>64</td><td>8×16×1×64 = 8,192</td></tr><tr><td>Meta 实际（扩容档）</td><td>16,384</td><td>8</td><td>16</td><td>1</td><td>128</td><td>8×16×1×128 = 16,384</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">除 NeMo 那行外，其余三行都能整除回原数（NeMo 行记 512 与连乘 576 对不上，属源文档不一致）。请注意一个共同点：<strong>TP 全部是 8，没有一家开到 16 以上</strong>——这正是上一张卡片"通信/计算比随 TP 涨约 9 倍"的直接工程后果。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：MoE 的最小卡数不能连乘</div>
+          <table><tr><th>项</th><th>稠密模型</th><th>MoE 模型</th></tr><tr><td>最小卡数（DP=1）</td><td>PP × TP × CP</td><td><strong>PP × max(TP×CP, EP×ETP)</strong>（ETP = 专家张量并行度）</td></tr><tr><td>原因</td><td>一张卡要能装下完整的一层</td><td>dense 网格与 expert 网格<strong>共享同一批卡</strong>，不连乘</td></tr><tr><td>NVIDIA Megatron-Bridge 对 DeepSeek-V3 的推荐（TP=2, PP=16, EP=64）</td><td>—</td><td>16 × max(2×1, 64×1) = 16 × 64 = <strong>1,024</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：16 × max(2, 64) = 16 × 64 = <strong>1,024</strong>。如果按"连乘"的直觉算，会得到 16 × 2 × 64 = 2,048——<strong>比真实最小卡数大一倍</strong>。这是 MoE 并行里最常见的算错点：专家要跨卡 all-to-all 汇总后，每张卡再算自己那部分 <b>logits</b>（logits = 模型输出的、还没做归一化的原始分数向量），<strong>两张网格是重叠的，不是相乘的</strong>。<br><strong>口径注意</strong>：这里的 TP=2 是 NVIDIA 的推荐值；DeepSeek 自己训 V3 时用的是 TP=1（见上一张卡片），代入 max(·) 后结果同样是 1,024。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>组合拳只有三条判据：<strong>① 每层都要用的东西（权重）→ 只能在 NVLink 域内切，TP ≤ 8；② 天然分散的东西（层 / token / 专家）→ 可以跨节点切，PP / CP / EP；③ 剩下的全部给 DP。</strong>先定 TP（受硬件约束），再定 PP/CP（受显存与序列约束），最后用 DP 把卡数凑到目标值。<strong>记住这个顺序，任何并行配置表你都能自己拆开</strong>——也能一眼看出哪些数字是错的。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','13-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','13-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-13-6" class="llm-section"><button class="llm-btn" onclick="startChat('13-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="13-6"><div class="chat-toolbar"><button onclick="copyChat('13-6')">📋 复制对话</button><button onclick="clearChat('13-6')">🗑 清空</button><button onclick="stopLLM('13-6')" id="stop-btn-13-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('13-6')" id="regen-btn-13-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="13-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对配置有疑问？比如"DP 为什么总是最大的那个数？""GB200 NVL72 会改变什么？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="13-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('13-6')}" rows="1" placeholder="例如：如果只有 256 张卡，该怎么配？"></textarea><button onclick="sendLLM('13-6')">发送</button></div></div></div>
+      <div id="tab-qna-13-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('13-6')">🔄 换一批</button></div><div class="qna-list" data-qna="13-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 13 课完成 · 下一课：第 14 课「显存账本与混合精度」</p>
+    <a href="#" onclick="switchLesson(14);return false;">进入第 14 课：显存账本与混合精度 →</a>　·　<a href="#" onclick="switchLesson(12);return false;">← 上一课：推理模型与 RLVR</a>
+  </div></div>

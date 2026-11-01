@@ -1,0 +1,82 @@
+<!--
+  卡片骨架（COPY + FILL，不要自创结构）
+  占位符（全大写下划线，避免编辑器把模板当 JS 报错）：
+    __ID__  卡片 id（课内唯一，如 1 或 2-3）
+    __NUM__ 卡片序号
+    __N__   本课卡片总数
+  替换后 __ID__ 必须同时出现在这些位置，缺一即「绑定不一致」：
+    data-card / tab-ai- / tab-qna- / data-llm / data-chat / data-qna / switchTab / startChat / refreshQnA
+  校验：node tools/content_verify.js --src
+-->
+<div class="card" data-card="__ID__">
+  <div class="card-q" onclick="toggleCard(this)">
+    <div class="card-num">__NUM__</div>
+    <div class="card-q-content">
+      <div class="card-q-text">【问题】一个真问题，问号结尾，不预设结论</div>
+      <div class="card-q-hint">提示：【给方向，不给答案】</div>
+    </div>
+    <span class="card-arrow">▾</span>
+    <input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完">
+  </div>
+  <div class="card-a">
+    <div class="card-bg"><div class="bg-label">知识背景</div>【锚定】提出者 + 年份 + 当时要解决的痛点，让学员知道这个设计不是凭空来的。</div>
+
+    <div class="content-section">
+      <p>【正文】若依赖前卡概念，开头一句话桥接（"上一张卡片我们分析了…"）。</p>
+    </div>
+
+    <div class="calc-block">
+      <div class="label">🧮 【计算走查标题】</div>
+      <div class="step"><div class="step-title">Step 1：【每步独立标题，数字从前一步自然导出】</div>
+        <table><tr><th>【列】</th><th>【列】</th></tr>
+        <tr><td>【数】</td><td>【数】</td></tr></table>
+      </div>
+      <div class="step"><div class="step-title">Step 2：【…】</div>
+        <table><tr><th>【列】</th><th>【列】</th></tr>
+        <tr><td>【数】</td><td>【数】</td></tr></table>
+      </div>
+    </div>
+
+    <div class="highlight-box">
+      <div class="label">🎯 核心矛盾</div>
+      <p>有 X → 结果 A；没有 X → 结果 B。<strong>让学员看到代价。</strong></p>
+    </div>
+
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="switchTab(this,'ai',__ID__)">💡 自定义问答</button>
+      <button class="tab-btn" onclick="switchTab(this,'qna',__ID__)">🤔 你可能还想问</button>
+    </div>
+
+    <div id="tab-ai-__ID__" class="llm-section">
+      <button class="llm-btn" onclick="startChat(__ID__)">💡 对这张卡片有疑问？点我开始对话</button>
+      <div class="llm-chat" data-llm="__ID__">
+        <div class="chat-toolbar">
+          <button onclick="copyChat(__ID__)" title="复制全部对话">📋 复制对话</button>
+          <button onclick="clearChat(__ID__)" title="清空对话">🗑 清空</button>
+          <button onclick="stopLLM(__ID__)" id="stop-btn-__ID__" style="display:none">⏹ 停止</button>
+          <button onclick="regenerateLLM(__ID__)" id="regen-btn-__ID__" style="display:none">🔄 重新生成</button>
+        </div>
+        <div class="chat-messages" data-chat="__ID__">
+          <div class="chat-msg assistant">
+            <div class="role-label">AI 助教</div>
+            <div class="msg-content">👋 我是你的课程助教。对这张卡片（【本卡主题】）的任何疑问都可以问我。<br><br>我会用<strong>具体数字和计算例子</strong>来回答，而不是堆砌概念。</div>
+          </div>
+        </div>
+        <div class="chat-input-row">
+          <textarea placeholder="例如：【一个能引出数字计算的问题】" data-input="__ID__" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM(__ID__)}" rows="1"></textarea>
+          <button onclick="sendLLM(__ID__)">发送</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-qna-__ID__" class="qna-section" style="display:none;">
+      <div class="qna-header">
+        <div class="qna-title">🤔 学生最可能追问的 __N__ 个问题</div>
+        <button class="qna-refresh-btn" onclick="refreshQnA(__ID__)" title="换一批问题">🔄 换一批</button>
+      </div>
+      <div class="qna-list" data-qna="__ID__">
+        <div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div>
+      </div>
+    </div>
+  </div>
+</div>

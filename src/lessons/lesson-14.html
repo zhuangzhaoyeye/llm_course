@@ -1,0 +1,204 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 14 课：显存账本与混合精度</h2>
+    <p class="subtitle">上一课讲了"一张卡放不下怎么切"，但只用了一个结论——每参数 16 字节。这一课把这个结论拆到底：16 字节分别属于谁、为什么优化器状态占了四分之三、激活为什么会和权重同量级、ZeRO（即把优化器状态、梯度、参数分片存到各卡的省显存方案）三把刀各砍掉什么、FP8 到底省的是显存还是算力。最后合起来算一道实操题：训一个 70B，到底要几张 80 GB 卡。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 把训练显存拆成四项并逐项算清（权重 / 梯度 / 优化器状态 / 激活）<br>② 写出 ZeRO-1/2/3 的每参数显存公式，并判断哪一档能把 70B 放进 80 GB 卡<br>③ 用激活公式与重算口径算出一份显存预算，给出"至少几张卡"的答案</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（5 步逻辑递进 + 1 条汇总支链：从"四类东西"到"最小卡数"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">训练一个 70B 稠密模型，<strong>要求</strong>每张 80 GB 的卡同时放下四类东西：bf16 权重、bf16 <b>gradient</b>、优化器状态、以及这一批 <b>token</b> 的激活——<strong>这就要求</strong>先算清每类各占多少。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">顺着上一步的四类东西往下分辨：哪一类最大？——<strong>因为</strong> Adam 要为每个参数维护两份 fp32 动量再加一份 fp32 master，<strong>所以</strong>优化器状态一项就吃掉 12 B/参数，是 bf16 权重的 6 倍（而 bf16 权重与 <b>gradient</b> 各只占 2 B）——<b class="rn-key">优化器状态是最大的一项</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然「<b>优化器状态是最大的一项</b>」已经确定，<strong>所以</strong>先切它最划算——这就是 <b class="rn-key">ZeRO 三把刀</b>：ZeRO-1 只切优化器状态、ZeRO-2 再切 <b>gradient</b>、ZeRO-3 连参数也切（这套分片方案在 PyTorch 里叫 FSDP，即把优化器状态、梯度、参数都切开放到各卡），每张卡的状态从 16 B/参数一路降到 16/N。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">「<b>ZeRO 三把刀</b>」切完状态，剩下占地方的是它切不动的那部分——激活。<strong>因为</strong>注意力要存 <b>softmax</b> 前后的中间量，激活里含一个随序列长度平方增长的<b class="rn-key">激活的二次项</b>，<strong>所以</strong>序列越长，激活越可能反超权重。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">「<b>激活的二次项</b>」可以用<b class="rn-key">激活重算（activation recomputation）</b>消掉，<strong>于是</strong>状态与激活两边都已封顶——<strong>因此</strong>剩下能改的只有数值精度：把数据的数值精度降到 8 bit 之后，省的主要是算力与带宽——<b class="rn-key">FP8 省的是算力而非显存</b>，权重与优化器照样要留 fp32 master。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text"><strong>【支链 · 汇总】</strong>既然「<b>FP8 省的是算力而非显存</b>」，最后能动的只有 ZeRO 与重算两条路——<strong>因此</strong>把四类东西相加再除以 80 GB（每张卡还要留出 <b>token</b> 激活与碎片的余量），就得到 70B 的<b class="rn-key">最小卡数</b>，而且这个答案对"激活按哪种方式算"极其敏感。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">Memory Ledger</span><span class="meta-tag">Mixed Precision</span><span class="meta-tag">ZeRO / FSDP</span><span class="meta-tag">Activation Recomputation</span><span class="meta-tag">FP8 / MXFP8</span><span class="meta-tag">Master Weights</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="14-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">要让 70B 训得动，显存到底花在哪几项？</div><div class="card-q-hint">提示：把训练一步里需要同时留在显存的东西列全——模型本身、它的更新方向、优化器为它记的账，以及这一批数据算出来的中间量。别漏掉最后一项。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Llama 2 70B</strong>（Meta，2023-07，arXiv:2307.09288）：80 层、隐藏维 8,192、64 个注意力头、8 个 KV 头（GQA，即多组注意力头共享同一份 K/V 的注意力变体）、FFN 维 28,672，4,096 上下文。MLPerf 的 LoRA（即冻结大部分权重、只训练一小部分低秩增量参数的省显存微调）基准用 64 张 H100 训 70B。而全量微调 70B 的显存，工程上常被引作<strong>"混合精度下约 140 GB"</strong>——这句说的通常是 <strong>bf16 权重本体</strong>（70e9 × 2 B = 140 GB），<strong>不含梯度与优化器状态</strong>（那两项加起来是 980 GB，见 Step 1）；该说法的确切出处与限定语境待人工核实。DeepSpeed 的显存估算文档把每参数口径写死：Adam 用 4 B 存动量、4 B 存方差（共 8 B）。把训练显存拆成四项的分类框架来自 Korthikanti 等（arXiv:2205.05198，MLSys 2023）。</div>
+      <div class="content-section"><p>上一课我们只借用了"16 B/参数"这一个结论，没有把它拆开。这一课拆到底——先把账算清，才谈得上省。</p><p>先把四个名词说白：<strong>权重（weight）</strong>是模型参数本身；<strong>梯度（gradient）</strong>是这一步要往哪个方向改；<strong>优化器状态（optimizer state）</strong>是优化器为了算出这个方向而替每个参数记的账；<strong>激活（activation）</strong>是前向算出来、反向还要再用的中间量。可以把这四项<strong>类比</strong>成一个装修现场：家具（权重）、搬运清单（梯度）、两份账本加一份原始图纸（优化器状态），以及<strong>施工中摊开的所有材料</strong>（激活）——只有最后一项能在收工后收起来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：四类东西各占多少</div>
+        <div class="step"><div class="step-title">Step 1：四类东西分别是什么</div>
+          <table><tr><th>项</th><th>内容</th><th>精度与字节</th><th>70B 合计</th></tr><tr><td>权重</td><td>参与前向与反向的模型参数</td><td>bf16，2 B/参数</td><td>140 GB</td></tr><tr><td>梯度</td><td>每个参数这一轮的更新方向</td><td>bf16，2 B/参数</td><td>140 GB</td></tr><tr><td>优化器状态</td><td>fp32 master 权重 + Adam 两个动量</td><td>12 B/参数</td><td><strong>840 GB</strong></td></tr><tr><td>激活</td><td>前向产出、反向要用的中间量</td><td>随序列长度变化</td><td>见 Card 4</td></tr><tr><td><strong>前三项合计</strong></td><td>—</td><td><strong>16 B/参数</strong></td><td><strong>1.12 TB</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">140 + 140 + 840 = <strong>1.12 TB</strong>。注意"权重"这一行的 140 GB 是 <strong>bf16 的训练副本</strong>；同一份参数还有一份 fp32 master，被算进了"优化器状态"里——<strong>同一份参数据精度不同被拆到两行，这是最常见的口径混淆点</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：换成 GB 与占比看</div>
+          <table><tr><th>项</th><th>每参数字节</th><th>70B</th><th>占 16 B 的比例</th></tr><tr><td>bf16 权重</td><td>2</td><td>140 GB</td><td>12.5%</td></tr><tr><td>bf16 梯度</td><td>2</td><td>140 GB</td><td>12.5%</td></tr><tr><td>fp32 master 权重</td><td>4</td><td>280 GB</td><td>25%</td></tr><tr><td>Adam 一阶动量 m</td><td>4</td><td>280 GB</td><td>25%</td></tr><tr><td>Adam 二阶动量 v</td><td>4</td><td>280 GB</td><td>25%</td></tr><tr><td><strong>合计</strong></td><td><strong>16</strong></td><td><strong>1.12 TB</strong></td><td>100%</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">校验：70e9 × 16 B = 1.12 TB ✓。用占比看更直观——<strong>权重本身只占 12.5%，优化器状态独占 75%</strong>。这解释了为什么后面所有省显存的手段，第一刀都砍向优化器状态。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：前三项不随序列涨，激活会</div>
+          <table><tr><th>对比</th><th>按什么规模增长</th><th>70B 在 4K 序列下的量级</th></tr><tr><td>权重 / 梯度 / 优化器状态</td><td>∝ 参数量（固定）</td><td>1.12 TB（与序列长度无关）</td></tr><tr><td>激活</td><td>∝ 序列长度 × 批大小 × 隐藏维 × 层数</td><td>与 1.12 TB <strong>同量级</strong>（Card 4 精算）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">DeepSpeed 的显存文档明确写过一句：激活<strong>可能和 params + grads + optim states 加起来一样大</strong>。所以显存账必须把激活单独算——前三项是常数，它随序列长度涨。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>训练显存只有四项，但它们的"增长方式"完全不同：<strong>权重、梯度、优化器状态 ∝ 参数量（与序列无关）；激活 ∝ 序列长度（与参数量无关）</strong>。这一条决定了后面所有手段的分工——<strong>砍前三项要靠切分与低精度，砍激活只能靠"别存它"（重算）</strong>。先把四项分开算，是本节接下来 5 张卡片的共同地基。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','14-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','14-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-14-1" class="llm-section"><button class="llm-btn" onclick="startChat('14-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="14-1"><div class="chat-toolbar"><button onclick="copyChat('14-1')">📋 复制对话</button><button onclick="clearChat('14-1')">🗑 清空</button><button onclick="stopLLM('14-1')" id="stop-btn-14-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('14-1')" id="regen-btn-14-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="14-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对显存四项有疑问？比如"推理时为什么只有两项""LoRA 能把哪几项砍掉？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="14-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('14-1')}" rows="1" placeholder="例如：如果换成 LoRA，四项里哪几项会消失？"></textarea><button onclick="sendLLM('14-1')">发送</button></div></div></div>
+      <div id="tab-qna-14-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('14-1')">🔄 换一批</button></div><div class="qna-list" data-qna="14-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="14-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">为什么优化器状态占了全部显存的四分之三？</div><div class="card-q-hint">提示：Adam 不只是"记一个方向"。数一数它为一个参数保存了几份数、每份多少字节，再问一句：其中哪几份是为了"精度"而不是为了"信息"。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Adam</strong>（Kingma &amp; Ba，arXiv:1412.6980，2014）为每个参数维护两个状态：一阶动量 m（梯度的滑动平均）与二阶动量 v（梯度平方的滑动平均），<strong>都是 fp32、各占 4 B</strong>。混合精度训练再加一份 <strong>fp32 master 权重</strong>（4 B），原因是 bf16 精度不够：1.0 附近 bf16 的间距（ULP，相邻两数的最小间隔）约 7.8×10⁻³、舍入误差（半个间距）约 3.9×10⁻³，而学习率 1e-5 时的每步更新量只有 1e-5，会被直接舍成 0。DeepSpeed 官方显存文档把这 8 B（动量 + 方差）写成估算的固定口径。想要更省，可以用 8 bit 优化器（如 bitsandbytes 的 8-bit Adam）把两个动量量化到各 1 B。训练里常用的是 AdamW（即 Adam 加上权重衰减的工程标准写法）。</div>
+      <div class="content-section"><p>上一张卡片看到四项里优化器状态最大。这一张把它拆开，看这 12 B/参数 到底花在哪。</p><p>先给个直觉：<strong>梯度（gradient）只告诉你"这一步往哪走"，而 Adam 还想记住"过去几十步都往哪走、走得有多抖"</strong>——这就是两个动量的作用。可以把它<strong>类比</strong>成开车：梯度是这一刻的方向盘角度，一阶动量是你最近的行驶方向，二阶动量是路面的颠簸程度——后两者都要随时间累积，所以必须一直留着。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：12 字节是谁</div>
+        <div class="step"><div class="step-title">Step 1：一个参数的 12 B 分别是什么</div>
+          <table><tr><th>项</th><th>字节</th><th>作用</th><th>能不能省</th></tr><tr><td>fp32 master 权重</td><td>4</td><td>累积更新、避免 bf16 舍入</td><td>不能（精度需要）</td></tr><tr><td>一阶动量 m</td><td>4</td><td>平滑梯度方向</td><td>不能（Adam 的定义）</td></tr><tr><td>二阶动量 v</td><td>4</td><td>自适应学习率</td><td>不能（Adam 的定义）</td></tr><tr><td><strong>合计</strong></td><td><strong>12</strong></td><td>—</td><td>—</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">12 B 是 bf16 权重（2 B）的 <strong>6 倍</strong>，是 fp32 权重（4 B）的 <strong>3 倍</strong>，也是全部 16 B 的 <strong>75%</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：规模不同，"几张卡"的账</div>
+          <table><tr><th>模型</th><th>参数量</th><th>前三项（16 B/参数）</th><th>80 GB 卡至少</th></tr><tr><td>7B</td><td>7e9</td><td>112 GB</td><td>2 张（112 ÷ 80 = 1.4）</td></tr><tr><td>13B</td><td>13e9</td><td>208 GB</td><td>3 张（208 ÷ 80 = 2.6）</td></tr><tr><td>70B</td><td>70e9</td><td><strong>1.12 TB</strong></td><td>14 张（1120 ÷ 80 = 14，整除）</td></tr><tr><td>405B</td><td>405e9</td><td><strong>6.48 TB</strong></td><td>81 张（6480 ÷ 80 = 81）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">校验：7e9×16 = 112 GB；13e9×16 = 208 GB；70e9×16 = 1.12 TB；405e9×16 = 6.48 TB。注意这些数字<strong>都没有算激活</strong>——它是"下限的下限"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：换优化器能省多少</div>
+          <table><tr><th>优化器</th><th>优化器状态/参数</th><th>总账/参数</th><th>70B 总账</th></tr><tr><td>SGD + 动量</td><td>4 B 动量 + 4 B master = 8 B</td><td>12 B</td><td>840 GB</td></tr><tr><td><strong>AdamW</strong></td><td>8 B（m+v）+ 4 B master = 12 B</td><td><strong>16 B</strong></td><td><strong>1.12 TB</strong></td></tr><tr><td>8-bit Adam</td><td>2 B（量化 m+v）+ 4 B master = 6 B</td><td>10 B</td><td>700 GB</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：70e9 × 12 B = 840 GB；× 10 B = 700 GB。换成 SGD 省下 280 GB，代价是收敛更慢、对学习率更敏感；8-bit Adam 把两个动量各压到 1 B，再省 140 GB，代价是量化误差与额外工程复杂度。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>优化器状态之所以最大，是因为它<strong>为每个参数存了三份 fp32</strong>（master 权重 + 两个动量 = 12 B），而参数本身只占 2 B。<strong>它不是"多余的开销"，而是 Adam 能自适应调学习率的前提</strong>——想省，只有两条路：换成更省的优化器（SGD / 8-bit），或把它<strong>切开分给其他卡</strong>（这正是下一张卡片的 ZeRO）。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','14-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','14-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-14-2" class="llm-section"><button class="llm-btn" onclick="startChat('14-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="14-2"><div class="chat-toolbar"><button onclick="copyChat('14-2')">📋 复制对话</button><button onclick="clearChat('14-2')">🗑 清空</button><button onclick="stopLLM('14-2')" id="stop-btn-14-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('14-2')" id="regen-btn-14-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="14-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对优化器状态有疑问？比如"为什么 master 不是 fp16？""8-bit Adam 掉点吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="14-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('14-2')}" rows="1" placeholder="例如：如果只用 SGD，70B 的账会变成多少？"></textarea><button onclick="sendLLM('14-2')">发送</button></div></div></div>
+      <div id="tab-qna-14-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('14-2')">🔄 换一批</button></div><div class="qna-list" data-qna="14-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="14-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">ZeRO 三把刀，各砍掉什么、代价是什么？</div><div class="card-q-hint">提示：把状态分成"每张卡都必须有一份"和"可以切开分给各卡"两类。想想每升一档，省下的是哪一项，付出的又是什么。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>ZeRO（Zero Redundancy Optimizer）</strong>由 Rajbhandari 等提出（arXiv:1910.02054，2019-10）。DeepSpeed 官方文档把三档定义得很清楚：<strong>Stage 1</strong> 切优化器状态（含 fp32 master 与两个动量）；<strong>Stage 2</strong> 再切 16-bit 梯度；<strong>Stage 3</strong> 连 16-bit 参数也切，并在前向/反向按需 all-gather 回来。文档同时给出结论：<strong>在典型 Adam 设置下，Stage 1 就能带来最高 4 倍显存缩减</strong>。PyTorch 的原生实现叫 FSDP。</div>
+      <div class="content-section"><p>上一张卡片确定了一件事：优化器状态是最大的一项，所以先切它最划算。这就是 ZeRO 三把刀的分工。</p><p>先把机制说白：<strong>ZeRO 不改变训练数学，只改变"东西存在哪、什么时候通信"</strong>——<strong>梯度（gradient）</strong>与参数在该切的时候切、该拼的时候拼。可以把它<strong>类比</strong>成合租公寓——原本每人房间里都存一整套共用的工具（8 个人就 8 套，纯浪费），ZeRO 改成工具放公共储藏室、每人只负责其中一柜，用到时才去取。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：三档的公式与读数</div>
+        <div class="step"><div class="step-title">Step 1：三档的每参数显存公式</div>
+          <table><tr><th>方案</th><th>每参数显存（N = DP 度）</th><th>N = 8 时</th><th>70B（N = 8）</th></tr><tr><td>DDP</td><td>16 B</td><td>16 B</td><td>1.12 TB</td></tr><tr><td>ZeRO-1</td><td>4 + 12/N</td><td>5.5 B</td><td>385 GB</td></tr><tr><td>ZeRO-2</td><td>2 + 14/N</td><td>3.75 B</td><td>262.5 GB</td></tr><tr><td><strong>ZeRO-3</strong></td><td><strong>16/N</strong></td><td><strong>2 B</strong></td><td><strong>140 GB</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">校验：4 + 12÷8 = 5.5；2 + 14÷8 = 3.75；16÷8 = 2。对应 70B：70e9 × 5.5 B = 385 GB；× 3.75 B = 262.5 GB；× 2 B = 140 GB。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：省的是"重复存了几份"</div>
+          <table><tr><th>方案</th><th>每卡</th><th>8 张卡合计</th><th>冗余</th></tr><tr><td>DDP</td><td>1.12 TB</td><td>8 × 1.12 TB = 8.96 TB</td><td>8 份完全相同的状态</td></tr><tr><td>ZeRO-1</td><td>385 GB</td><td>3.08 TB</td><td>1 份状态 + 8 份权重与梯度</td></tr><tr><td><strong>ZeRO-3</strong></td><td>140 GB</td><td><strong>1.12 TB</strong></td><td><strong>1 份</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：8 × 0.385 = 3.08 TB；8 × 0.14 = 1.12 TB。这一步很关键——<strong>ZeRO 省的是"重复存了几份"，不是"少存了"</strong>：集群里总得有人存下那 1.12 TB，物理下限不变。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：代价是通信量（只有 ZeRO-3 真的加）</div>
+          <table><tr><th>方案</th><th>每步通信</th><th>相对 DDP</th></tr><tr><td>DDP</td><td>梯度 all-reduce（环形 ≈ 2 份量）</td><td>1.0×（基准）</td></tr><tr><td><strong>ZeRO-1</strong></td><td>梯度 reduce-scatter + 参数 all-gather</td><td><strong>1.0×（与 DDP 相同）</strong></td></tr><tr><td><strong>ZeRO-2</strong></td><td>梯度 reduce-scatter + 参数 all-gather</td><td><strong>1.0×（与 DDP 相同）</strong></td></tr><tr><td>ZeRO-3</td><td>前向 all-gather 参数 + 反向 all-gather 参数 + 梯度 reduce-scatter</td><td><strong>约 1.5×</strong>（消息也更碎）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">官方口径（微软 ZeRO 发布博客）写得很明确：ZeRO-1 与 ZeRO-2 都是「<strong>same communication volume as data parallelism</strong>」，只有 ZeRO-3 才有「约 50% 的通信量增加」。算术直觉：DDP 的梯度 all-reduce（≈2 份量）在 ZeRO-1/2 里被换成 reduce-scatter（1 份）+ 参数 all-gather（1 份），<strong>总量不变</strong>；ZeRO-3 因为前向还要再 all-gather 一次参数，变成 3 份量，3 ÷ 2 = 1.5×。这正是 ZeRO 的核心卖点——<strong>切状态几乎不额外付通信</strong>。真正的差别在<strong>消息粒度</strong>：ZeRO-3 每层都要 all-gather 一次，消息更多更碎，对延迟更敏感（所以它通常与计算重叠）。（口径提示：少数教材按「梯度仍走完整 all-reduce」记账，会把 ZeRO-1 也算成 1.5×；差别在梯度用 all-reduce 还是 reduce-scatter。）</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>三把刀砍的对象完全不同：<strong>ZeRO-1 砍优化器状态（12 B → 12/N）、ZeRO-2 再砍梯度（+2/N）、ZeRO-3 连权重也砍（+2/N）</strong>。但有一条容易忽略的推论：<strong>ZeRO-1 与 ZeRO-2 都要在每张卡上保留完整 bf16 权重（2 B/参数 = 140 GB）；ZeRO-1 还多留一份完整梯度（再 2 B，合计 280 GB）</strong>——两者单卡都 ≥ 140 GB，<strong>永远装不进 80 GB 卡</strong>。真正能做到的只有 ZeRO-3（Card 6 会用到这个结论）。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','14-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','14-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-14-3" class="llm-section"><button class="llm-btn" onclick="startChat('14-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="14-3"><div class="chat-toolbar"><button onclick="copyChat('14-3')">📋 复制对话</button><button onclick="clearChat('14-3')">🗑 清空</button><button onclick="stopLLM('14-3')" id="stop-btn-14-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('14-3')" id="regen-btn-14-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="14-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 ZeRO 三档有疑问？比如"为什么 ZeRO-1 是 4 + 12/N？""三档能叠加吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="14-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('14-3')}" rows="1" placeholder="例如：如果 N=64，ZeRO-3 的每卡占用是多少？"></textarea><button onclick="sendLLM('14-3')">发送</button></div></div></div>
+      <div id="tab-qna-14-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('14-3')">🔄 换一批</button></div><div class="qna-list" data-qna="14-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="14-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">激活重计算：用算力换显存，划算吗？</div><div class="card-q-hint">提示：激活里有一个随序列长度平方增长的项。先问"这一项是谁产生的"，再问"重新算它一遍，比把它存下来贵多少"。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>一层 transformer 的激活（16-bit）约为 <strong>s·b·h·(34 + 5·a·s/h) ÷ t</strong>（s 序列长度、b 微批大小、h 隐藏维、a 注意力头数、t 张量并行度）。其中 <strong>5·a·s/h 一项来自注意力分数与 softmax——它随 s 平方增长</strong>。Korthikanti 等（arXiv:2205.05198，MLSys 2023）的<strong>选择性重计算</strong>只重算这一项，激活降到 <strong>34·s·b·h·L ÷ t</strong>；论文结论：激活显存降到约 1/5，重算的时间开销从 <strong>30~40% 降到 10% 以内</strong>，530B 模型在 2240 张 A100 上 MFU（MFU = 实际算力 ÷ 硬件峰值算力）从 42.1% 提升到 54.2%（快 29%）。重算的源头是 Chen 等 2016 年的 O(√n) 方法（arXiv:1604.06174）。</div>
+      <div class="content-section"><p>上一张卡片把状态切完了，但还有一项切不动——激活。它不是"每个参数一份"，而是"每个中间张量一份"，所以换一套算法来省：<strong>不存，等反向用时重算（activation recomputation，激活重算）</strong>。</p><p>为什么值得这么做？因为激活里有一项的规模随序列长度<strong>平方</strong>增长（注意力分数矩阵，形状是 token 数 × token 数），而它"占地方大、算起来却便宜"。把这<strong>类比</strong>成做菜：与其把切好的备料全摆在台面上占满厨房，不如<strong>用到时再切一次</strong>——多花点时间，台面一下就空了。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：把公式代进 70B</div>
+        <div class="step"><div class="step-title">Step 1：一项一项代进去</div>
+          <table><tr><th>变量 / 项</th><th>取值</th><th>算式</th></tr><tr><td>s（序列长度）</td><td>4096</td><td>—</td></tr><tr><td>b（微批大小）</td><td>1</td><td>—</td></tr><tr><td>h（隐藏维）</td><td>8192</td><td>—</td></tr><tr><td>a（注意力头数）</td><td>64</td><td>—</td></tr><tr><td>5·a·s/h（二次项）</td><td><strong>160</strong></td><td>5 × 64 × 4096 ÷ 8192</td></tr><tr><td>每层系数</td><td><strong>194</strong></td><td>34 + 160</td></tr><tr><td>每层激活（元素）</td><td>6.51e9</td><td>4096 × 8192 × 194</td></tr><tr><td>每层激活（bf16）</td><td><strong>13.0 GB</strong></td><td>6.51e9 × 2 B</td></tr><tr><td>全模型（80 层）</td><td><strong>1.04 TB</strong></td><td>13.0 GB × 80</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">本例取 t = 1（不切张量并行），故公式里的 ÷t 不生效，校验：4096 × 8192 = 3.36e7；× 194 = 6.51e9；× 2 B = 1.30e10 B = 13.0 GB；× 80 = 1.04e12 B = <strong>1.04 TB</strong>。这个数字意味着：<strong>激活已经和"权重 + 梯度 + 优化器状态"的 1.12 TB 同量级</strong>——不能忽略。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：三种账法，各占多少</div>
+          <table><tr><th>方式</th><th>存什么</th><th>算式</th><th>激活显存</th></tr><tr><td>全存</td><td>所有中间量</td><td>194 × 3.36e7 × 80 × 2 B</td><td>1.04 TB</td></tr><tr><td><strong>选择性重算</strong></td><td>存便宜的，重算 softmax 与注意力分数</td><td>34 × 3.36e7 × 80 × 2 B</td><td><strong>183 GB</strong></td></tr><tr><td>全量重算</td><td>只存每层输入</td><td>2 × 3.36e7 × 80 × 2 B</td><td><strong>10.7 GB</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：34 × 3.36e7 = 1.14e9/层；× 80 = 9.13e10；× 2 B = 183 GB。全量重算：2 × 3.36e7 = 6.71e7/层；× 80 = 5.37e9；× 2 B = 10.7 GB。三种口径的相对关系是 <strong>1.04 TB → 183 GB（约 1/5.7）→ 10.7 GB（约 1/97）</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：多花的时间是多少</div>
+          <table><tr><th>方式</th><th>激活显存</th><th>额外时间开销</th><th>来源</th></tr><tr><td>全量重算</td><td>10.7 GB</td><td><strong>+30 ~ 40%</strong></td><td>NVIDIA 在 530B 上的实测</td></tr><tr><td><strong>选择性重算</strong></td><td>183 GB</td><td><strong>&lt; 10%</strong></td><td>论文：重算开销降低 &gt; 90%</td></tr><tr><td>不重算</td><td>1.04 TB</td><td>0</td><td>—</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">所以问题不是"划算不划算"，而是<strong>"重算哪一部分划算"</strong>：softmax 与注意力分数"占地方大、算起来便宜"，重算它们的性价比最高——这正是选择性重计算的全部内容。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>激活是四项里<strong>唯一"可以不存"的</strong>——因为它是中间结果，丢了能重算。三种口径要按场景选：<strong>显存极紧就全量重算（10.7 GB，代价 30~40% 时间）、想两头兼顾就选择性重算（183 GB，代价 &lt;10%）、显存够就直接存（1.04 TB）</strong>。工程上默认选择是第二种，而判断依据永远是同一句话：<strong>这一项占多少显存、重算它要多少 FLOPs</strong>。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','14-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','14-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-14-4" class="llm-section"><button class="llm-btn" onclick="startChat('14-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="14-4"><div class="chat-toolbar"><button onclick="copyChat('14-4')">📋 复制对话</button><button onclick="clearChat('14-4')">🗑 清空</button><button onclick="stopLLM('14-4')" id="stop-btn-14-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('14-4')" id="regen-btn-14-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="14-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对激活重算有疑问？比如"为什么二次项可以单独重算？""序列翻倍激活会涨多少？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="14-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('14-4')}" rows="1" placeholder="例如：如果序列从 4K 涨到 8K，激活会变成多少？"></textarea><button onclick="sendLLM('14-4')">发送</button></div></div></div>
+      <div id="tab-qna-14-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('14-4')">🔄 换一批</button></div><div class="qna-list" data-qna="14-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="14-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">BF16（16 位浮点）换成 FP8（8 位浮点），省的是显存还是算力？</div><div class="card-q-hint">提示：先分清三件事——同样的数用几位表示（存储）、每秒能算多少次（算力）、每秒能搬多少字节（带宽）。FP8 改变的是哪几件？再想：为什么权重还要留一份 fp32 master？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>先明确两个格式：<strong>BF16</strong>（半精度浮点，用 16 位存一个数）与 <strong>FP8</strong>（只用 8 位存一个数）。FP8 训练的第一个前沿级公开证据是 <strong>DeepSeek-V3</strong>（arXiv:2412.19437，2024-12）：671B、14.8T token，用 <strong>fp8 前向/反向 + fp32 master 权重 + 分块缩放</strong>，报告原文给的训练成本是 <strong>2.788M H800 GPU 小时 ≈ 557.6 万美元</strong>（报告<strong>未给 BF16 对照成本</strong>；流传的"约 800 万"是第三方估算，非报告原文）。工程侧读数：TorchAO 报告 float8 训练可带来约 <strong>1.3~1.5×</strong> 的端到端加速（其发布说明中规模与硬件记载不一，具体口径需人工核实）；AMD 团队在 Llama3-8B 上测到 rowwise FP8 相对 BF16 有约 <strong>+13%</strong> 吞吐、峰值显存几乎不变——结论是<strong>"收益来自更快的 FP8 矩阵核，不是省显存"</strong>（示意读数，需人工核实）。MXFP8（每 32 个元素共享一个 E8M0 缩放因子）则是 Blackwell 原生支持的新格式。</div>
+      <div class="content-section"><p>上一张卡片用<b>激活重算（activation recomputation）</b>把激活压下来了，还有一路是低精度。但这里有一个常见误解要先破掉：<strong>FP8 不等于"显存减半"</strong>。</p><p>先把三个词分开：<strong>存储</strong>（一个数占几字节）、<strong>算力</strong>（张量核每秒能算多少次矩阵乘，也就是 FLOPs 的高低）、<strong>带宽</strong>（每秒能搬多少字节）。可以把它<strong>类比</strong>成换成更快的货车：跑得是快了（算力与带宽都上去），但仓库里那批必须常年存放的库存（优化器状态）<strong>一件都没少</strong>。这就是本张卡片要算清的事。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：FP8 到底动了哪几项</div>
+        <div class="step"><div class="step-title">Step 1：三个"省"不是一回事</div>
+          <table><tr><th>维度</th><th>fp16 / bf16</th><th>fp8</th><th>是否减半</th></tr><tr><td>表示一个数占的字节</td><td>2</td><td>1</td><td><strong>是</strong>（权重与激活的存储副本可减半）</td></tr><tr><td>张量核的矩阵乘吞吐</td><td>基准</td><td>约 2×</td><td>是（是吞吐不是容量）</td></tr><tr><td>参数与优化器状态的总账</td><td>16 B/参数</td><td><strong>15 B/参数（只降 6%）</strong></td><td><strong>否</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">第三行是关键：FP8 训练<strong>不会</strong>把优化器状态减半——master 仍是 fp32、两个动量仍是 fp32，那 12 B 一动不动。省下的是权重与激活的<strong>存储副本</strong>，以及矩阵乘的<strong>算力开销</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：16 B 会不会降？只降一点</div>
+          <table><tr><th>项</th><th>BF16 训练</th><th>FP8 训练</th><th>变化</th></tr><tr><td>权重副本</td><td>2 B</td><td>1 B</td><td>−1 B</td></tr><tr><td>梯度</td><td>2 B</td><td>2 B（通常留 bf16）</td><td>0</td></tr><tr><td>fp32 master 权重</td><td>4 B</td><td>4 B</td><td>0</td></tr><tr><td>Adam m + v</td><td>8 B</td><td>8 B</td><td>0</td></tr><tr><td><strong>合计</strong></td><td><strong>16 B</strong></td><td><strong>15 B</strong></td><td><strong>−6%</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">70B 上：16 B → 15 B，只省 70 GB（1.12 TB → 1.05 TB）。所以"用 FP8 省显存"这个直觉基本是错的——<strong>真正的收益在吞吐</strong>：论文与工程报告给的是 1.3~1.8× 的端到端加速。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：为什么 master 不能也降到 8 bit</div>
+          <table><tr><th>精度</th><th>1.0 附近的舍入误差（roundoff，＝半个间距 ULP）</th><th>能否表示 1e-5 的更新</th></tr><tr><td>fp8（E4M3，尾数 3 位，间距 0.125）</td><td>约 0.0625</td><td><strong>不能</strong></td></tr><tr><td>bf16（尾数 7 位，间距 7.8×10⁻³）</td><td>约 3.9×10⁻³</td><td><strong>不能</strong></td></tr><tr><td>fp32（尾数 23 位，间距 1.2×10⁻⁷）</td><td>约 6.0×10⁻⁸</td><td>能</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术直觉：学习率 1e-5、权重 1.0 时每步更新量是 1e-5，比 fp8 的 0.0625 小约 4 个数量级（0.0625 ÷ 1e-5 = 6,250）、比 bf16 的 3.9e-3 小两个多数量级（3.9e-3 ÷ 1e-5 = 390），只有 fp32 的 6.0e-8 能把它累积起来。（列口径统一为"舍入误差＝半个间距"，与 Card 2 的 bf16 3.9×10⁻³ 一致。）这就是"<strong>低精度算、高精度记</strong>"这条铁律的算术依据。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>FP8 的收益<strong>几乎全在算力与带宽上</strong>（矩阵乘约 2× 吞吐、端到端 1.3~1.8×），显存只顺带降到 15 B/参数（−6%）。<strong>把它当"省显存手段"用，会失望；把它当"提速手段"用，很划算。</strong>而 fp32 master 必须留着，原因是纯算术的：更新量比低位宽的刻度还小，只有 32 位能累积。所以本课的省显存路线只有两条——<strong>ZeRO（切状态）与重算（不存激活）</strong>，下一张卡片把两条合起来算总数。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','14-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','14-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-14-5" class="llm-section"><button class="llm-btn" onclick="startChat('14-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="14-5"><div class="chat-toolbar"><button onclick="copyChat('14-5')">📋 复制对话</button><button onclick="clearChat('14-5')">🗑 清空</button><button onclick="stopLLM('14-5')" id="stop-btn-14-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('14-5')" id="regen-btn-14-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="14-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 FP8 有疑问？比如"MXFP8 和普通 FP8 差在哪？""既然不省显存，为什么还要用它？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="14-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('14-5')}" rows="1" placeholder="例如：如果只做 FP8 推理，显存能省多少？"></textarea><button onclick="sendLLM('14-5')">发送</button></div></div></div>
+      <div id="tab-qna-14-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('14-5')">🔄 换一批</button></div><div class="qna-list" data-qna="14-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="14-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">合起来算：70B 全量训练到底要几张 80GB 卡？</div><div class="card-q-hint">提示：分三步——先只算模型状态并用 ZeRO 摊薄，再加上激活（用第 4 张卡片的重算口径），最后除以 80 GB。注意真机还要留显存碎片与通信缓冲。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>NVIDIA 的 Llama 2 70B LoRA 基准（MLPerf v5.0）用 <strong>64 张 H100</strong>（TP4 × CP2 × DP8），LoRA 只训约 <strong>55M</strong> 个参数（占 0.08%）、单卡约 80 GB；工程上另常引"全量微调 70B、混合精度下约 140 GB"（即 bf16 权重本体，出处待人工核实）。DeepSpeed 提供官方估算 API（`estimate_zero2/zero3_model_states_mem_needs_all_cold`），可以对任意参数量与卡数直接算出每卡显存——但它<strong>只覆盖模型状态，不含激活、显存碎片与通信缓冲</strong>，所以真实预算必须在此基础上另留余量。</div>
+      <div class="content-section"><p>上一张卡片证明了 FP8 省不了显存，所以能动的只剩两条：<strong>ZeRO 切状态</strong>与<strong>重算省激活</strong>。这一张把它们合起来，算出一个具体数字。</p><p>算账的顺序很重要，可以<strong>类比</strong>成搬家前估车：<strong>先量"必须带走的东西"（模型状态），再算"打包时才出现的临时占位"（激活），最后除以单车的容量</strong>——顺序反了就会反复推翻结论。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：从 1.12 TB 到"几张卡"</div>
+        <div class="step"><div class="step-title">Step 1：只算模型状态（不含激活）</div>
+          <table><tr><th>方案</th><th>每参数</th><th>理论最低（N→∞）</th><th>80 GB 卡装得下吗</th></tr><tr><td>DDP</td><td>16 B</td><td>1.12 TB</td><td><strong>装不下</strong></td></tr><tr><td>ZeRO-1</td><td>4 + 12/N</td><td>4 B/参数 = <strong>280 GB</strong></td><td><strong>装不下</strong></td></tr><tr><td>ZeRO-2</td><td>2 + 14/N</td><td>2 B/参数 = <strong>140 GB</strong></td><td><strong>装不下</strong></td></tr><tr><td><strong>ZeRO-3</strong></td><td><strong>16/N</strong></td><td>→ 0</td><td><strong>装得下</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">这一步有个容易忽略的结论：<strong>ZeRO-1 与 ZeRO-2 无论加多少卡都装不下 80 GB</strong>——因为两者都要在每张卡上保留完整 bf16 权重（2 B/参数 = 140 GB），ZeRO-1 还要多留一份完整梯度（合计 4 B = 280 GB）。只有 ZeRO-3 能把权重也切开。取 N = 16：16 ÷ 16 = 1 B/参数 = <strong>70 GB/卡</strong>；取 N = 32：0.5 B/参数 = <strong>35 GB/卡</strong>。（状态是"每卡一份"，激活是"每个 token 一份"——两张账要分开算。）</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：再加上激活，看总和</div>
+          <table><tr><th>组合（s = 4096）</th><th>状态</th><th>激活</th><th>合计</th><th>装得下吗</th></tr><tr><td>ZeRO-3 N=16 + 全量重算</td><td>70 GB</td><td>10.7 GB</td><td><strong>80.7 GB</strong></td><td><strong>差 0.7 GB，不行</strong></td></tr><tr><td><strong>ZeRO-3 N=32 + 全量重算</strong></td><td>35 GB</td><td>10.7 GB</td><td><strong>45.7 GB</strong></td><td><strong>可行</strong></td></tr><tr><td>ZeRO-3 N=32 + 选择性重算</td><td>35 GB</td><td>183 GB</td><td>218 GB</td><td>不行</td></tr><tr><td>ZeRO-3 N=32 + 不重算</td><td>35 GB</td><td>1.04 TB</td><td>1.08 TB</td><td>不行</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：70 + 10.7 = <strong>80.7 &gt; 80</strong>（就差 0.7 GB，但装不下）；35 + 10.7 = <strong>45.7 GB</strong> ✓。所以本题的答案是：<strong>至少要 32 张 80 GB 卡</strong>（ZeRO-3 + 全量激活重算）。换成长序列 s = 8192，全量重算的激活翻倍到 21.5 GB，N = 32 时仍是 56.5 GB ✓。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：为什么真实配置还会更多</div>
+          <table><tr><th>余量来源</th><th>量级</th><th>为什么必须留</th></tr><tr><td>显存碎片与临时缓冲</td><td>若干 GB</td><td>分配器做不到零碎片（按约 1.5× 余量示意估算，非官方默认值）</td></tr><tr><td>集合通信缓冲</td><td>若干 GB</td><td>all-gather / reduce-scatter 需要临时区</td></tr><tr><td>吞吐目标</td><td>倍数关系</td><td>卡越多、每卡算得越少、越容易把通信藏起来</td></tr><tr><td>长序列与大批量</td><td>线性增长</td><td>激活随序列长度与批大小线性上涨</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">所以"装得下"只是下限。真实配置常在<strong>数十张</strong>量级（估算/示意，无可核实的一手来源，需按具体配置实测）；本课算出来的 32 张是<strong>下限</strong>，真实配置由余量与吞吐目标决定。这也解释了为什么同一个模型，不同团队的"需要几张卡"能差一倍——他们报的是下限、推荐值、还是实测配置。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>把三张卡片的结论串起来就是一条完整的账：<strong>① ZeRO-1/2 因为要留完整权重，永远装不进 80 GB，只有 ZeRO-3 可行；② 激活必须靠重算压到 10 GB 量级，否则永远超标；③ 两者的组合给出了明确的下限——32 张。</strong>算账的价值正在这里：它把"要几张卡"从一个经验数字，变成一句可以逐项复核的乘法与除法。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','14-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','14-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-14-6" class="llm-section"><button class="llm-btn" onclick="startChat('14-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="14-6"><div class="chat-toolbar"><button onclick="copyChat('14-6')">📋 复制对话</button><button onclick="clearChat('14-6')">🗑 清空</button><button onclick="stopLLM('14-6')" id="stop-btn-14-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('14-6')" id="regen-btn-14-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="14-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对卡数估算有疑问？比如"如果换成 40 GB 卡呢？""为什么不能靠 offload 解决？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="14-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('14-6')}" rows="1" placeholder="例如：如果序列是 8K，最少要几张卡？"></textarea><button onclick="sendLLM('14-6')">发送</button></div></div></div>
+      <div id="tab-qna-14-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('14-6')">🔄 换一批</button></div><div class="qna-list" data-qna="14-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 14 课完成 · 下一课：第 15 课「KV Cache 与推理内存」</p>
+    <a href="#" onclick="switchLesson(15);return false;">进入第 15 课：KV Cache 与推理内存 →</a>　·　<a href="#" onclick="switchLesson(13);return false;">← 上一课：分布式训练</a>
+  </div></div>

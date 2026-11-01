@@ -1,0 +1,201 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 6 课：从 Transformer 到 LLM 全景图</h2>
+    <p class="subtitle">前五课我们把 Transformer 拆到了零件级：注意力、位置编码、归一化、Tokenization、逐层参数。现在把镜头拉远——从"一个 7B 模型"扩展到"整个 LLM 家族"，看清参数量级、训练三阶段、推理两阶段、开源与闭源的分岔，以及模型能力的硬边界。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清 7B / 70B / 405B / 671B(MoE，即把前馈网络拆成很多个专家、每个 token 只激活其中少数几个) 的参数量与激活参数差别，并估算显存门槛<br>② 画出 LLM 从随机权重到"能对话"的三阶段训练流程，标出每阶段的数据量与算力占比<br>③ 解释为什么首字要等、后续越吐越快，并判断一个模型"标称上下文"与"有效上下文"的差距</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：从"参数量级"到"能力边界与学习地图"；其中第 4 步为选型支链）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">要判断一个模型能不能跑在自己的机器上，<strong>必须先分清"总参数"与"每 token 激活参数"</strong>——dense 模型两者相等，MoE 模型可以差约 18 倍（671B ÷ 37B），<strong>因此</strong>显存看总参数、算力看激活参数。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">知道了规模，下一个问题是这些权重怎么来的——<strong>这就要求</strong>把训练拆成 <b class="rn-key">预训练</b>（学语言与世界知识）、<b class="rn-key">后训练</b>（SFT，即监督微调，教会模型听指令；DPO，即直接偏好优化，让模型对齐偏好）、长上下文扩展（把 token 窗口从 8K 撑到 128K）三段，<strong>于是</strong>才能解释"同一个基座为什么能变成不同助手"。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">模型训好了要跑起来，而推理不是一次前向——<strong>因此</strong>必须区分 prefill（一次并行处理整段提示，计算受限，决定首字延迟）与 decode（一次一个 token，带宽受限，决定吐字速度），<strong>否则</strong>会误以为"加显卡就能让首字更快"。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text"><strong>【支链 · 选型维度】</strong>前三步都在讲"模型本身"，但工程落地还要回答一个正交问题：这套推理成本由谁承担——<strong>于是</strong>出现 <b class="rn-key">开源权重</b>与 <b class="rn-key">闭源 API</b> 两条路：前者数据不出域、边际成本低但要自己运维，后者开箱即用但按 token 付费、数据要出域。<strong>这就要求</strong>按成本、延迟、合规三个维度做选型，而不是比"谁分数高"。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">选完模型还要知道它会在哪里翻车——<strong>因为</strong> <b class="rn-key">幻觉</b>、长上下文失稳、多步推理衰减、无法自校验都是<strong>结构性</strong>限制而非待修的 bug，<strong>因此</strong>必须用检索（把外部真值片段作为 token 注入上下文）、工具调用、验证层去补，而不是靠"换个更好的提示词"。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">把上面五步的结论收成一张地图：<strong>于是</strong>第一部分（认知衔接）到此闭环，接下来第二部分学 <b class="rn-key">预训练</b>（在万亿级 <b class="rn-key">token</b> 上做 next-token prediction）与对齐、第三部分学推理部署、第四部分学 Agent 工程——每一步都建立在本课这张全景图上。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">Scaling</span><span class="meta-tag">MoE</span><span class="meta-tag">Pre-training</span><span class="meta-tag">Post-training</span><span class="meta-tag">Prefill/Decode</span><span class="meta-tag">Open vs Closed</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="6-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">同样是 Transformer，为什么参数量能从 1 亿跨到 2.78 万亿？</div><div class="card-q-hint">提示：先分清两个数——"总参数"和"每个 token 真正参与计算的参数"。想清楚这两个数在 dense 模型和 MoE 模型里是不是同一个数，答案就出来了。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>参数量级</strong>是 LLM 的第一张名片：Llama 3.1 提供 8B / 70B / 405B 三档 dense 模型（Meta, 2024）；DeepSeek-R1 是 671B 总参数、每 token 激活 37B 的 MoE 模型；2026 年的旗舰已进入万亿级——Kimi K3 为 2.78T 总参数、每 token 激活约 104B（约 3.7%）。<strong>MoE（Mixture-of-Experts，混合专家）</strong>把 FFN 拆成很多个"专家"，每个 token 只路由到其中少数几个，于是"总参数"与"激活参数"解耦。</div>
+      <div class="content-section"><p>上一课我们逐层解剖了一个 7B 模型，把 6.74B 参数拆到了每一层。现在把镜头拉远：同样是 Transformer，为什么有的模型只有 1 亿参数，有的能到 2.78 万亿？<strong>因为</strong>决定"大小"的从来不是一个数——<strong>因此</strong>必须先分清两个口径，否则连"这个模型能不能跑在我的机器上"都答不出来。</p><p>关键在一个反直觉的事实：<strong>模型的"大小"有两个口径</strong>。可以把 MoE 模型<strong>类比</strong>成一家有 896 位专科医生的大医院——挂号时只叫其中 16 位进诊室，但医院里所有医生的编制都得占地方。这就是"总参数"（编制）与"激活参数"（进诊室的人）的区别。</p><p><strong>为什么要费劲做这种稀疏结构？</strong>因为稠密模型每 token 都要把全部参数算一遍：同样 671B 参数的稠密模型，单 token 前向约 2 × 671e9 = <strong>1.34 TFLOPs</strong>，而 MoE 只激活 37B（约 74 GFLOPs）——差约 <strong>18 倍</strong>。MoE 正是用「多存参数、少算参数」把大模型的推理算力压下来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 参数量级账：总参数 vs 每 token 激活参数</div>
+        <div class="step"><div class="step-title">Step 1：四代模型的规模对照</div>
+          <table><tr><th>模型</th><th>架构</th><th>总参数</th><th>每 token 激活</th><th>激活占比</th></tr><tr><td>Llama 2 7B</td><td>Dense</td><td>6.74B</td><td>6.74B</td><td>100%</td></tr><tr><td>Llama 3.1 70B</td><td>Dense</td><td>70B</td><td>70B</td><td>100%</td></tr><tr><td>Llama 3.1 405B</td><td>Dense</td><td>405B</td><td>405B</td><td>100%</td></tr><tr><td>DeepSeek-R1</td><td>MoE</td><td>671B</td><td>37B</td><td>5.5%</td></tr><tr><td>Kimi K3</td><td>MoE</td><td>2.78T</td><td>≈104B</td><td>3.7%</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">dense 模型两个口径相等；MoE 模型每 token 只激活 3.7%~5.5% 的参数。激活占比 = 激活参数 ÷ 总参数。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：为什么 MoE 能"用 3.7% 的参数干活"</div>
+          <table><tr><th>层</th><th>Dense 模型</th><th>MoE 模型（以 Kimi K3 为例）</th></tr><tr><td>Attention</td><td>每层一份，全部参与</td><td>每层一份，全部参与（不稀疏）</td></tr><tr><td>FFN</td><td>每层 1 个，全部参与</td><td>每层 896 个专家，路由选 16 个</td></tr><tr><td>每 token 计算量</td><td>正比于总参数</td><td>正比于激活参数（≈ 总参数的 3.7%）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">MoE 只稀疏化 FFN（占参数大头），Attention 与归一化仍是稠密的——这就是为什么"激活参数"不会低到 1% 以下。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：显存门槛——总参数决定能不能装下</div>
+          <table><tr><th>模型</th><th>fp16 权重</th><th>4-bit 量化权重</th><th>消费级显卡能否单卡跑</th></tr><tr><td>7B</td><td>≈14 GB</td><td>≈4.0 GB</td><td>能（8GB 显存起）</td></tr><tr><td>70B</td><td>≈140 GB</td><td>≈43 GB</td><td>不能（需 2×24GB 或 A6000）</td></tr><tr><td>671B (MoE)</td><td>≈1.3 TB</td><td>≈404 GB</td><td>不能（服务器级，约 8×H100-80GB）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">权重显存 ≈ 参数量 × 每参数字节数（fp16 = 2 字节；4-bit 按 Q4_K_M 实测口径 ≈ 0.6 字节，含量化元数据开销，故高于理论值 0.5——如 7B 的 6.74B 参数 × 0.6 ≈ 4.0 GB，实测值见 TheBloke 的 GGUF 量化表）。<strong>注意：显存看总参数，算力看激活参数</strong>——MoE 省的是算力，不是显存。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>MoE 把"总参数"与"激活参数"解耦：<strong>总参数决定显存门槛，激活参数决定每 token 的算力成本</strong>。所以 671B 的 MoE 模型推理算力可能接近一个 37B dense 模型，但显存需求仍是 671B 级别——这就是为什么"MoE 让大模型变便宜了"这句话只对了一半。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','6-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','6-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-6-1" class="llm-section"><button class="llm-btn" onclick="startChat('6-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="6-1"><div class="chat-toolbar"><button onclick="copyChat('6-1')">📋 复制对话</button><button onclick="clearChat('6-1')">🗑 清空</button><button onclick="stopLLM('6-1')" id="stop-btn-6-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('6-1')" id="regen-btn-6-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="6-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对参数量级有疑问？比如"MoE 的路由是怎么选的？""为什么 Attention 不做稀疏？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="6-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('6-1')}" rows="1" placeholder="例如：MoE 模型推理时，专家权重也要全部加载到显存吗？"></textarea><button onclick="sendLLM('6-1')">发送</button></div></div></div>
+      <div id="tab-qna-6-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('6-1')">🔄 换一批</button></div><div class="qna-list" data-qna="6-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="6-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">为什么一个只会"预测下一个词"的基座，必须再训一遍才能听懂指令？</div><div class="card-q-hint">提示：先想"会预测下一个词"和"会听指令"是不是同一件事。如果不是，那中间必然有一步把前者变成后者——那一步用什么数据、花多少算力？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Llama 3 的训练分两大阶段</strong>（Meta, 2024）：① <strong>预训练</strong>——在约 15.6T 多语言 token 上做下一个词预测，旗舰模型用了 3.8×10²⁵ FLOPs、最多 16K 张 H100；② <strong>后训练</strong>——用 SFT（监督微调）+ RS（拒绝采样）+ DPO（直接偏好优化）把基座变成助手，而不是用更复杂的 RLHF（靠人给模型的回答打分、再用强化学习调整模型）。此外还有一次<strong>长上下文继续预训练</strong>，把窗口从 8K 扩到 128K。</div>
+      <div class="content-section"><p>上一张卡片我们看清了模型的规模。但规模只是"容量"，一个刚预训练完的模型只会做一件事：<strong>预测下一个词</strong>。它不会听指令、不会拒绝有害请求、也不会按格式输出——<strong>因为</strong>它的训练目标里根本没有"回答用户"这一项，<strong>所以</strong>必须再训一遍。</p><p>把这三段训练<strong>类比</strong>成培养一名医生：预训练是读完整个医学院（海量知识），后训练是规培（学会按规范问诊、写病历），长上下文扩展是进修（能一次看完一整套病历）。</p><p>这一步的必要性有一个经典反例：OpenAI 的 InstructGPT 工作中，13 亿参数的 1.3B 模型经后训练后，其回答被人类标注员偏好的比例<strong>超过了 1750 亿参数的 GPT-3 基座</strong>——参数量差 100 倍以上，赢的却是「听得懂指令」这一项（Ouyang et al., 2022, arXiv:2203.02155）。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 三阶段训练账：数据量、算力与产出</div>
+        <div class="step"><div class="step-title">Step 1：三阶段对照表</div>
+          <table><tr><th>阶段</th><th>目标</th><th>数据量</th><th>算力占比（量级）</th><th>产出</th></tr><tr><td>① 预训练</td><td>学语言结构与世界知识</td><td>≈15.6T token</td><td>≈99%</td><td>基座模型（Base）</td></tr><tr><td>② 后训练</td><td>学会听指令、对齐偏好</td><td>百万级指令样本</td><td>&lt;1%</td><td>对话模型（Instruct）</td></tr><tr><td>③ 长上下文扩展</td><td>把窗口从 8K 撑到 128K</td><td>长文档语料</td><td>&lt;1%</td><td>长上下文模型</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算力占比是量级估计：预训练用 3.8×10²⁵ FLOPs，后训练与长上下文扩展各只占其中很小一部分——但正是这不到 1% 决定了模型"好不好用"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：预训练的算力账——3.8×10²⁵ FLOPs 是什么概念</div>
+          <table><tr><th>项目</th><th>数值</th><th>说明</th></tr><tr><td>训练 FLOPs</td><td>3.8 × 10²⁵</td><td>约为 Llama 2 最大版本的 50 倍</td></tr><tr><td>训练 token</td><td>15.6T</td><td>约为 Llama 2（2T token，Meta 官方口径）的 7.8 倍（Llama 3 论文曾按 1.8T 自述）</td></tr><tr><td>GPU 规模</td><td>最多 16K 张 H100</td><td>单集群，约两个月完成</td></tr><tr><td>经验公式</td><td>C ≈ 6 × N × D</td><td>N=参数量，D=token 数；系数 6 = 前向 2 + 反向 4</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">用经验公式粗算：6 × 405B × 15.6T ≈ 3.8×10²⁵ FLOPs，与官方公布值吻合——这说明"训练算力 ≈ 6 × 参数量 × token 数"是可以自己推的。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：后训练为什么"便宜但关键"</div>
+          <table><tr><th>方法</th><th>需要什么数据</th><th>解决什么</th></tr><tr><td>SFT（监督微调）</td><td>指令-回答对</td><td>让模型学会"按指令回答"的格式与风格</td></tr><tr><td>RS（拒绝采样）</td><td>模型自采样 + 筛选</td><td>用"答得好的样本"再训一轮，提升质量</td></tr><tr><td>DPO（直接偏好优化）</td><td>偏好对（好答案 / 差答案）</td><td>不用单独训 Reward Model，直接优化偏好</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">Llama 3 选择 SFT + RS + DPO 而非 PPO 类 RLHF，理由是<strong>训练更稳定、更易复现</strong>——这是工程取舍，不是能力取舍。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>预训练决定模型的<strong>能力上限</strong>（知道多少、能推多深），后训练决定模型的<strong>可用性</strong>（听不听话、格式对不对、安全不安全）。<strong>同一个基座 + 不同后训练 = 完全不同的产品</strong>——这就是为什么开源社区能基于同一个 Llama 基座做出几百个风格迥异的助手。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','6-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','6-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-6-2" class="llm-section"><button class="llm-btn" onclick="startChat('6-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="6-2"><div class="chat-toolbar"><button onclick="copyChat('6-2')">📋 复制对话</button><button onclick="clearChat('6-2')">🗑 清空</button><button onclick="stopLLM('6-2')" id="stop-btn-6-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('6-2')" id="regen-btn-6-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="6-2"><div class="chat-role-label">AI 助教</div><div class="msg-content">👋 对训练三阶段有疑问？比如"为什么后训练只用不到 1% 的算力？""DPO 和 PPO 到底差在哪？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="6-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('6-2')}" rows="1" placeholder="例如：如果只做 SFT 不做 DPO，模型会差在哪？"></textarea><button onclick="sendLLM('6-2')">发送</button></div></div></div>
+      <div id="tab-qna-6-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('6-2')">🔄 换一批</button></div><div class="qna-list" data-qna="6-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="6-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">为什么同一个模型，首字要等两秒、后面却越吐越快？</div><div class="card-q-hint">提示：先想"处理 1000 个输入 token"和"生成 1 个输出 token"这两件事，哪个是算得多、哪个是搬数据多。瓶颈不同，优化手段就完全不同。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>推理被拆成两个阶段（NVIDIA, 2026）：<strong>Prefill</strong> 一次并行处理整段提示、填充 KV Cache（把已算过的键和值存下来复用），是<strong>计算受限</strong>（compute-bound），决定首字延迟 TTFT；<strong>Decode</strong> 一次只生成一个 token，每步都要把全部权重和不断增长的 KV Cache 从显存读一遍，是<strong>带宽受限</strong>（memory-bound），决定每 token 延迟 TPOT。判据是<strong>算术强度</strong>（Arithmetic Intensity = FLOPs ÷ 访问字节数）与硬件的 ridge point 之比。</div>
+      <div class="content-section"><p>上一张卡片讲完训练，现在模型要上线服务了。用户按下回车后，会经历两段体感完全不同的等待：<strong>首字延迟</strong>（等第一个字出来）和<strong>吐字速度</strong>（后面每个字多快）。<strong>因为</strong>这两段落在 GPU 性能曲线的两侧，<strong>所以</strong>优化手段完全相反——先判断瓶颈在哪一侧，再决定加什么。</p><p>这两段<strong>类比</strong>成餐厅出餐：prefill 是"一次性把整桌菜备齐"（后厨火力全开，比的是灶台功率），decode 是"一道一道端上桌"（比的是传菜通道有多宽，灶台反而闲着）。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 两阶段账：算术强度与瓶颈判定</div>
+        <div class="step"><div class="step-title">Step 1：两个阶段在做什么</div>
+          <table><tr><th>阶段</th><th>一次处理多少 token</th><th>瓶颈</th><th>决定什么指标</th></tr><tr><td>Prefill</td><td>整段提示（如 2048 个）</td><td>计算（Tensor Core 打满）</td><td>TTFT（首字延迟）</td></tr><tr><td>Decode</td><td>1 个（每步）</td><td>显存带宽（HBM 打满）</td><td>TPOT（每 token 延迟）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">两阶段用的是<strong>同一套权重</strong>，但落在 GPU roofline 的两侧——这就是"同一个模型两种瓶颈"的根源。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：算术强度——用数字判定瓶颈</div>
+          <table><tr><th>阶段</th><th>算术强度（FLOP/byte）</th><th>与 ridge point（≈295，以 H100 SXM 为例：989 TFLOPS ÷ 3.35 TB/s ≈ 295）比较</th><th>结论</th></tr><tr><td>Prefill</td><td>≈ 提示长度 S（如 S=2048 → ≈2048）</td><td>远高于 ridge</td><td>计算受限</td></tr><tr><td>Decode</td><td>≈ 批大小 B（B=1 → ≈1）</td><td>远低于 ridge</td><td>带宽受限</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术强度 = 总 FLOPs ÷ 总访问字节数。高于 ridge point 说明"算得比搬得快"，瓶颈在算力；低于则说明"搬得比算得慢"，瓶颈在带宽。prefill 一次处理 S 个 token，每读一次权重能算 S 次，故强度 ≈ S；decode 每步只出 B 个 token，故强度 ≈ B。两者在长提示下可差 3 个数量级。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：为什么"加显卡"救不了首字延迟</div>
+          <table><tr><th>TTFT 的组成部分</th><th>占比量级（二手/估算，随场景浮动、非同一时刻相加）</th><th>加显卡能改善吗</th></tr><tr><td>排队等待</td><td>常为首要项</td><td>否（要靠调度与扩容策略）</td></tr><tr><td>KV Cache 传输（PD 分离时）</td><td>PD 分离时可居首</td><td>否（受互联带宽限制）</td></tr><tr><td>Prefill 计算本身</td><td>约 2%~23%（二手，需人工核实）</td><td>是（但只影响这一小块）</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">这是最反直觉的一条：<strong>首字延迟的大头往往不是算得慢，而是排队和搬 KV Cache</strong>。所以优化 TTFT 的第一手段是调度与架构（如 PD 分离、前缀缓存），而不是换更快的卡。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>推理优化的第一步永远是<strong>先判断瓶颈在哪一侧</strong>：decode 阶段 Tensor Core 利用率常常只有个位数百分比，显存带宽却已打满——此时加算力毫无用处，该做的是<strong>减少每步要搬的字节数</strong>（KV Cache 量化、GQA（把多个 Query 头分成几组、每组共享同一份 K/V）/MLA（把 K/V 压缩成一个更小的向量、用时再还原）、投机解码提高算术强度）。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','6-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','6-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-6-3" class="llm-section"><button class="llm-btn" onclick="startChat('6-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="6-3"><div class="chat-toolbar"><button onclick="copyChat('6-3')">📋 复制对话</button><button onclick="clearChat('6-3')">🗑 清空</button><button onclick="stopLLM('6-3')" id="stop-btn-6-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('6-3')" id="regen-btn-6-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="6-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对推理两阶段有疑问？比如"批大小为什么能提高 decode 效率？""投机解码是怎么提高算术强度的？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="6-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('6-3')}" rows="1" placeholder="例如：为什么 decode 阶段 GPU 利用率这么低？"></textarea><button onclick="sendLLM('6-3')">发送</button></div></div></div>
+      <div id="tab-qna-6-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('6-3')">🔄 换一批</button></div><div class="qna-list" data-qna="6-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="6-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">开源权重和闭源 API，到底差在哪、该怎么选？</div><div class="card-q-hint">提示：别只比"谁分数高"。先列出三个约束——数据能不能出域、长期调用成本、团队有没有 GPU 运维能力。三个约束一摆，答案往往就唯一了。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>两条路线各有代表：<strong>闭源 API</strong>（GPT / Claude / Gemini 系列）只提供接口，厂商负责权重迭代与集群运维，按 token 计费；<strong>开源权重</strong>（Llama / Qwen / DeepSeek 系列）可下载权重部署在内网，数据不出域、可自主微调，但需要自己承担 GPU 与运维。2026 年的现实是：开源旗舰在多数任务上已接近闭源旗舰，差距主要体现在<strong>最难的那一档推理与多模态</strong>上。</div>
+      <div class="content-section"><p>上一张卡片我们看到自托管有显存与带宽门槛。于是选型问题就来了：到底该调 API，还是自己部署？</p><p>这不是"技术先进 vs 落后"的问题，而是<strong>约束匹配</strong>问题——<strong>类比</strong>成出行：API 像打车（随叫随到、按里程付费、车不是你的），自托管像买车（前期投入大、但跑得越多越划算、且完全由你掌控）。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 选型账：成本、延迟、合规三维对照</div>
+        <div class="step"><div class="step-title">Step 1：三维对照表</div>
+          <table><tr><th>维度</th><th>闭源 API</th><th>开源权重自托管</th></tr><tr><td>数据合规</td><td>数据需出域到厂商</td><td>数据不出内网</td></tr><tr><td>成本结构</td><td>按 token 计费，随调用量线性增长</td><td>前期 GPU 投入 + 运维人力，边际成本低</td></tr><tr><td>能力上限</td><td>通常是最强档（尤其复杂推理、多模态）</td><td>接近但一般略低，可自主微调补齐垂直场景</td></tr><tr><td>迭代速度</td><td>厂商升级，你自动受益</td><td>自己决定何时升级、升到哪版</td></tr><tr><td>运维门槛</td><td>几乎为零</td><td>需要 GPU 运维、推理优化、监控能力</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：自托管的显存门槛（决定"能不能跑"）</div>
+          <table><tr><th>模型规模</th><th>4-bit 权重</th><th>最低可用硬件</th><th>典型场景</th></tr><tr><td>7B~8B</td><td>≈4.0~4.8 GB</td><td>单张 8GB 消费卡</td><td>个人实验、轻量客服</td></tr><tr><td>32B</td><td>≈20 GB</td><td>单张 24GB（3090/4090）</td><td>垂直领域微调、私有知识库</td></tr><tr><td>70B</td><td>≈43 GB</td><td>2×24GB 或 A6000</td><td>企业级私有部署</td></tr><tr><td>671B (MoE)</td><td>≈404 GB</td><td>约 8×H100-80GB</td><td>前沿能力私有化</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">注意：这只是<strong>权重</strong>占用，实际还要加上 KV Cache 与运行时开销，通常再留 20%~40% 余量。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：决策规则（按约束排序，而不是按分数）</div>
+          <table><tr><th>你的约束</th><th>优先选择</th><th>理由</th></tr><tr><td>数据不能出域 / 强合规</td><td>开源自托管</td><td>API 路线直接不满足硬约束</td></tr><tr><td>调用量小、要快速验证</td><td>闭源 API</td><td>零运维、零前期投入</td></tr><tr><td>长期高并发、成本敏感</td><td>开源自托管</td><td>边际成本低，规模越大越划算</td></tr><tr><td>需要最强复杂推理 / 多模态</td><td>闭源 API</td><td>能力上限通常更高</td></tr><tr><td>需要深度定制（垂直微调）</td><td>开源自托管</td><td>能拿到权重才能改</td></tr></table>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>选型的第一原则是<strong>先看硬约束，再看性价比</strong>：如果数据不能出域，那么"闭源 API 分数更高"这个论据根本不成立。反过来，如果只是做个原型验证，自建集群的运维成本会远超 API 账单。<strong>没有绝对更优的路线，只有约束匹配与否。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','6-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','6-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-6-4" class="llm-section"><button class="llm-btn" onclick="startChat('6-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="6-4"><div class="chat-toolbar"><button onclick="copyChat('6-4')">📋 复制对话</button><button onclick="clearChat('6-4')">🗑 清空</button><button onclick="stopLLM('6-4')" id="stop-btn-6-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('6-4')" id="regen-btn-6-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="6-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对选型有疑问？比如"混合方案怎么做？""自托管的真实成本怎么算？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="6-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('6-4')}" rows="1" placeholder="例如：日均 100 万次调用，自托管和 API 哪个便宜？"></textarea><button onclick="sendLLM('6-4')">发送</button></div></div></div>
+      <div id="tab-qna-6-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('6-4')">🔄 换一批</button></div><div class="qna-list" data-qna="6-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="6-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">模型"看起来很懂"，为什么还会一本正经地胡说？</div><div class="card-q-hint">提示：先想模型在做什么——它是在"查事实"还是在"预测下一个最像的词"。如果它没有查证能力，那"不知道"的时候它会怎么办？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>幻觉不是待修的 bug，而是<strong>训练目标的结构性后果</strong>：模型被训练成"预测下一个最可能的词"，而评测又奖励"猜"而不是"承认不知道"（Kalai et al., 2025）。关于"不知道时会不会编造"，目前只有 2026 年的<strong>第三方二手数据</strong>，且<strong>各来源口径不一致（需人工核实）</strong>：Artificial Analysis 的 AA-Omniscience 基准被聚合来源引作"Gemini 3 Pro 幻觉率约 88%、准确率约 55.9%，Gemini 3 Flash 约 91%"；另有开发者论坛贴记为"Gemini 2.5 Pro 约 88%、Gemini 3 Pro 准确率约 53%"。同一指标被挂到不同代际模型上、准确率也对不上，说明这些数字尚不可靠，只能当趋势看。此外还有多步推理衰减、无法自校验、无法区分"指令"与"被读的数据"等结构性限制。</div>
+      <div class="content-section"><p>上一张卡片我们选好了模型。但上线前必须知道它会在哪里翻车——否则第一次事故就会教你。</p><p>把模型<strong>类比</strong>成一位口才极好但从不查资料的专家：他讲得头头是道，但被问到不熟的领域时，他不会说"我不确定"，而是<strong>顺着话头编一个听起来最合理的答案</strong>——因为他的训练目标就是"说出最像正确答案的话"。</p><p>要压住这类编造，工程上常见的做法是 RAG（先去外部知识库检索相关材料、再让模型照着检索结果回答）与工具调用。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 边界账：八条结构性限制与对应数字</div>
+        <div class="step"><div class="step-title">Step 1：八条硬限制一览</div>
+          <table><tr><th>#</th><th>限制</th><th>根因</th><th>工程对策</th></tr><tr><td>1</td><td>知识截止</td><td>训练数据有时间边界</td><td>检索（RAG）注入最新信息</td></tr><tr><td>2</td><td>幻觉</td><td>目标是"生成最像的文本"，非"查证事实"</td><td>强制引用来源 + 输出校验</td></tr><tr><td>3</td><td>多步推理衰减</td><td>误差逐步累积</td><td>思维链 + 外部工具（代码执行）</td></tr><tr><td>4</td><td>上下文窗口上限</td><td>注意力成本随长度增长</td><td>分块 + 摘要 + 检索</td></tr><tr><td>5</td><td>无持久记忆</td><td>推理是无状态的</td><td>应用层存状态并注入</td></tr><tr><td>6</td><td>无法作用于现实</td><td>模型只能输出文本</td><td>工具调用 / 函数调用</td></tr><tr><td>7</td><td>训练数据偏见</td><td>语料本身有偏</td><td>领域上下文 + 人工审核</td></tr><tr><td>8</td><td>无法自校验</td><td>没有真值访问权</td><td>独立验证层 / 第二模型复核</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：幻觉的量化——"不知道"时会怎样</div>
+          <table><tr><th>来源口径（二手，需人工核实）</th><th>模型</th><th>幻觉率</th><th>准确率</th></tr><tr><td>Artificial Analysis 聚合</td><td>Gemini 3 Pro</td><td>≈88%</td><td>≈55.9%</td></tr><tr><td>Artificial Analysis 聚合</td><td>Gemini 3 Flash</td><td>≈91%</td><td>—</td></tr><tr><td>开发者论坛贴</td><td>Gemini 2.5 Pro</td><td>≈88%</td><td>—</td></tr><tr><td>开发者论坛贴</td><td>Gemini 3 Pro</td><td>—</td><td>≈53%</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">同一基准的"不知道时幻觉率"被两份二手来源挂到了不同代际模型上（88% 既被记为 2.5 Pro、也被记为 3 Pro），准确率也有 53% / 55.9% 两个口径——<strong>尚无一手来源、口径不一致，需人工核实</strong>。能确定的只是定性趋势：模型"知道很多"（准确率领先）与"不知道时几乎不承认"（幻觉率 88%~91%）<strong>并存</strong>，所以"分数高"不等于"可信"。<strong>不同代际模型不能直接横向比较。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：长上下文的"标称 vs 有效"</div>
+          <table><tr><th>口径</th><th>数值</th><th>说明</th></tr><tr><td>标称上下文</td><td>1,000,000 token</td><td>厂商宣传的窗口上限</td></tr><tr><td>换算成字符</td><td>≈300 万~400 万字符</td><td>按 1 token ≈ 3~4 字符（英文）换算</td></tr><tr><td>实测失稳点</td><td>≈30,000 字符</td><td>开发者实测开始失去连贯性（仅见论坛贴，二手，需人工核实）</td></tr><tr><td>差距</td><td>约 100 倍（2 个数量级）</td><td>"能装下"不等于"能用好"</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">结论：<strong>不要把标称窗口当作可用窗口</strong>。工程上应按实测有效范围设计分块与检索策略，而不是把 100 万 token 全塞进去。（注：失稳点以字符计、标称以 token 计，此处已统一换算到字符口径再比较。）</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>这八条限制<strong>没有一条能靠"换个更好的提示词"解决</strong>——它们是架构与训练目标带来的结构性后果。正确的做法是<strong>在系统层补</strong>：检索代替记忆、执行代替估算、验证代替信任、外部状态代替上下文内状态。<strong>这正是第四部分「Agent 工程」要解决的问题。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','6-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','6-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-6-5" class="llm-section"><button class="llm-btn" onclick="startChat('6-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="6-5"><div class="chat-toolbar"><button onclick="copyChat('6-5')">📋 复制对话</button><button onclick="clearChat('6-5')">🗑 清空</button><button onclick="stopLLM('6-5')" id="stop-btn-6-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('6-5')" id="regen-btn-6-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="6-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对模型边界有疑问？比如"怎么降低幻觉率？""为什么长上下文会失稳？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="6-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('6-5')}" rows="1" placeholder="例如：RAG 能完全消除幻觉吗？"></textarea><button onclick="sendLLM('6-5')">发送</button></div></div></div>
+      <div id="tab-qna-6-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('6-5')">🔄 换一批</button></div><div class="qna-list" data-qna="6-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="6-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">有哪些事，是这一代大模型真的做不到（而不是没给它条件）？——能不能列出一张清单？</div><div class="card-q-hint">提示：先分清「没给它条件」和「它天生做不到」。从最底层想起——它在什么单位上思考、一次能真正用上多长的上下文、知识从哪来、能不能动手。每个方向逼出一条。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>这些边界不是猜测，都有论文与实测支撑：<strong>字符级计数</strong>的失败被归因于 tokenizer（把文本切成 token 的组件，模型看不到字符本身）——「strawberry 里有几个 r」自 2024 年起被广泛讨论（Karpathy, 2024；arXiv:2410.14166）；<strong>中间遗忘</strong>由 Stanford 提出的 Lost in the Middle（即「迷失在中间」，Liu et al., 2023, arXiv:2307.03172）用 U 形曲线量化；<strong>知识截止</strong>来自训练数据被冻结，<strong>多步衰减</strong>来自误差的乘性累积，<strong>无法动手</strong>则来自模型只能输出文本这一事实。</div>
+      <div class="content-section"><p>上一张卡片我们看到模型会一本正经地胡说（幻觉）。但幻觉只是「看起来懂却不可信」的一种表现；把镜头再拉远一层，还有一批事是<strong>这一代大模型在原理上就做不到的</strong>——不是提示词没写好，也不是没喂数据，而是它的输入/输出形式、注意力机制、训练数据边界共同决定的。</p><p>打个比方：模型只认 token、没学过字符，也没长出手脚——读得再流利，也数不清一句话里有几个字母，更没法替你按下发送键。下面把这类事列成一张清单，并逐条标出「后面哪一课解决它」，它同时就是这一部分的学习地图。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 边界账：五条「真的做不到」与它们的去处</div>
+        <div class="step"><div class="step-title">Step 1：五条硬边界清单</div>
+          <table><tr><th>#</th><th>做不到的事</th><th>现象（可复现）</th><th>根因</th><th>去向（哪一课解决）</th></tr><tr><td>1</td><td>字符级计数与精确算术</td><td>让模型数 strawberry 里有几个 r，会常常出错</td><td>模型看到的是 token，不是字符</td><td>《工具调用》——把计数与算术外包给代码执行</td></tr><tr><td>2</td><td>长上下文的「中间遗忘」</td><td>关键信息放中段，回答质量明显下降</td><td>注意力对首尾有偏好（U 形曲线）</td><td>《记忆与 RAG 工程化》</td></tr><tr><td>3</td><td>知识停在训练截止日</td><td>不知道训练之后的事，也不知道你的私域文档</td><td>知识冻结在权重里，更新要重训</td><td>《记忆与 RAG 工程化》</td></tr><tr><td>4</td><td>多步推理累积误差</td><td>单步 95% 对，十步之后常常做不完</td><td>误差乘性累积，且不会自我纠正</td><td>《推理模型与 RLVR（用可验证奖励做强化学习）》《从 Prompt 到 Agent》</td></tr><tr><td>5</td><td>不能自己动手</td><td>不会真的发邮件、查数据库、下单</td><td>模型只输出文本，动作靠外部执行</td><td>《工具调用》</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">注意第 1 条与第 4 条的区别：第 1 条是「单位不对」——看不到字符；第 4 条是「步数太多」——误差累积。两条的缓解办法是同一个：把计算与执行交给外部代码，而不是让模型心算。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：多步推理的复利衰减</div>
+          <table><tr><th>步数</th><th>单步 95% 正确</th><th>单步 99% 正确</th><th>算式</th></tr><tr><td>1 步</td><td>0.950</td><td>0.990</td><td>——</td></tr><tr><td>5 步</td><td>≈0.774</td><td>≈0.951</td><td>0.95⁵</td></tr><tr><td>10 步</td><td><strong>≈0.599</strong></td><td>≈0.904</td><td>0.95¹⁰</td></tr><tr><td>20 步</td><td>≈0.359</td><td>≈0.818</td><td>0.95²⁰</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">综合正确率 ≈ 单步正确率<sup>步数</sup>。代入 0.95¹⁰ ≈ 0.599，即十步全对的概率不到六成——这就是「每一步都差不多对，整条链却常常错」的数学原因。让模型自己检查也救不了：检查本身也是一步，也会出错。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：长上下文的 U 形曲线（中间最弱）</div>
+          <table><tr><th>关键信息放的位置</th><th>模型用得怎么样</th><th>原因</th></tr><tr><td>开头（首因）</td><td>好</td><td>最先被注意到</td></tr><tr><td>中间</td><td><strong>最差</strong></td><td>被大量内容稀释，容易被跳过</td></tr><tr><td>结尾（近因）</td><td>好</td><td>离生成位置最近</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">Stanford 团队在 Lost in the Middle（即「迷失在中间」，Liu et al., 2023, arXiv:2307.03172）里做了受控实验：把答案所在的文档从开头挪到中间，准确率随之变化，画出一条两头高、中间低的 U 形曲线——开头与结尾附近最高，中间显著下降。原文图 1 给出的具体百分点随模型与文档数而变，此处只作定性描述，精确数值需核对原论文（人工核实）。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>这五条的共同点是：<strong>没有一条能靠「换个更好的提示词」解决</strong>。字符级问题要把计算外包给代码执行，知识截止要靠检索、记忆要靠外部存储，多步误差要靠推理模型与外部校验，动手能力要靠工具调用。<strong>所以这张卡既是「能力边界清单」，也是这一部分的学习地图</strong>——每条边界的正下方，都压着后面某一课。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','6-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','6-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-6-6" class="llm-section"><button class="llm-btn" onclick="startChat('6-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="6-6"><div class="chat-toolbar"><button onclick="copyChat('6-6')">📋 复制对话</button><button onclick="clearChat('6-6')">🗑 清空</button><button onclick="stopLLM('6-6')" id="stop-btn-6-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('6-6')" id="regen-btn-6-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="6-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对模型的能力边界有疑问？比如「为什么数不清 strawberry 里的 r？」「中间遗忘能不能靠提示词缓解？」<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="6-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('6-6')}" rows="1" placeholder="例如：为什么单步 95% 正确，十步后就只剩 60%？"></textarea><button onclick="sendLLM('6-6')">发送</button></div></div></div>
+      <div id="tab-qna-6-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('6-6')">🔄 换一批</button></div><div class="qna-list" data-qna="6-6"><div class="qna-item"><div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">1.</span><span class="q-text">为什么模型数不清 strawberry 里有几个 r？换个更大的模型能解决吗？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('6-6-0', this)" title="标记已学透"><span class="q-arrow">▾</span></div><div class="qna-item-a"><p>因为模型<strong>从来没见过「字符」这个单位</strong>。</p><table><tr><th>对象</th><th>数量 / 单位</th><th>说明</th></tr><tr><td>strawberry 的字母数</td><td>10 个字符</td><td>s-t-r-a-w-b-e-r-r-y</td></tr><tr><td>其中字母 r 的个数</td><td><strong>3 个</strong></td><td>第 3、8、9 个位置</td></tr><tr><td>模型实际拿到的</td><td>约 2~3 个 token</td><td>如「straw」+「berry」，看不见内部字母</td></tr></table><p>模型只能看到 token 的编号，看不到 token 内部的字母——所以它是「猜」有几个 r，而不是「数」。这属于<strong>单位不对</strong>的结构性问题，<strong>换更大的模型只能改善、不能根治</strong>：再大的模型也还是 token 输入。</p><p>可靠做法是<strong>把计数外包给代码执行</strong>（让模型写一行 <code>len([c for c in 'strawberry' if c=='r'])</code> 再运行），这正是《工具调用》要教的。顺带一个数字：同一个词，token 数（约 2~3）与字符数（10）并不相等——这也是按 token 计费时长度对不上的原因。</p><br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('6-6-0')">💡 咨询 AI</button></div></div><div class="qna-item"><div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">2.</span><span class="q-text">长上下文里「中间遗忘」到底有多严重？关键信息放中间会差多少？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('6-6-1', this)" title="标记已学透"><span class="q-arrow">▾</span></div><div class="qna-item-a"><p>用一个受控实验看：同一批文档，只把「含答案的那一篇」挪位置，其余不变。</p><table><tr><th>答案文档的位置</th><th>模型答对的相对水平</th><th>原因</th></tr><tr><td>开头（首因）</td><td>高</td><td>最先进入注意力</td></tr><tr><td>中间（第 5~15 篇附近）</td><td><strong>明显最低</strong></td><td>被前后大量内容稀释</td></tr><tr><td>结尾（近因）</td><td>高</td><td>离生成位置最近</td></tr></table><p>Stanford 的 <strong>Lost in the Middle</strong>（Liu et al., 2023, arXiv:2307.03172）正是用「20 篇文档、约 4K token」这个设定画出 U 形曲线的：两端高、中间低。原文图 1 的具体百分点随模型与文档数变化，这里只作定性描述，精确数值需核对原论文（人工核实）。</p><p>工程结论：<strong>不要以为「把资料全塞进上下文」等于「模型会用」</strong>。要么把关键信息放首尾，要么用检索只喂最相关的少数几篇——这就是《记忆与 RAG 工程化》要解决的。</p><br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('6-6-1')">💡 咨询 AI</button></div></div><div class="qna-item"><div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">3.</span><span class="q-text">既然知识停在训练截止日，那用微调把最新知识灌进去行不行？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('6-6-2', this)" title="标记已学透"><span class="q-arrow">▾</span></div><div class="qna-item-a"><p>可以，但通常不划算。要区分「补新知识」和「改行为」。</p><table><tr><th>需求</th><th>首选手段</th><th>原因</th><th>典型代价</th></tr><tr><td>补最新事实（新闻、价格）</td><td><strong>检索（RAG）</strong></td><td>改一次文档库即可，秒级生效</td><td>只改 1 份文档</td></tr><tr><td>补私域文档（内部手册）</td><td><strong>检索（RAG）</strong></td><td>数据不出域、可溯源</td><td>建 1 次索引</td></tr><tr><td>改风格 / 格式 / 语气</td><td>微调</td><td>这是行为，不是事实</td><td>需千级样本、重训数小时</td></tr><tr><td>灌入海量新知识</td><td>不推荐</td><td>微调易遗忘、难溯源、更新要重训</td><td>每次更新都要重跑</td></tr></table><p>一句话：<strong>知识用检索补（时效以分钟计），行为用微调改（周期以天计）</strong>。所以模型「不知道训练之后的事」并不致命——只要给它一个能实时更新的外部知识库，这就是《记忆与 RAG 工程化》的核心。</p><br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('6-6-2')">💡 咨询 AI</button></div></div><div class="qna-item"><div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">4.</span><span class="q-text">单步 95% 正确，为什么多步任务还是经常做不完？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('6-6-3', this)" title="标记已学透"><span class="q-arrow">▾</span></div><div class="qna-item-a"><p>因为误差是<strong>乘性累积</strong>的，不是加性的。</p><table><tr><th>步数</th><th>单步 95%</th><th>单步 99%</th></tr><tr><td>1 步</td><td>0.950</td><td>0.990</td></tr><tr><td>5 步</td><td>≈0.774</td><td>≈0.951</td></tr><tr><td>10 步</td><td><strong>≈0.599</strong></td><td>≈0.904</td></tr><tr><td>20 步</td><td>≈0.359</td><td>≈0.818</td></tr></table><p>算式：综合正确率 ≈ 单步正确率<sup>步数</sup>。0.95¹⁰ ≈ 0.599——十步之后只剩约 60%；即使单步高达 99%，十步后也只有约 90%。更麻烦的是，模型往往<strong>不会回头纠正</strong>已经出错的中间步骤，反而顺着错下去。</p><p>对策不是「让它再检查一遍」（检查本身也是一步），而是<strong>把每一步锚定到外部真值</strong>：用代码执行算、用检索查事实、用工具返回结果。这正是《推理模型与 RLVR》和《从 Prompt 到 Agent》的主题。</p><br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('6-6-3')">💡 咨询 AI</button></div></div><div class="qna-item"><div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))"><span class="q-num">5.</span><span class="q-text">模型既然不会「动手」，工具调用是怎么让它真正做事的？</span><input type="checkbox" class="q-check" onclick="event.stopPropagation(); toggleQnACheck('6-6-4', this)" title="标记已学透"><span class="q-arrow">▾</span></div><div class="qna-item-a"><p>关键：模型<strong>始终不执行动作</strong>，它只<strong>输出一段结构化指令</strong>，由你的程序去执行。</p><table><tr><th>步骤</th><th>谁做</th><th>做什么</th></tr><tr><td>1</td><td>你的程序</td><td>把工具清单（名字 + 参数格式）连同问题发给模型</td></tr><tr><td>2</td><td>模型</td><td>判断需要工具，输出 JSON：调用哪个函数、参数是什么</td></tr><tr><td>3</td><td>你的程序</td><td>真正执行（发邮件、查数据库…），拿到结果</td></tr><tr><td>4</td><td>模型</td><td>把结果组织成自然语言回答</td></tr></table><p>所以模型像一位<strong>只出主意、不动手的项目经理</strong>：它负责调度工具，执行权始终在你的代码手里。顺带一个性能数字：查 10 个城市的天气，串行调用要 10 轮对话（每轮约 2 秒）共约 20 秒，并行调用只需 1 轮约 2 秒——约 10 倍差距。</p><p>这既补上了「不能动手」这条边界，也带来新风险：模型分不清「指令」和「读到的数据」，这就是《工具调用》与 Agent 安全要处理的问题。</p><br><button class="qna-ask-btn" onclick="event.stopPropagation(); askAboutQnA('6-6-4')">💡 咨询 AI</button></div></div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 6 课完成 · 下一课：第 7 课「Scaling Laws 与算力预算」</p>
+    <a href="#" onclick="switchLesson(7);return false;">进入第 7 课：Scaling Laws 与算力预算 →</a>　·　<a href="#" onclick="switchLesson(5);return false;">← 上一课：逐层解剖一个模型</a>
+  </div></div>
