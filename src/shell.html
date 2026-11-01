@@ -1229,9 +1229,9 @@ const cardTopics = {
   1: '正在讲解：RNN为何被Self-Attention替代——RNN的串行处理、远距离遗忘、梯度消失三大问题。核心矛盾：需要一个能并行计算、且每个词可以直接看到任何其他词的机制。',
   2: '正在讲解：Self-Attention的QKV计算原理——Q×K^T得到注意力分数→÷√d_k缩放→Softmax归一化→加权求和V。用具体数字演示了完整的计算流程。',
   3: '正在讲解：Causal Mask——为什么生成文本时必须用下三角矩阵挡掉未来的token。以及为什么填-∞而不是0（因为e^(-∞)=0才能真正忽略）。这是Encoder和Decoder分道扬镳的关键。',
-  4: '正在讲解：Softmax 归一化与 ÷√d_k（Scaled Dot-Product Attention）——分数只表示"像不像"，要先按行归一成和为 1 的权重再对 V 加权求和；用第 2 张卡片"我"那一行：0.38/1.41=0.27、0.16/1.41=0.11 → softmax=[0.54,0.46] → 加权 V=[0.71,0.25]。不用 argmax 因为不可导；不除 √d_k 时 d_k=64 点积标准差约 8，softmax 趋于 one-hot、梯度趋零。',
+  4: '正在讲解：BERT（Encoder-only，双向注意力、MLM训练）vs GPT（Decoder-only，单向注意力、自回归训练）。BERT擅长理解任务，GPT擅长生成任务。',
   5: '正在讲解：Multi-Head Attention——为什么需要8个头（一个头只能捕捉一种关系模式，8个头能同时捕捉语法、语义、位置等多维关系）。每头分到d_model/h维，总计算量和单头一样。',
-  6: '正在讲解：自回归生成与 KV Cache——GPT从[BOS]开始逐token生成"我爱吃苹果"，每一步的输出拼回输入，直到EOS停止。前面 token 的 K/V 每步都要用且不变：不缓存时 K/V 投影总量 (1+2+3+4+5)d=15d，缓存后 5d，省 67%。KV Cache 能成立靠 Causal Mask（新 token 不改旧 token 的 K/V）；代价是显存：2×层数×head数×d_k×序列长×字节数，Llama 2 7B fp16 每 token 512 KiB、4096 token 2 GiB。'
+  6: '正在讲解：自回归生成——GPT从[BOS]开始逐token生成"我爱吃苹果"的完整流程。每一步的输出拼回输入生成下一个token，直到EOS停止。'
 };
 
 // ── Q&A Auto Generation (Hardcoded) ──
@@ -1789,9 +1789,9 @@ const allCardTopics = {
   1: '正在讲解：RNN为何被Self-Attention替代——RNN的串行处理、远距离遗忘、梯度消失三大问题。核心矛盾：需要一个能并行计算、且每个词可以直接看到任何其他词的机制。',
   2: '正在讲解：Self-Attention的QKV计算原理——Q×K^T得到注意力分数→÷√d_k缩放→Softmax归一化→加权求和V。用具体数字演示了完整的计算流程。',
   3: '正在讲解：Causal Mask——为什么生成文本时必须用下三角矩阵挡掉未来的token。以及为什么填-∞而不是0（因为e^(-∞)=0才能真正忽略）。这是Encoder和Decoder分道扬镳的关键。',
-  4: '正在讲解：Softmax 归一化与 ÷√d_k（Scaled Dot-Product Attention）——分数只表示"像不像"，要先按行归一成和为 1 的权重再对 V 加权求和；用第 2 张卡片"我"那一行：0.38/1.41=0.27、0.16/1.41=0.11 → softmax=[0.54,0.46] → 加权 V=[0.71,0.25]。不用 argmax 因为不可导；不除 √d_k 时 d_k=64 点积标准差约 8，softmax 趋于 one-hot、梯度趋零。',
+  4: '正在讲解：BERT（Encoder-only，双向注意力、MLM训练）vs GPT（Decoder-only，单向注意力、自回归训练）。BERT擅长理解任务，GPT擅长生成任务。',
   5: '正在讲解：Multi-Head Attention——为什么需要8个头（一个头只能捕捉一种关系模式，8个头能同时捕捉语法、语义、位置等多维关系）。每头分到d_model/h维，总计算量和单头一样。',
-  6: '正在讲解：自回归生成与 KV Cache——GPT从[BOS]开始逐token生成"我爱吃苹果"，每一步的输出拼回输入，直到EOS停止。前面 token 的 K/V 每步都要用且不变：不缓存时 K/V 投影总量 (1+2+3+4+5)d=15d，缓存后 5d，省 67%。KV Cache 能成立靠 Causal Mask（新 token 不改旧 token 的 K/V）；代价是显存：2×层数×head数×d_k×序列长×字节数，Llama 2 7B fp16 每 token 512 KiB、4096 token 2 GiB。'
+  6: '正在讲解：自回归生成——GPT从[BOS]开始逐token生成"我爱吃苹果"的完整流程。每一步的输出拼回输入生成下一个token，直到EOS停止。'
 },
   3: {
   "3-1": 'Sinusoidal 绝对位置编码的局限——用 sin/cos 为每个位置生成唯一向量加到词向量上，只能表达"绝对坐标"；点积里混入了词向量本身的内容，给不出稳定的"距离=2"信号，也无法外推到训练时没见过的长度。',
@@ -2103,7 +2103,7 @@ const allHardcodedQnA = {
     { q: 'temperature=0.7和temperature=0有什么区别？', a: '<table><tr><th>temperature</th><th>效果</th><th>原概率[0.7,0.2,0.1]</th></tr><tr><td>0（贪心）</td><td>永远选最高</td><td>[1.0, 0, 0]</td></tr><tr><td>0.7</td><td>适度多样</td><td>[0.81, 0.14, 0.05]</td></tr><tr><td>2.0</td><td>明显更平坦</td><td>[0.52, 0.28, 0.20]</td></tr></table><p>温度=先除logits再softmax。低温度让高峰更高（保守），高温度拉平分布（随机）。<strong>temperature=0等价于贪心解码</strong>。</p>' },
     { q: '生成过程中如果模型预测错了怎么办？', a: '<p><strong>自回归没有"纠错"机制</strong>——一旦选中一个 token 就成了历史，不能回头改。</p><div class="step-title">错误的累积效应（示意）</div><table><tr><th>步</th><th>本应选（概率）</th><th>实际选中（概率）</th><th>后续代价</th></tr><tr><td>3</td><td>吃（0.45）</td><td>买（0.30）</td><td>前缀已偏离</td></tr><tr><td>4</td><td>苹果（0.61）</td><td>菜（0.28）</td><td>在错误前缀上继续</td></tr><tr><td>5</td><td>EOS（0.52）</td><td>—（0.19）</td><td>整句语义崩坏</td></tr></table><p>上表概率为示意值：一旦第 3 步偏离，第 4、5 步都是"在错误前缀上做正确的预测"，错误会像滚雪球一样放大。</p><p>Beam Search同时保留多条候选路径（如beam=5）能<strong>缓解但无法根治</strong>。这也是一些研究者认为"自回归不是最终答案"的原因。</p>' },
     { q: '为什么LLM能生成和我们问题完全无关的内容（幻觉）？', a: '<table><tr><th>你的问题</th><th>模型"看到"的模式</th><th>生成结果</th><th>事实</th></tr><tr><td>秦始皇哪年发明蒸汽机</td><td>"XX发明YY于ZZ年"</td><td>"秦始皇发明蒸汽机于公元前200年"</td><td><strong>蒸汽机首台实用机由 Newcomen 造于 1712 年；瓦特 1769 年的贡献是分离冷凝器改良</strong></td></tr><tr><td>为什么月亮是绿色的</td><td>"XX是YY色的因为ZZ"</td><td>"月亮是绿色因为大气折射"</td><td><strong>月亮是灰色的</strong></td></tr></table><p>自回归本质：给定前缀"秦始皇"，续写概率最高的后续"发明"→"蒸汽机"→"于"→填空年份。每一步只看概率不看事实——<strong>它不验证，只续写</strong>。这就是幻觉根源。</p>' },
-    { q: 'KV Cache到底是什么，为什么能加速？', a: '<div class="step-title">KV Cache的工作原理</div><table><tr><th></th><th>不做Cache</th><th>做KV Cache</th></tr><tr><td>第t步计算</td><td>前t-1个token的K/V全重算</td><td>从Cache直接读</td></tr><tr><td>复杂度</td><td>O(t²)×d</td><td>O(t)×d（只算新token）</td></tr><tr><td>例子：100token</td><td>重算 Σ(1..100) = 100×101/2 = <strong>5050 次</strong>投影（与主卡 Σ 口径一致）</td><td>只算<strong>100次</strong>投影</td></tr></table><p>已生成token的K/V在后续步中不变（它们是该token本身的表示）。Q每步都不同（当前要生成的token在变），所以<strong>只存K/V，不存Q</strong>。代价是显存：1000 token × 4KB × 32 层 = 131,072,000 字节 ≈ <strong>125MB</strong> KV Cache（4KB 为二进制口径，即每个 token 每层 K+V 用 4096 字节，按 d_model=512、fp32 计）——花约 125MB 显存可省掉约 <strong>98%</strong>（1 − 100/5050）的重复计算，LLM推理最重要的优化。</p>' },
+    { q: 'KV Cache到底是什么，为什么能加速？', a: '<div class="step-title">KV Cache的工作原理</div><table><tr><th></th><th>不做Cache</th><th>做KV Cache</th></tr><tr><td>第t步计算</td><td>前t-1个token的K/V全重算</td><td>从Cache直接读</td></tr><tr><td>复杂度</td><td>O(t²)×d</td><td>O(t)×d（只算新token）</td></tr><tr><td>例子：100token</td><td>重算 Σ(1..100) = 100×101/2 = <strong>5050 次</strong>投影（与主卡 Σ 口径一致）</td><td>只算<strong>100次</strong>投影</td></tr></table><p>已生成token的K/V在后续步中不变（它们是该token本身的表示）。Q每步都不同（当前要生成的token在变），所以<strong>只存K/V，不存Q</strong>。代价是显存：1000 token × 4KB × 32 层 = 131,072,000 字节 ≈ <strong>125MB</strong> KV Cache（4KB 为二进制口径，即每个 token 每层 K+V 用 4096 字节，按 d_model=512、fp32 计）——花 128MB 显存可省掉约 <strong>98%</strong>（1 − 100/5050）的重复计算，LLM推理最重要的优化。</p>' },
   ]
 },
   3: {

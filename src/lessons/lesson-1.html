@@ -35,12 +35,12 @@
         <div class="roadmap-arrow">↓</div>
         <div class="roadmap-node">
           <span class="rn-num">5</span>
-          <span class="rn-text"><strong>Multi-Head：一个头不够用</strong> — 上一张卡片的输出只有一组 attention 权重，表达不了"苹果-甜"（属性）与"苹果-买"（动作）等多种关系，于是并行开 h 个 head、各自独立投影，结果是 <b class="rn-key">每个 head 一组 K/V</b></span>
+          <span class="rn-text"><strong>Multi-Head：一个头不够用</strong> — 上一张卡片的输出只有一组 attention 权重，表达不了"苹果-甜"（属性）与"苹果-买"（动作）等多种关系，于是并行开 h 个 head、各自独立投影，每头一组 <b class="rn-key">每个 head 一组 K/V</b></span>
         </div>
         <div class="roadmap-arrow">↓</div>
         <div class="roadmap-node">
           <span class="rn-num">6</span>
-          <span class="rn-text"><strong>KV Cache：生成时别重算</strong> — 解码每一步都要用到前面所有 token、每个 head 的 K/V，于是把它们存下来复用；代价是显存：KV Cache 大小 = 2 × 层数 × head 数 × d_k × 序列长 × 每个数的字节数</span>
+          <span class="rn-text"><strong>KV Cache：生成时别重算</strong> — 每个 head 一组 K/V，所以在解码时都要复用；KV Cache 大小 = 2 × 层数 × head 数 × d_k × 序列长</span>
         </div>
       </div>
     </div>
@@ -49,10 +49,9 @@
       <span class="meta-tag">Self-Attention</span>
       <span class="meta-tag">Q×K^T</span>
       <span class="meta-tag">Causal Mask</span>
-      <span class="meta-tag">BERT vs GPT</span>
-      <span class="meta-tag">Softmax ÷√d_k</span>
-      <span class="meta-tag">Multi-Head</span>
-      <span class="meta-tag">KV Cache</span>
+      <span class="meta-tag">Encoder vs Decoder</span>
+      <span class="meta-tag">BERT</span>
+      <span class="meta-tag">GPT</span>
     </div>
   </div>
 
@@ -230,7 +229,7 @@
     <div class="card-q" onclick="toggleCard(this)">
       <div class="card-num">3</div>
       <div class="card-q-content">
-        <div class="card-q-text">生成时不允许看后面的词，这个限制该加在注意力计算的哪一步？</div>
+        <div class="card-q-text">生成时不允许看后面的词，这个限制加在哪一层最自然？</div>
         <div class="card-q-hint">提示：限制的对象是刚算出的那张分数矩阵</div>
       </div>
       <span class="card-arrow">▾</span>
@@ -242,7 +241,7 @@
         <p>上一张卡片算出了一张 n×n 的<b>分数矩阵</b>（attention 分数）。但生成有个前提：模型从左往右吐词，生成"我"的时候"爱"还不存在。所以矩阵里"列号大于行号"的格子（<b>上三角</b>）必须作废——填成 -∞，Softmax 之后自然是 0。</p>
         <p>这就像<b>闭卷考试</b>：练习时若允许翻书（看到未来），上考场却只能凭记忆，成绩必然崩，所以练习就得按考场规则来。</p>
         <p>训练一个"理解"任务时，双向注意力没问题——"苹果很甜"中，"甜"确认了"苹果"是水果。</p>
-        <p>但<strong>生成</strong>时完全不同。如果训练时允许模型"偷看"未来 token，它上线做生成任务时会彻底蒙圈——真实世界里未来 token 就是不可用的。</p>
+        <p>但<strong>生成</strong>时完全不同。模型从左往右逐 token 生成，生成"我"的时候，"爱"还不存在。如果在训练时允许模型"偷看"未来 token，那它上线做生成任务时会彻底蒙圈——因为真实世界里未来 token 就是不可用的。</p>
       </div>
       <div class="calc-block">
         <div class="label">🧮 Causal Mask 怎么加的？</div>
@@ -329,15 +328,23 @@
       <input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完">
     </div>
     <div class="card-a">
-      <div class="card-bg"><div class="bg-label">知识背景</div>原论文把这一步命名为 <strong>Scaled Dot-Product Attention</strong>（Vaswani et al., 2017）：Attention(Q, K, V) = softmax(QK<sup>T</sup> / √d_k) · V。论文给出除以 √d_k 的理由：d_k 较大时点积量级过大，会把 softmax 推进梯度极小的区域。</div>
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>BERT</strong> = Bidirectional Encoder Representations from Transformers（Devlin et al., Google, 2018）——双向 Encoder，MLM 训练，擅长理解任务。<strong>GPT</strong> = Generative Pre-trained Transformer（Radford et al., OpenAI, 2018）——单向 Decoder，自回归训练，擅长生成任务。源于同一篇 Transformer 论文（2017），走向了两条路线。GPT 系列统治对话 AI，BERT 系列（RoBERTa/DeBERTa）统治 NLU 基准。</div>
 <div class="content-section">
         <p>上一张卡片用 mask 把分数矩阵的<b>可见范围</b>限成了左下三角。但这些数字只表示"像不像"——要真的把内容搬过来，还需要 V，并按分数做加权求和。</p>
         <p>加权之前必须先归一化：每一行除以自己那行的总和，让权重加起来是 1。这里只能选 softmax——<b>argmax</b> 虽然也能"选一个"，但它不可导，梯度传不回去。</p>
         <p>打个比方：分数矩阵像一张"兴趣打分表"，不能直接拿去分配信息——两个人合伙出资，不能按出资的绝对金额直接分账，得先按比例折成各自的份额；这个"把打分折成占比"的动作，在数学上就是 softmax 归一化。</p>
         <p>而一旦用了 softmax，新的麻烦就来了——这也是 ÷√d_k 存在的原因。</p>
       </div>
+      <table class="compare-table">
+        <tr><th></th><th>Encoder-only（BERT）</th><th>Decoder-only（GPT）</th></tr>
+        <tr><td><strong>注意力</strong></td><td>双向（看全部）</td><td>单向（←只看左边）</td></tr>
+        <tr><td><strong>训练目标</strong></td><td>MLM：随机遮15%的词，猜被遮住的是什么</td><td>自回归：预测下一个词</td></tr>
+        <tr><td><strong>擅长</strong></td><td class="winner">理解：分类、实体识别、语义匹配</td><td class="winner">生成：续写、翻译、对话、写代码</td></tr>
+        <tr><td><strong>典型规模</strong></td><td>110M-340M</td><td>175B-万亿级</td></tr>
+      </table>
+      
       <div class="calc-block">
-        <div class="label">🧮 接着第 2 张卡片"我"那一行的分数往下算（双向、未加 mask 的情形；若按第 3 张卡片加 Causal Mask，"我"只能看自己，权重为 1.0）</div>
+        <div class="label">🧮 接着上一张卡片的分数往下算</div>
         <div class="step"><div class="step-title">Step 1：先缩放，再归一化</div>
           <div class="step-desc">0.38 / 1.41 = <strong>0.27</strong>，0.16 / 1.41 = <strong>0.11</strong>（÷√d_k；此处 d_k = 2，√2 ≈ 1.41）</div>
           <div class="step-desc">Softmax(0.27, 0.11) = <strong>[0.54, 0.46]</strong> — 这一行两个权重，和为 1</div>
@@ -368,11 +375,11 @@
           <div class="chat-messages" data-chat="4">
             <div class="chat-msg assistant">
               <div class="role-label">AI 助教</div>
-              <div class="msg-content">👋 对 softmax 归一化或 ÷√d_k 有疑问？比如"softmax 和直接除以总和差在哪？""d_k 很小时还要除吗？"</div>
+              <div class="msg-content">👋 对 BERT vs GPT 的路线选择有疑问？比如"Encoder-Decoder（T5）为什么没有成为主流？"</div>
             </div>
           </div>
           <div class="chat-input-row">
-            <textarea placeholder="例如：如果不除 √d_k，d_k=64 时 softmax 会变成什么样？" data-input="4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM(4)}" rows="1"></textarea>
+            <textarea placeholder="例如：GPT 能做 Embedding 吗？如果可以，为什么还用 BERT？" data-input="4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM(4)}" rows="1"></textarea>
             <button onclick="sendLLM(4)">发送</button>
           </div>
         </div>
@@ -505,22 +512,22 @@
         <div class="step"><div class="step-title">第4步：输入=[BOS,"我","爱","吃"] → 选中<strong>"苹果"</strong></div></div>
         <div class="step"><div class="step-title">第5步：输入=[BOS,"我","爱","吃","苹果"] → 预测到 EOS → 停止</div>
           <div class="step-desc" style="color:var(--success);font-weight:600;">✅ 输出："我爱吃苹果"</div></div>
-        <table style="margin-top:12px;"><tr><th>步数</th><th>当前输入</th><th>预测</th><th>概率</th><th>K/V 投影量（不含 Cache）</th></tr>
+        <table style="margin-top:12px;"><tr><th>步数</th><th>当前输入</th><th>预测</th><th>概率</th><th>计算量 (不含Cache)</th></tr>
         <tr><td>1</td><td>[BOS]</td><td>我</td><td>0.32</td><td>1×d</td></tr>
         <tr><td>2</td><td>[BOS,我]</td><td>爱</td><td>0.41</td><td>2×d</td></tr>
         <tr><td>3</td><td>[BOS,我,爱]</td><td>吃</td><td>—</td><td>3×d</td></tr>
         <tr><td>4</td><td>[BOS,我,爱,吃]</td><td>苹果</td><td>—</td><td>4×d</td></tr>
         <tr><td>5</td><td>[BOS,…,苹果]</td><td>EOS</td><td>—</td><td>5×d</td></tr></table>
-        <div class="step-desc" style="margin-top:6px;color:var(--text-secondary);">设 d = 算一个 token 的 K/V 投影的代价。无 KV Cache 时每步把输入里所有 token 的 K/V 重算一遍，总量 = (1+2+3+4+5)×d = 15d；有 KV Cache 后每步只算新 token，总量 = 5d。<strong>Cache 省了 67% 的 K/V 投影。</strong>（该比例随序列变长而升高：100 步时约 98%，见本卡追问 5）</div>
+        <div class="step-desc" style="margin-top:6px;color:var(--text-secondary);">无 KV Cache 时总计算量 = (1+2+3+4+5)×d = 15d。有 KV Cache 后 = 5d（只算新 token）。<strong>Cache 省了 67% 计算。</strong>（该比例随序列变长而升高：100 步时约 98%，见本卡追问 5）</div>
       </div>
       <div class="content-section">
-        <p><strong>关键洞察：</strong>每一步输入越来越长，但前面 token 的 K、V 每步都一样，可以算一次就存下来——这就是 <b>KV Cache</b>。它就像一张<b>草稿纸</b>：算过的 Key、Value 抄在纸上，下一步只算新 token 的。</p>
-        <p>这张草稿纸为什么一直有效？靠的是第 3 张卡片的 <b>Causal Mask</b>。每个词只看自己和左边，后来的词不会改动前面词的 K、V，所以存下来的值不会过期。</p>
+        <p><strong>关键洞察：</strong>每一步输入越来越长，但有了 KV Cache（后面课时讲）——它就像一张<b>草稿纸</b>。前面 token 算过的 Key、Value 直接抄在纸上，下一步不用重算，只算新 token 的。</p>
+        <p>这就是 Causal Mask 必须存在的原因——每一步生成时，模型只能看到"已经出生"的 token，未来的还没出生。</p>
       </div>
       <div class="highlight-box">
-        <div class="label">🎯 KV Cache 的代价：用显存换计算</div>
-        <p>每个 token 在每一层、每个 head 都要存一份 K 和一份 V：KV Cache 大小 = 2 × 层数 × head 数 × d_k × 序列长 × 每个数的字节数。</p>
-        <p>以 Llama 2 7B 为例（32 层；第 5 张卡片给过它的 32 头、每头 128 维；fp16 每个数 2 字节）：每个 token 要 2×32×32×128×2 = 524,288 字节 = <strong>512 KiB</strong>；序列长 4096 时 = <strong>2 GiB</strong>。不存就得每步重算，存了就要占显存——这也是第 5 张卡片里 GQA 让多个 Q 头共享 K/V 的原因。</p>
+        <div class="label">🔗 连接你的推荐经验</div>
+        <p>BERT 做 Embedding = <strong>encode 一次，拿向量就用</strong>。GPT = 逐 token 生成。</p>
+        <p>但 GPT 也能做 Embedding——最朴素的做法是取最后一个 token 的 hidden state 作为整个序列的表示；而真正把 Decoder-only 改造成 Embedding 模型的 <strong>LLM2Vec、GTE-Qwen、NV-Embed</strong> 都各自做了额外改造（LLM2Vec 加双向注意力改造 + 池化，GTE-Qwen 走指令微调，NV-Embed 用 latent 池化——都不是单纯"取最后一个 token"）。（注意区分：E5 原始版基于 BERT 式双向编码器，BGE 基于 BERT 编码器 + CLS 池化，都不是 Decoder-only 取 last-token 的做法。）Decoder-only 正在"侵蚀"原本属于 BERT 的领地。</p>
       </div>
       <div class="tab-bar">
         <button class="tab-btn active" onclick="switchTab(this,'ai',6)">💡 自定义问答</button>
@@ -538,7 +545,7 @@
           <div class="chat-messages" data-chat="6">
             <div class="chat-msg assistant">
               <div class="role-label">AI 助教</div>
-              <div class="msg-content">👋 对自回归生成或 KV Cache 有疑问？比如"为什么只缓存 K/V、不缓存 Q？""采样和贪心解码有什么区别？"</div>
+              <div class="msg-content">👋 对自回归生成有疑问？比如"采样和贪心解码有什么区别？""temperature=0.7 和 temperature=0 的区别是什么？"</div>
             </div>
           </div>
           <div class="chat-input-row">
