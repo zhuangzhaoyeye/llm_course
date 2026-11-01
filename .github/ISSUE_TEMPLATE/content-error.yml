@@ -1,0 +1,25 @@
+name: 内容纠错
+description: 数字算错、论文归属或年份不对、版本过期、同一量在不同课口径不一致
+title: "[纠错] 第 N 课 第 M 张卡片："
+labels: ["content-error"]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: 位置
+      description: 例如"第 4 课第 2 张卡片，追问 3"
+    validations:
+      required: true
+  - type: textarea
+    id: quote
+    attributes:
+      label: 你认为不对的原文
+    validations:
+      required: true
+  - type: textarea
+    id: reason
+    attributes:
+      label: 理由或正确的说法
+      description: 最好附一手来源链接（论文、官方文档）或你的复算过程
+    validations:
+      required: true

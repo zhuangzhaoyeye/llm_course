@@ -3,7 +3,11 @@
 > 一套写给**传统算法工程师**的大模型课程：34 课，每课 6 张卡片，每张卡片从一个问题出发，用一组具体数字把机制从头算一遍。
 > 既是我自己的学习笔记，也想分享给同样要补大模型知识的人，**欢迎提意见**。
 
+> **English:** A 34-lesson Chinese LLM course for algorithm engineers (recsys → Transformer → training/inference engineering → Agents). Every mechanism is worked through by hand with concrete numbers. Single HTML page, no login.
+
 **在线阅读：<https://zhuangzhaoyeye.github.io/llm-course/>**（单页、免登录、手机可看）
+
+如果这套课对你有帮助，欢迎点右上角 **Star**，也欢迎 [提 Issue 纠错或反馈](../../issues/new/choose)。
 
 ![第 1 课 Self-Attention 计算走查](assets/preview.png)
 

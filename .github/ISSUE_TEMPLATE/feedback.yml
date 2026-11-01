@@ -1,0 +1,23 @@
+name: 学习反馈
+description: 读完某张卡片后推不出来、类比没帮上忙、推理链顺序想不通
+title: "[反馈] 第 N 课 第 M 张卡片："
+labels: ["feedback"]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: 位置
+      description: 例如"第 1 课第 3 张卡片"
+    validations:
+      required: true
+  - type: textarea
+    id: stuck
+    attributes:
+      label: 卡在了哪一步
+      description: 读完后能不能在白板上自己推一遍？推不下去的那一步是什么？
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: 你希望怎么改
