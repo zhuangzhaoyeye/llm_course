@@ -1,6 +1,6 @@
 {
   "_comment": "课程映射表。2026-10-04 起 id 与 display **恒等**（都等于学员看到的课号）——历史上 id 是引擎内部句柄、与课号分叉，两套编号曾导致错位与取不到数据。id 对应 data-lesson / switchLesson(n) / data-card 前缀 / tab-ai-id；title 一律用「领域短名」（不带副题），本课主线问题写在课内 .subtitle。",
-  "course": "从推荐算法到 AI Agent",
+  "course": "第一性原理大模型课程",
   "lessons": [
     {
       "id": 1,

@@ -460,7 +460,7 @@
       </div>
       <div class="highlight-box">
         <div class="label">🎯 头数多了，K/V 的存储成本也跟着涨——分组共享 K/V 怎么折中</div>
-        <p>每个 head 都要存一份 K/V，头数越多，生成时要缓存的 K/V 越大（下一张卡片会看到这笔账）。<strong>GQA</strong>（Grouped Query Attention，分组查询注意力）的做法是：保留全部 Q 头，但让每组 Q 头共享同一份 K/V。若 Q 头有 h 个、K/V 分成 g 组，缓存就降为原来的 <strong>g/h</strong>。GQA 论文报告：用 5% 的原训练算力把 MHA 检查点改成 GQA 后，质量接近 MHA，速度接近 MQA（Multi-Query Attention，只用 1 个 K/V 头）（Ainslie et al., 2023）。</p>
+        <p>每个 head 都要存一份 K/V，头数越多，生成时要缓存的 K/V 越大（下一张卡片会看到这笔账）。<strong>GQA</strong>（Grouped Query Attention，分组查询注意力）的做法是：保留全部 Q 头，但让每组 Q 头共享同一份 K/V。若 Q 头有 h 个、K/V 分成 g 组，缓存就降为原来的 <strong>g/h</strong>。GQA 论文（Ainslie et al., 2023）报告：已训练好的 MHA 模型，只花 5% 的原训练算力就能改成 GQA。改完后质量接近 MHA，速度接近 MQA（Multi-Query Attention，所有 Q 头只共用 1 组 K/V）。</p>
         <p>旁证是头确实有冗余：Voita 等人 2019 年在英俄翻译模型的 <strong>encoder</strong> 上剪头，48 个剪掉 38 个，BLEU（机器翻译标准评测指标，分数越高越好）只掉 0.15——但那是整个头被删掉，GQA 是保留所有 Q 头、只共享 K/V，二者机制不同，这里只能说"头冗余使共享成为可能"。Llama 2 70B 起、Llama 3 全系列及 Mistral、Qwen 采用 GQA；Llama 2 的 7B/13B 仍是 <strong>MHA</strong>（Multi-Head Attention，标准多头注意力）。</p>
       </div>
       <div class="tab-bar">

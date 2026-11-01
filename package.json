@@ -2,7 +2,7 @@
   "name": "llm-course",
   "version": "1.0.0",
   "private": true,
-  "description": "从推荐算法到 AI Agent — 课程工具链（构建 / 内容验证 / 渲染验证）",
+  "description": "第一性原理大模型课程 — 课程工具链（构建 / 内容验证 / 渲染验证）",
   "scripts": {
     "build": "python3 scripts/build.py",
     "build:check": "python3 scripts/build.py --check",
