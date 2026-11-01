@@ -196,4 +196,4 @@ npm install && npx playwright install chromium && node tools/verify.js   # 渲�
 
 ## 许可
 
-暂未指定许可证，默认保留所有权利。如需转载或二次使用，请先开 Issue 联系我。
+[MIT License](LICENSE)。可自由使用、修改、转载，保留版权声明即可。
