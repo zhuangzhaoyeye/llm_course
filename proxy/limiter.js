@@ -6,7 +6,7 @@ export const DEFAULTS = {
   PER_IP_PER_DAY: 20,
   GLOBAL_PER_DAY: 100,
   MODEL: 'deepseek-flash',
-  MAX_TOKENS: 1024,
+  MAX_TOKENS: 2048,
   MAX_BODY_BYTES: 32 * 1024,
   MAX_MESSAGES: 40,
   WEB_SEARCH: true,

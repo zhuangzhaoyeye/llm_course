@@ -58,8 +58,8 @@ alwaysApply: true
 | 鉴权（2026-11-03 起） | **前端不带任何 key**。DeepSeek key 只存在 Worker 的 secret（`DEEPSEEK_API_KEY`），由代理加到上游请求头 | GitHub Pages 的 JS 对每个访问者可见，仓库与产物中**不得**出现任何密钥；此前的「访问者自填 key、工具栏 🔑 按钮」方案已删除 |
 | `system` | 顶层参数，**不在 messages 里** | Anthropic 协议不接受 `role:'system'` 的消息；调用前从 history 抽出 |
 | `thinking` | `{ type: 'disabled' }`（**代理写死**，客户端传什么都被忽略） | 默认开启思考，reasoning 会吃光 `max_tokens` 导致 `content` 返回空 → 学员看到空白 |
-| `max_tokens` | 1024（代理环境变量 `MAX_TOKENS`，写死在服务端） | 控制单次费用；带联网搜索的回答可能偏长，若出现被截断需上调 |
-| `tools` | 由**代理注入** `[{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }]`；客户端传的 `tools` 一律丢弃；环境变量 `WEB_SEARCH=false` 可一键关闭 | 合法类型只有 `web_search_20250305` / `web_search_20260209`。搜索按成功次数计费（官方价 5 元/千次），`max_uses` 控制单次上限 |
+| `max_tokens` | 2048（代理环境变量 `MAX_TOKENS`，写死在服务端） | 控制单次费用。2026-11-03 由 1024 提到 2048：实测让助教分 4 节详细讲，两次都因 `stop_reason: max_tokens` 在约 1800 字处被截断 |
+| `tools` | 由**代理注入** `[{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }]`；客户端传的 `tools` 一律丢弃；环境变量 `WEB_SEARCH`：**2026-11-03 起线上为 `false`（关闭）**，开启时才注入 | 合法类型只有 `web_search_20250305` / `web_search_20260209`。搜索按成功次数计费（官方价 5 元/千次），`max_uses` 控制单次上限 |
 | CORS / 来源 | 代理只放行 `ALLOWED_ORIGINS` 里的来源（默认 `https://zhuangzhaoyeye.github.io`） | Origin 可被伪造，只能挡普通滥用；真正的保护是下面的限额 |
 | 限额 | 全站每天 100、每 IP 每天 20、每 IP 每分钟 5；UTC 零点（北京时间 8 点）重置 | 由 Durable Object 原子计数。DeepSeek 官方只限账号并发（flash 2500，与 key 无关），所以**新建专用 key 不能单独限流**，限额靠代理 |
 | 响应取值 | 前端只取 `content` 里**最后一个** `type:text` 块 | 联网时 content 形如 `[text开场白, server_tool_use, web_search_tool_result, text正式回答]`，全拼会把「我先联网核实一下」混进答案 |

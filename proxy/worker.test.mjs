@@ -57,7 +57,7 @@ test('上游收到的请求体：模型写死、思考关闭、搜索由服务�
   await worker.fetch(req({ body, ip: '1.2.3.4' }), makeEnv());
   const sent = JSON.parse(upstreamCalls[0].init.body);
   assert.equal(sent.model, 'deepseek-flash');
-  assert.equal(sent.max_tokens, 1024);
+  assert.equal(sent.max_tokens, 2048);
   assert.deepEqual(sent.thinking, { type: 'disabled' });
   assert.deepEqual(sent.tools, [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }]);
   assert.match(sent.metadata.user_id, /^[0-9a-f]{16}$/);

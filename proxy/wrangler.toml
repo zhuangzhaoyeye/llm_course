@@ -7,12 +7,12 @@ compatibility_date = "2026-10-01"
 ALLOWED_ORIGINS = "https://zhuangzhaoyeye.github.io"
 PER_IP_PER_MINUTE = "5"
 PER_IP_PER_DAY = "20"
-# 整站每天一共多少次（所有人加起来）。每次请求最多触发 2 次联网搜索，按每次 0.005 元估，搜索费上限约 100 × 2 × 0.005 = 1 元/天，另加 token 费。
+# 整站每天一共多少次（所有人加起来）。各 1 次实测（高峰价）：不联网约 0.0008 元（265 入/35 出，但那是不带卡片正文的短问题，是下限）；联网约 0.032 元（9795 入/315 出 + 2 次搜索），约 40 倍。真实使用带卡片正文，费用介于两者之间偏下。
 GLOBAL_PER_DAY = "100"
 # 联网搜索开关与单次最多搜索次数（搜索按成功次数计费，见 DeepSeek 价格页）
-WEB_SEARCH = "true"
+WEB_SEARCH = "false"
 WEB_SEARCH_MAX_USES = "2"
-MAX_TOKENS = "1024"
+MAX_TOKENS = "2048"
 
 # DEEPSEEK_API_KEY 不写在这里。部署时用: npx wrangler secret put DEEPSEEK_API_KEY
 # ID_SALT 同理（任意随机字符串，用来给 IP 哈希加盐）: npx wrangler secret put ID_SALT
