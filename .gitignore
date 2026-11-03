@@ -7,3 +7,6 @@ node_modules/
 reports/
 docs/
 技术分享/
+
+# wrangler 本地缓存
+proxy/.wrangler/

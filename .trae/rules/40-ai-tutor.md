@@ -49,18 +49,20 @@ alwaysApply: true
 | 渲染时机 | 首次展开卡片 / 首次切到该 tab 时才渲染问答列表（懒加载） |
 | 安全 | 用户输入、提问文本渲染前必须 `escapeHtml`；答案字段 `a` 是**设计上允许的 HTML 片段**，写数据时不得引入未闭合标签或 ASCII 引号 |
 
-## 五、接口配置（2026-09-28 切换，实测依据）
+## 五、接口配置（2026-09-28 切换；2026-11-03 改为代理）
 
 | 项 | 值 | 为什么 |
 |---|---|---|
-| 上游端点 | `https://api.deepseek.com/anthropic/v1/messages` | **只有 Anthropic 格式支持原生联网搜索**；OpenAI 格式 `tools` 只接受 `function`，传 `web_search` 直接报错 |
+| 前端端点 | `https://llm-course-tutor-proxy.zhuangzhaoyeye.workers.dev`（Cloudflare Worker，源码 `proxy/`） | 前端**不直连 DeepSeek**；代理转发到 `https://api.deepseek.com/anthropic/v1/messages`。**只有 Anthropic 格式支持原生联网搜索**，OpenAI 格式 `tools` 只接受 `function` |
 | 模型 | `deepseek-flash` | `deepseek-v4-flash` 是**已退役旧名**，服务端会映射到 `deepseek-flash`（DeepSeek-V4.1-Flash）；直接写新名 |
-| 鉴权（公开版） | **访问者自填 key**，存 `localStorage.deepseek_api_key`，请求时放进 `x-api-key` | GitHub Pages 的 JS 对每个访问者可见，仓库与产物中**不得**出现任何密钥；首次发消息弹框引导填写，工具栏「🔑 API Key」可随时改/清除 |
+| 鉴权（2026-11-03 起） | **前端不带任何 key**。DeepSeek key 只存在 Worker 的 secret（`DEEPSEEK_API_KEY`），由代理加到上游请求头 | GitHub Pages 的 JS 对每个访问者可见，仓库与产物中**不得**出现任何密钥；此前的「访问者自填 key、工具栏 🔑 按钮」方案已删除 |
 | `system` | 顶层参数，**不在 messages 里** | Anthropic 协议不接受 `role:'system'` 的消息；调用前从 history 抽出 |
-| `thinking` | `{ type: 'disabled' }` | 默认开启思考，reasoning 会吃光 `max_tokens` 导致 `content` 返回空 → 学员看到空白 |
-| `max_tokens` | 4096 | 同上，给足额度 |
-| `tools` | `[{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }]` | 合法类型只有 `web_search_20250305` / `web_search_20260209`，写 `web_search` 会报错 |
-| CORS | 直连 DeepSeek，由其回显 Origin | 浏览器直连需要对方放行 `content-type,x-api-key,anthropic-version` 三个头；已实测可用 |
+| `thinking` | `{ type: 'disabled' }`（**代理写死**，客户端传什么都被忽略） | 默认开启思考，reasoning 会吃光 `max_tokens` 导致 `content` 返回空 → 学员看到空白 |
+| `max_tokens` | 1024（代理环境变量 `MAX_TOKENS`，写死在服务端） | 控制单次费用；带联网搜索的回答可能偏长，若出现被截断需上调 |
+| `tools` | 由**代理注入** `[{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }]`；客户端传的 `tools` 一律丢弃；环境变量 `WEB_SEARCH=false` 可一键关闭 | 合法类型只有 `web_search_20250305` / `web_search_20260209`。搜索按成功次数计费（官方价 5 元/千次），`max_uses` 控制单次上限 |
+| CORS / 来源 | 代理只放行 `ALLOWED_ORIGINS` 里的来源（默认 `https://zhuangzhaoyeye.github.io`） | Origin 可被伪造，只能挡普通滥用；真正的保护是下面的限额 |
+| 限额 | 全站每天 100、每 IP 每天 20、每 IP 每分钟 5；UTC 零点（北京时间 8 点）重置 | 由 Durable Object 原子计数。DeepSeek 官方只限账号并发（flash 2500，与 key 无关），所以**新建专用 key 不能单独限流**，限额靠代理 |
+| 响应取值 | 前端只取 `content` 里**最后一个** `type:text` 块 | 联网时 content 形如 `[text开场白, server_tool_use, web_search_tool_result, text正式回答]`，全拼会把「我先联网核实一下」混进答案 |
 
 **联网搜索是模型自主决定的**，不是每次都触发——同一问题要求"必须联网核实"时会搜，不要求时可能 0 次搜索。因此系统提示里必须写清分支（涉及事实/数字才搜，纯概念推导不搜），落在 `# SKILLS` 的 `web-verify` 与 `# CONSTRAINTS` 的"不编造"两条上，见下节。
 
