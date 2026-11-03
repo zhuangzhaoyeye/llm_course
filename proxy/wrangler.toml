@@ -2,6 +2,14 @@ name = "llm-course-tutor-proxy"
 main = "worker.js"
 compatibility_date = "2026-10-01"
 
+# 自定义域名：workers.dev 在部分国内网络被 DNS 污染，访问不到；改用自己的域名。
+# 要求 taleverse.cn 的 DNS 托管在本 Cloudflare 账号下（已把名称服务器改为 Cloudflare）。
+# 保留 workers.dev 入口作为兜底，两个地址指向同一个 Worker、共用同一份限额。
+workers_dev = true
+routes = [
+  { pattern = "tutor.taleverse.cn", custom_domain = true }
+]
+
 [vars]
 # 只允许这个站点调用；多个用英文逗号分隔。Origin 可以被伪造，只能挡掉普通滥用，真正的保护是下面的限额。
 ALLOWED_ORIGINS = "https://zhuangzhaoyeye.github.io"

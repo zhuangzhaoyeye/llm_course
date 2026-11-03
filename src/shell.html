@@ -1096,7 +1096,7 @@ function switchTab(btn, tab, cardId) {
 // 公开站点不内置任何 key（GitHub Pages 的 JS 对每个访问者都可见）。
 // AI 助教走代理：DeepSeek key 只存在 Cloudflare Worker 的 secret 里，前端拿不到。
 // 限流（单 IP 每分钟 / 每天、全站每天）与来源校验都在代理里做。
-const DS_ENDPOINT = 'https://llm-course-tutor-proxy.zhuangzhaoyeye.workers.dev';
+const DS_ENDPOINT = 'https://tutor.taleverse.cn';
 // 额度说明与代理 proxy/wrangler.toml 保持一致：整站每天 100 次、每人每天 20 次、每分钟 5 次，北京时间早上 8 点重置。
 const TUTOR_QUOTA_NOTE = 'AI 助教额度：全站每天共 100 次，每人每天 20 次、每分钟 5 次，北京时间早上 8 点重置；用的是 DeepSeek Flash（已关闭思考），不联网，回答基于这张卡片的内容。';
 function quotaNoteEl() {
@@ -1126,8 +1126,8 @@ async function callDeepSeek(history, signal) {
     });
   } catch (e) {
     if (signal && signal.aborted) throw e; // 用户主动停止：保持 AbortError，交给上层显示"已停止"
-    if (e.name === 'AbortError') throw new Error('连接超时（30 秒无响应）。可能是你的网络无法访问 AI 助教服务（*.workers.dev），请换个网络或稍后再试；课程正文不受影响。');
-    throw new Error('无法连接 AI 助教服务。可能是你的网络无法访问 *.workers.dev，请换个网络或稍后再试；课程正文不受影响。');
+    if (e.name === 'AbortError') throw new Error('连接超时（30 秒无响应）。可能是你的网络暂时无法访问 AI 助教服务（tutor.taleverse.cn），请换个网络或稍后再试；课程正文不受影响。');
+    throw new Error('无法连接 AI 助教服务。可能是你的网络无法访问 tutor.taleverse.cn，请换个网络或稍后再试；课程正文不受影响。');
   } finally {
     clearTimeout(timer);
     if (signal) signal.removeEventListener('abort', onUserAbort);

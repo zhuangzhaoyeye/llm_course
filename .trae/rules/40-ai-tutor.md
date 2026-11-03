@@ -53,7 +53,7 @@ alwaysApply: true
 
 | 项 | 值 | 为什么 |
 |---|---|---|
-| 前端端点 | `https://llm-course-tutor-proxy.zhuangzhaoyeye.workers.dev`（Cloudflare Worker，源码 `proxy/`） | 前端**不直连 DeepSeek**；代理转发到 `https://api.deepseek.com/anthropic/v1/messages`。**只有 Anthropic 格式支持原生联网搜索**，OpenAI 格式 `tools` 只接受 `function` |
+| 前端端点 | `https://tutor.taleverse.cn`（Cloudflare Worker 绑自有域名，源码 `proxy/`；`workers.dev` 入口保留但前端不用——它在部分国内网络被 DNS 污染） | 前端**不直连 DeepSeek**；代理转发到 `https://api.deepseek.com/anthropic/v1/messages`。**只有 Anthropic 格式支持原生联网搜索**，OpenAI 格式 `tools` 只接受 `function` |
 | 模型 | `deepseek-flash` | `deepseek-v4-flash` 是**已退役旧名**，服务端会映射到 `deepseek-flash`（DeepSeek-V4.1-Flash）；直接写新名 |
 | 鉴权（2026-11-03 起） | **前端不带任何 key**。DeepSeek key 只存在 Worker 的 secret（`DEEPSEEK_API_KEY`），由代理加到上游请求头 | GitHub Pages 的 JS 对每个访问者可见，仓库与产物中**不得**出现任何密钥；此前的「访问者自填 key、工具栏 🔑 按钮」方案已删除 |
 | `system` | 顶层参数，**不在 messages 里** | Anthropic 协议不接受 `role:'system'` 的消息；调用前从 history 抽出 |
