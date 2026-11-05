@@ -1,0 +1,10 @@
+# 仅用于本机生成文档向量：wrangler dev 起一个只监听 127.0.0.1 的小 Worker，转调 Workers AI 的 bge-m3。
+# 不会部署。Workers AI 在本地开发时也会真实调用并计入账号额度（官方文档明示），238 条文档约 1 百 Neurons，远低于免费的每天 1 万。
+# 用「远程绑定」写法（remote = true），不用已被官方标为过时的 `wrangler dev --remote`——后者在本机实测任何请求都返回 internal error。
+name = "llm-course-embed-dev"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[ai]
+binding = "AI"
+remote = true

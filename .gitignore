@@ -10,3 +10,7 @@ docs/
 
 # wrangler 本地缓存
 proxy/.wrangler/
+
+# 多页站点构建产物
+site/
+__pycache__/

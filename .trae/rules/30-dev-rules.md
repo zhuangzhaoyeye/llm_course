@@ -70,6 +70,9 @@ node tools/content_verify.js --src    # 查源（定位更准，推荐先跑）
 node tools/verify.js                  # 渲染层，首次需 npm install && npx playwright install chromium
 node tools/coverage_check.js           # 覆盖地图归档 / 锚点落地 / 学生页面无残留（gate 第 3 把锁）
 python3 scripts/build.py --check      # 产物与源是否一致
+python3 scripts/build_site.py         # 生成多页站点 site/（每课独立 URL，SEO + 站内全文搜索；部署到 GitHub Pages 用，gitignore）
+python3 scripts/build_site.py --check # site/ 与源是否一致（改了 shell.html 或课程正文后必跑）；语义向量陈旧也会 FAIL
+python3 scripts/embed_docs.py         # 课程正文改了之后重算语义向量（只补算变化的行，写 src/search/embeddings.*）；本机要走远程方式，步骤见脚本顶部
 ```
 
 > **逐条核验**是硬要求：报告缺失或覆盖不全 = 等于没做逐条核验，本次生成/质检不算完成。报告格式与范围见 `.trae/skills/card-review/SKILL.md`。
@@ -271,6 +274,10 @@ AI 判 → 同一件事反复判出同一结论 → 固化成脚本（把 AI 从
 - 触发条件满足：第 6 方盲审在 28 课里查出的**最高频 P1 就是跨课/课内口径冲突**（同一 MLPerf 405B 配置，第 9 课记 512 张、第 13 课记 576 张，两课结论相反）。判据唯一（"该量只能取这些值"）→ 固化成脚本。新增口径**只改数据、不改脚本**。
 - **负向自测（当轮实测）**：把第 5 课 `175B` 篡改为 `177B` → `[FAIL] 口径「GPT-3 参数量」— 第5课出现口径外取值 177（允许 175）`，exit 1；还原 → **违规 0**。
 - **同轮修掉的两条检查器自身缺陷（重要经验）**：① **正则必须跑在"已剥标签"的文本上**——口径短语常被 `<b>/<span>` 包住（「75 个 `<b>`Kaggle`</b>` 竞赛」），直接对原始 HTML 用正则会**失配**（405B 条目起初完全没命中＝检查器失明，比没有检查更糟）；② **判据要钉住单位上下文**——`(\d{2,3})\s*个` 把「约 16 个月后」误配成「16 个」→ 误报，改为 `(\d{2,3})\s*个\s*(?:Kaggle\s*)?竞赛` 才精确。
+
+**已登记的误报修正（2026-11-05，`scripts/build.py` 自包含检查）**：判据由「任何 `src=`/`href=` 指向 http(s)」收窄为「**会加载资源的标签**（script/link/img/iframe/source/video/audio/embed/track）的 src/href 指向 http(s)」。
+- 为什么是误报：侧边栏新增的 GitHub 仓库链接是 `<a href>`，只做导航、不加载资源，离线照常可用，不违背「单文件自包含」的原意；原正则把它当成外部资源，构建被拦。
+- 负向自测（当轮实测）：5 个资源标签正例（含大写 `SCRIPT SRC`、`link rel=stylesheet href=https://…`）全部命中；4 个反例（两种 `<a href>`、内联 `<script>`、本地 `<link>`）零误中；产物 `build.py --check` PASS。
 
 **已登记的「只做清单、不做门槛」处置（2026-10-05，走"AI 判"路径）**：**提示泄题**不固化成 FAIL/WARN，改为清单工具 `node tools/pending_facts.js --hints [--lesson N]`（逐卡列出 `.card-q-hint`，供人/第 6 方判"给方向还是给答案"）。
 - 判据：「这条提示算不算泄题」**没有唯一答案**（取决于课程设计意图），按 §8.1「有唯一答案 → 脚本；没有 → AI 判」应走人判；强行门槛会产生误报并训练人忽略告警。

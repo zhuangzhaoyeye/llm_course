@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: 提问与交流（Discussions）
+    url: https://github.com/zhuangzhaoyeye/llm_course/discussions
+    about: 学习中的疑问、心得、想法放这里；纠错和反馈请用上面的模板
   - name: 在线阅读课程
     url: https://zhuangzhaoyeye.github.io/llm-course/
     about: 先在线读一遍，再回来提意见

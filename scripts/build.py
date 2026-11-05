@@ -79,11 +79,18 @@ def render() -> str:
     return inline_katex(shell)
 
 
+EXTERNAL_RESOURCE_RE = re.compile(
+    r'<(?:script|link|img|iframe|source|video|audio|embed|track)\b[^>]*?\b(?:src|href)\s*=\s*["\']https?://',
+    re.I,
+)
+
+
 def main() -> int:
     built = render()
 
-    # 自包含铁律：产物里不允许再出现任何外部资源引用（src= / href= 指向 http(s)）
-    external = re.findall(r'(?:src|href)\s*=\s*["\']https?://', built)
+    # 自包含铁律：产物里不允许再出现任何外部资源引用（会加载资源的标签的 src= / href= 指向 http(s)）。
+    # <a href> 只是导航、不加载资源，离线照常可用，不算（2026-11-05 收窄，原因见 30-dev-rules.md 8.1）。
+    external = EXTERNAL_RESOURCE_RE.findall(built)
     if external:
         raise SystemExit(f"FAIL 产物仍含 {len(external)} 处外部资源引用，已不是自包含单文件")
 

@@ -6,9 +6,15 @@
 
 > **English:** A 34-lesson Chinese LLM course for algorithm engineers (recsys → Transformer → training/inference engineering → Agents). Every mechanism is worked through by hand with concrete numbers. Single HTML page, no login.
 
-**在线阅读：<https://zhuangzhaoyeye.github.io/llm-course/>**（单页、免登录、手机可看）
+**在线阅读：<https://zhuangzhaoyeye.github.io/llm-course/>**（每课一个独立网址、免登录、手机可看）
 
 如果这套课对你有帮助，欢迎点右上角 **Star**，也欢迎 [提 Issue 纠错或反馈](../../issues/new/choose)。
+
+**想在新课上线时收到通知：**
+
+- 点仓库右上角 **Watch → Custom**，勾选 **Releases** 和 **Discussions**，只收新版本和讨论，不会被每次提交打扰。
+- 不想用 GitHub 账号：把 [提交订阅源](https://github.com/zhuangzhaoyeye/llm_course/commits/main.atom) 加到任意 RSS 阅读器。
+- 想提问、交流学习心得、分享你的推导：来 [Discussions 讨论区](../../discussions)。纠错请用 Issue，方便追踪。
 
 ![第 1 课 Self-Attention 计算走查](assets/preview.png)
 
@@ -46,6 +52,15 @@
 | 问题驱动 | 不知道为什么要学 | 每张卡片以一个问题开头，让你先想 30 秒。例如第 21 课：「每一步都有 95% 是对的，为什么一个 10 步的任务经常做不完？」 |
 | 计算走查 | 懂了概念，算不来 | 用最小的真实例子算到底。例如第 21 课：0.95¹⁰ ≈ 0.599，二十步只剩 0.358；第 17 课：4096×4096 的更新有 16,777,216 个数，LoRA（r=8）只学 65,536 个，压缩 256 倍；第 15 课：70B 模型每个 token 的 KV Cache 是 0.3125 MiB，8K 上下文就是 2.5 GiB |
 | 冲突可见 | 记住解法，不知道代价 | 不只讲怎么做，还算不这么做的后果。例如第 17 课：可训练参数压到千分之几，65B 还是训不动，因为 130 GB 的冻结权重还在显存里 |
+
+## 最近更新（2026-11-05）
+
+- **每课一个独立网址。** 34 课各有独立页面和标题（如 `/lesson-7.html`），正文直接写在 HTML 里，不执行 JS 也能被搜索引擎读到，可以直接把某一课的链接发给别人。
+- **站内搜索支持"换个说法也能找到"。** 在侧边栏输入一句话，比如"为什么不能一直用 LoRA""模型怎么知道词的顺序"，会同时按关键词和语义找卡片；支持中英互通（`低秩适配` ↔ `LoRA`）和错拼（`tokenzier`）。语义部分用 Cloudflare Workers AI 的 bge-m3 向量，关键词部分是 BM25。**这句话会发到本站服务器算向量，不保存；可在页面里一键关闭。**
+  - 如实的数字：我手写了 85 条查询自测（其中 20 条是调参时没看过的留出集）。前 3 条命中率，留出集上纯关键词 50% → 混合 90%。样本小、标准答案是我自己标的，只能说明方向，不是严格基准。
+- **"继续上次阅读"。** 回到网站时，侧边栏会出现上次读到的那张卡片，一键回去。位置只存在你的浏览器本地。
+- **匿名使用统计，可关闭。** 记录哪些课、哪些卡片被读了（只记次数和时长，不记你的提问和搜索词，不用 Cookie），用来决定下一步改什么。页面里有完整说明和关闭按钮。**目前统计库还没开通，线上暂不会收到数据。**
+- **讨论区与订阅。** 想提问或交流可以去 [Discussions](../../discussions)；想在新课上线时收到通知，见上文 Watch → Custom 的说明。
 
 ## 亮点
 
@@ -103,7 +118,7 @@
 
 ### 一、产物与源码
 
-课程交付物是**一个自包含的 HTML 文件**（KaTeX 已内联，无 CDN，可离线打开）。
+课程有两种产物：**单文件版**是一个自包含的 HTML（KaTeX 已内联，无 CDN，可离线打开，只有关键词搜索）；**多页站点版**是 34 个独立页面，用于在线发布，多了全文与语义搜索。两者来自同一份源码。
 
 ```
 src/lessons/manifest.json     课程映射表，唯一事实源（id = 课号）
@@ -111,7 +126,10 @@ src/lessons/lesson-<id>.html  每课正文（纯 HTML 片段，不手写转义�
 src/shell.html                页面骨架 + 样式 + 全部 JS + AI 助教 + 部分课的追问数据
 src/assets/                   KaTeX 的 CSS / JS（构建时内联）
 scripts/build.py              组装：按 manifest 把每课正文 JSON 转义后填进 shell，内联 KaTeX
-dist_course.html              构建产物，禁止手改
+scripts/build_site.py         生成多页站点 site/：每课独立页面 + 共享 CSS/JS + 搜索索引 + sitemap
+scripts/embed_docs.py         给搜索索引生成语义向量（调 Workers AI），结果存 src/search/
+src/search/                   文档语义向量（238 KB），内容变了需重新生成，否则站点构建检查会失败
+dist_course.html              单文件构建产物，禁止手改
 ```
 
 设计取舍：不用前端框架、不引入构建链，改完即可看；单文件意味着拿到一个文件就能学。`build.py --check` 会校验产物与源码是否一致，并保证产物里没有外部资源引用。
@@ -195,6 +213,8 @@ dist_course.html              构建产物，禁止手改
 ```bash
 python3 scripts/build.py          # 生成 dist_course.html（只需 Python 3，无第三方依赖）
 python3 scripts/build.py --check  # 校验产物与源码一致
+python3 scripts/build_site.py     # 生成多页站点 site/（本地预览：cd site && python3 -m http.server）
+python3 scripts/build_site.py --check   # 校验 site/ 与源码一致，语义向量陈旧会失败
 node tools/content_verify.js --src   # 内容层门禁（零依赖）
 npm install && npx playwright install chromium && node tools/verify.js   # 渲染层
 ```
@@ -206,8 +226,9 @@ npm install && npx playwright install chromium && node tools/verify.js   # 渲�
 | 路径 | 内容 |
 |---|---|
 | `src/` | 课程源码：`lessons/`（34 课正文 + manifest）、`shell.html`、`assets/` |
-| `scripts/` | 构建脚本 |
+| `scripts/` | 构建脚本（单文件版、多页站点版、语义向量生成） |
 | `tools/` | 校验脚本 |
+| `proxy/` | Cloudflare Worker：AI 助教代理、语义搜索 `/s`、匿名统计 `/e`（含单元测试） |
 | `.trae/rules/` | 课程设计方法论与内容规则（上面"理念"一节的完整版） |
 | `.trae/skills/` | 生成、质检、盲审、构建的操作流程（给 AI 助手读的 SKILL） |
 

@@ -25,6 +25,28 @@ MAX_TOKENS = "2048"
 # DEEPSEEK_API_KEY 不写在这里。部署时用: npx wrangler secret put DEEPSEEK_API_KEY
 # ID_SALT 同理（任意随机字符串，用来给 IP 哈希加盐）: npx wrangler secret put ID_SALT
 
+# 匿名统计（POST /e）的独立限流，与 AI 助教额度互不占用。每批最多 50 个事件，一批 = D1 里 1 行写入。
+# 全站每天 2 万批 = 最多 2 万行写入，约占 D1 免费额度（每天 10 万行）的 20%。
+EVENTS_PER_IP_PER_MINUTE = "30"
+EVENTS_PER_IP_PER_DAY = "600"
+EVENTS_GLOBAL_PER_DAY = "20000"
+
+# 语义搜索（POST /s）：把查询文本交给 Workers AI 的 bge-m3 算向量。独立限流，与 AI 助教、统计互不占用。
+# 单次查询约 30 token，全站每天 2 万次 ≈ 66 万 token，按 bge-m3 定价约合 660 Neurons，免费额度每天 1 万。
+SEARCH_PER_IP_PER_MINUTE = "30"
+SEARCH_PER_IP_PER_DAY = "600"
+SEARCH_GLOBAL_PER_DAY = "20000"
+# 允许调用 /s 的来源：线上站点 + 本机预览（只放行 /s，AI 助教仍只认 ALLOWED_ORIGINS）
+SEARCH_ORIGINS = "https://zhuangzhaoyeye.github.io,http://127.0.0.1:8766"
+
+# D1 数据库绑定：先在 proxy/ 下执行 `npx wrangler d1 create llm-course-stats`，把输出的 database_id 填进来，
+# 取消下面 4 行的注释，再执行 `npx wrangler d1 execute llm-course-stats --remote --file=schema.sql` 建表，最后 `npx wrangler deploy`。
+# 没绑定时 /e 会静默丢弃事件（返回 204 + x-stats: disabled），不影响 AI 助教。
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "llm-course-stats"
+# database_id = "<wrangler d1 create 输出的 id>"
+
 [[durable_objects.bindings]]
 name = "LIMITER"
 class_name = "Limiter"
@@ -32,3 +54,7 @@ class_name = "Limiter"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Limiter"]
+
+# Workers AI：语义搜索 /s 用
+[ai]
+binding = "AI"

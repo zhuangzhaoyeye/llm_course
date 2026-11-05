@@ -1,6 +1,7 @@
 // Cloudflare Worker：AI 助教代理。DeepSeek key 只存在 Worker 的 secret 里，前端拿不到。
 // 部署步骤见 proxy/README.md。限流逻辑在 limiter.js（纯函数，有单测）。
 import { DEFAULTS, decide, decideGlobal, sanitizeBody, originAllowed, hashId } from './limiter.js';
+import { EVENT_LIMITS, sanitizeBatch, INSERT_SQL } from './events.js';
 
 const UPSTREAM = 'https://api.deepseek.com/anthropic/v1/messages';
 
@@ -38,18 +39,119 @@ function limitsFrom(env) {
   };
 }
 
+// 匿名统计：POST /e。sendBeacon 发 text/plain，属于 CORS 简单请求，不触发预检；
+// 但带凭据模式的跨域信标要求响应有 allow-credentials，否则控制台会报 CORS 错误（不影响送达）。
+async function handleEvent(request, env, origin) {
+  const hdr = { ...cors(origin), 'access-control-allow-credentials': 'true' };
+  const noContent = (extra = {}) => new Response(null, { status: 204, headers: { ...hdr, ...extra } });
+  const fail = (status, message) => json(status, { error: { message } }, origin, { 'access-control-allow-credentials': 'true' });
+
+  const len = Number(request.headers.get('content-length') || 0);
+  if (len > EVENT_LIMITS.MAX_BODY_BYTES) return fail(413, 'request too large');
+  let raw;
+  try {
+    const text = await request.text();
+    if (text.length > EVENT_LIMITS.MAX_BODY_BYTES) return fail(413, 'request too large');
+    raw = JSON.parse(text);
+  } catch {
+    return fail(400, 'invalid json');
+  }
+  const clean = sanitizeBatch(raw);
+  if (!clean.ok) return fail(400, clean.error);
+
+  // 没绑定 D1 时静默丢弃：不报错，前端无需知道；部署好数据库后自动生效。
+  if (!env.DB) return noContent({ 'x-stats': 'disabled' });
+
+  // 独立限流：用另一个 Durable Object 实例（idFromName('events')），与 AI 助教的额度互不占用。
+  const n = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
+  const limits = {
+    ...DEFAULTS,
+    PER_IP_PER_MINUTE: n(env.EVENTS_PER_IP_PER_MINUTE, 30),
+    PER_IP_PER_DAY: n(env.EVENTS_PER_IP_PER_DAY, 600),
+    GLOBAL_PER_DAY: n(env.EVENTS_GLOBAL_PER_DAY, 20000),
+  };
+  const ip = request.headers.get('cf-connecting-ip') || 'unknown';
+  const id = await hashId(ip, env.ID_SALT || '');
+  const stub = env.LIMITER.get(env.LIMITER.idFromName('events'));
+  const verdict = await (await stub.fetch('https://limiter/check', { method: 'POST', body: JSON.stringify({ id, limits }) })).json();
+  if (!verdict.ok) return json(429, { error: { message: 'rate limited', reason: verdict.reason } }, origin, { 'access-control-allow-credentials': 'true', 'retry-after': String(verdict.retryAfter) });
+
+  const r = clean.row;
+  try {
+    await env.DB.prepare(INSERT_SQL).bind(Date.now(), r.cid, r.sid, r.vn, r.fd, r.dev, r.w, r.ref, r.n, r.ev).run();
+  } catch {
+    return fail(500, 'storage error');
+  }
+  return noContent();
+}
+
+// 语义搜索：POST /s，body {q}，返回查询向量 {v:[1024 个数]}。前端拿它和本地的文档向量算余弦，再与词法结果做 RRF 融合。
+// 只转发查询文本给 Workers AI，不落盘、不写日志；独立限流，与 AI 助教、统计的额度互不占用。
+const EMBED_MODEL = '@cf/baai/bge-m3';
+export const SEARCH_MAX_CHARS = 64;
+
+function searchOrigins(env) {
+  return (env.SEARCH_ORIGINS || env.ALLOWED_ORIGINS || 'https://zhuangzhaoyeye.github.io').split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+async function handleSearch(request, env, origin) {
+  const fail = (status, message, extra) => json(status, { error: { message } }, origin, { 'cache-control': 'no-store', ...(extra || {}) });
+  if (!env.AI) return fail(503, 'semantic search not configured');
+  const len = Number(request.headers.get('content-length') || 0);
+  if (len > 1024) return fail(413, 'request too large');
+  let q;
+  try {
+    const text = await request.text();
+    if (text.length > 1024) return fail(413, 'request too large');
+    q = JSON.parse(text).q;
+  } catch {
+    return fail(400, 'invalid json');
+  }
+  if (typeof q !== 'string') return fail(400, 'q must be a string');
+  q = q.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+  if (!q || q.length > SEARCH_MAX_CHARS) return fail(400, `q must be 1..${SEARCH_MAX_CHARS} chars`);
+
+  const n = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
+  const limits = {
+    ...DEFAULTS,
+    PER_IP_PER_MINUTE: n(env.SEARCH_PER_IP_PER_MINUTE, 30),
+    PER_IP_PER_DAY: n(env.SEARCH_PER_IP_PER_DAY, 600),
+    GLOBAL_PER_DAY: n(env.SEARCH_GLOBAL_PER_DAY, 20000),
+  };
+  const ip = request.headers.get('cf-connecting-ip') || 'unknown';
+  const id = await hashId(ip, env.ID_SALT || '');
+  const stub = env.LIMITER.get(env.LIMITER.idFromName('search'));
+  const verdict = await (await stub.fetch('https://limiter/check', { method: 'POST', body: JSON.stringify({ id, limits }) })).json();
+  if (!verdict.ok) return fail(429, 'rate limited', { 'retry-after': String(verdict.retryAfter) });
+
+  let out;
+  try {
+    out = await env.AI.run(EMBED_MODEL, { text: [q] });
+  } catch {
+    return fail(502, 'embedding failed');
+  }
+  const v = out && out.data && out.data[0];
+  if (!Array.isArray(v) || v.length !== 1024) return fail(502, 'bad embedding');
+  return json(200, { v: v.map((x) => Math.round(x * 1e4) / 1e4) }, origin, { 'cache-control': 'no-store' });
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get('origin') || '';
-    const allowed = allowedOrigins(env);
+    const path = new URL(request.url).pathname;
+    const isEvent = path === '/e';
+    const isSearch = path === '/s';
+    const allowed = isSearch ? searchOrigins(env) : allowedOrigins(env);
 
     if (request.method === 'OPTIONS') {
       return originAllowed(origin, allowed)
-        ? new Response(null, { status: 204, headers: cors(origin) })
+        ? new Response(null, { status: 204, headers: isEvent ? { ...cors(origin), 'access-control-allow-credentials': 'true' } : cors(origin) })
         : new Response(null, { status: 403 });
     }
     if (request.method !== 'POST') return json(405, { error: { message: 'method not allowed' } }, null);
     if (!originAllowed(origin, allowed)) return json(403, { error: { message: 'origin not allowed' } }, null);
+    if (isEvent) return handleEvent(request, env, origin);
+    if (isSearch) return handleSearch(request, env, origin);
     if (!env.DEEPSEEK_API_KEY) return json(500, { error: { message: 'server not configured' } }, origin);
 
     const len = Number(request.headers.get('content-length') || 0);

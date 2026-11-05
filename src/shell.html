@@ -809,7 +809,60 @@
   }
   .nav-item .nav-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-
+  /* ── 课程搜索 / 继续阅读 / 匿名统计说明（2026-11-05） ── */
+  .side-tools { padding: 10px 16px 8px; border-bottom: 1px solid var(--border); }
+  .side-search {
+    width: 100%; box-sizing: border-box; min-height: 34px; padding: 6px 10px;
+    font-size: 13px; font-family: inherit; color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; background: var(--card-bg); outline: none;
+  }
+  .side-search:focus { border-color: var(--accent); }
+  .side-results { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
+  .side-results:empty { display: none; }
+  .side-hit, .side-resume {
+    display: block; width: 100%; box-sizing: border-box; min-width: 40px; min-height: 36px;
+    padding: 6px 10px; text-align: left; font-family: inherit; font-size: 12px; line-height: 1.45;
+    color: var(--text-secondary); background: none; border: none; border-radius: 6px; cursor: pointer;
+  }
+  .side-hit:hover, .side-hit:focus-visible { background: var(--accent-light); color: var(--accent); outline: none; }
+  .side-hit .hit-where { display: block; color: var(--text-tertiary); font-size: 12px; }
+  .side-hit .hit-snip { display: block; margin-top: 2px; color: var(--text-secondary); font-size: 12px; }
+  .side-hit mark { background: #fef08a; color: inherit; border-radius: 2px; }
+  .side-empty { padding: 6px 10px; font-size: 12px; color: var(--text-tertiary); }
+  .side-resume { margin-top: 6px; background: var(--accent-light); color: var(--accent); font-weight: 600; }
+  .side-resume:hover { filter: brightness(.97); }
+  .side-resume .hit-where { display: block; font-weight: 400; font-size: 12px; opacity: .85; }
+  .side-foot {
+    padding: 10px 16px 14px; display: flex; flex-direction: column; gap: 2px;
+    font-size: 12px; color: var(--text-tertiary);
+  }
+  .side-foot a, .side-link {
+    display: block; box-sizing: border-box; min-width: 40px; min-height: 32px; padding: 6px 8px;
+    font-size: 12px; font-family: inherit; text-align: left; line-height: 1.45;
+    color: var(--text-secondary); text-decoration: none; background: none; border: none; border-radius: 6px; cursor: pointer;
+  }
+  .side-foot a:hover, .side-link:hover { background: #f0f0ee; color: var(--accent); }
+  .stats-modal-mask {
+    position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,.35);
+    display: none; align-items: center; justify-content: center; padding: 16px;
+  }
+  .stats-modal-mask.open { display: flex; }
+  .stats-modal {
+    width: 100%; max-width: 520px; max-height: 86vh; overflow-y: auto; box-sizing: border-box;
+    background: var(--card-bg); color: var(--text); border-radius: 10px; padding: 20px 22px;
+    font-size: 13px; line-height: 1.7; box-shadow: 0 10px 40px rgba(0,0,0,.2);
+  }
+  .stats-modal h3 { margin: 0 0 8px; font-size: 15px; }
+  .stats-modal h4 { margin: 14px 0 4px; font-size: 13px; }
+  .stats-modal ul { margin: 0; padding-left: 20px; }
+  .stats-modal .stats-state { margin: 10px 0; padding: 8px 10px; border-radius: 6px; background: var(--accent-light); color: var(--text); }
+  .stats-modal .stats-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .stats-modal .stats-actions button {
+    min-width: 40px; min-height: 34px; padding: 6px 14px; font-size: 13px; font-family: inherit; cursor: pointer;
+    border: 1px solid var(--border); border-radius: 6px; background: var(--card-bg); color: var(--text);
+  }
+  .stats-modal .stats-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .stats-log { margin-top: 10px; max-height: 160px; overflow-y: auto; padding: 8px 10px; border-radius: 6px; background: #f5f5f4; font-size: 12px; font-family: ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
 
 </style>
 <!--__KATEX_JS__-->
@@ -820,6 +873,13 @@
   <div class="sidebar-header">
     <h2>第一性原理大模型课程</h2>
     <div class="subtitle">算法工程师能力培养</div>
+  </div>
+
+  <div class="side-tools">
+    <input type="search" class="side-search" id="sideSearch" placeholder="搜索课名或卡片问题" aria-label="搜索课名或卡片问题" autocomplete="off">
+    <div class="side-results" id="sideResults" role="listbox"></div>
+    <div id="sideResume"></div>
+    <button type="button" class="side-link" id="statsLink" onclick="Stats.openPanel()">匿名统计 · 说明与关闭</button>
   </div>
 
   <div class="nav-group">
@@ -1002,7 +1062,44 @@
       </a>
     </div>
   </div>
+  <div class="side-foot">
+    <a href="https://github.com/zhuangzhaoyeye/llm_course" target="_blank" rel="noopener" onclick="Stats.track('link',{k:'github'})">GitHub 仓库：Star / Watch 获取更新</a>
+    <a href="https://github.com/zhuangzhaoyeye/llm_course/discussions" target="_blank" rel="noopener" onclick="Stats.track('link',{k:'github'})">讨论区：提问与交流</a>
+  </div>
 </aside>
+<div class="stats-modal-mask" id="statsMask" onclick="if(event.target===this)Stats.closePanel()">
+  <div class="stats-modal" role="dialog" aria-modal="true" aria-labelledby="statsTitle">
+    <h3 id="statsTitle">关于匿名使用统计</h3>
+    <p>本站想知道哪些课、哪些卡片真的被读了，用来决定下一步改什么、补什么。因此会记录<b>匿名的页面操作</b>，不记录你是谁。</p>
+    <h4>会记录</h4>
+    <ul>
+      <li>打开页面、切换到哪一课、展开或收起哪张卡片、勾选「已学完」</li>
+      <li>切换「AI 助教 / 你可能还想问」页签、展开哪条预设追问</li>
+      <li>是否打开或使用了 AI 助教（只记次数和所在卡片）</li>
+      <li>搜索是否有结果、有几条结果</li>
+      <li>每张卡片保持展开的时长；访问来源的网站域名；设备类型（手机 / 平板 / 电脑）和屏幕宽度</li>
+      <li>一个随机生成的匿名编号（存在你浏览器本地，用来区分「回访」）</li>
+    </ul>
+    <h4>不会记录</h4>
+    <ul>
+      <li>你向 AI 助教提的问题和它的回答、你在搜索框输入的内容</li>
+      <li>姓名、邮箱、手机号、账号，也不使用 Cookie 和设备指纹</li>
+      <li>你的 IP 地址不会写入统计数据（服务器只用它做防刷限流）</li>
+    </ul>
+    <h4>语义搜索（仅在线站点）</h4>
+    <p>搜索框里停顿约 0.3 秒后，会把你输入的那句话（最多 64 字）发给本站服务器，由 Cloudflare Workers AI 算出它的语义向量，用来找"意思相近但用词不同"的卡片。服务器不保存这句话，也不计入上面的统计。不想发送可以关掉，关掉后只用本地的关键词搜索。</p>
+    <div class="stats-state" id="statsState"></div>
+    <div class="stats-actions">
+      <button type="button" class="primary" id="statsToggle" onclick="Stats.toggle()"></button>
+      <button type="button" id="semToggle" style="display:none"></button>
+      <button type="button" onclick="Stats.closePanel()">关闭</button>
+    </div>
+    <div id="statsLogWrap" style="display:none">
+      <h4>本机预览：已记录的事件（仅保存在当前页面内存里，未上传）</h4>
+      <div class="stats-log" id="statsLog"></div>
+    </div>
+  </div>
+</div>
 <div class="main-wrapper" id="mainWrapper">
 
 <div class="header" id="globalHeader">
@@ -1026,6 +1123,180 @@
 </div>
 
 <script>
+// ── 匿名使用统计（2026-11-05）──
+// 只记匿名的页面操作，不记任何用户输入文本（AI 提问、搜索词）。字段白名单与服务端 proxy/events.js 一一对应。
+// 只在线上 https 站点真正上报；本机预览 / file:// 只把批次留在 window.__statsSent，不联网。
+window.Stats = (function () {
+  var ENDPOINT = 'https://tutor.taleverse.cn/e';
+  var K_CID = 'stats_cid', K_OPT = 'stats_optout', K_VN = 'stats_vn', K_FD = 'stats_fd', K_POS = 'last_pos';
+  var host = location.hostname;
+  var isProd = location.protocol === 'https:' && !/^(localhost|127\.|\[::1\]|.*\.local)$/.test(host);
+  var K_SID = 'stats_sid', K_COUNTED = 'stats_counted';
+  var t0 = Date.now(), sid = '', buf = [], localLog = [], dwell = {}, paused = [], booted = false, ids = null;
+
+  function ls(k, v) {
+    try {
+      if (v === undefined) return localStorage.getItem(k);
+      if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v);
+    } catch (e) { return null; }
+  }
+  function rid(n) {
+    var a = new Uint8Array(n), s = '', i;
+    try { crypto.getRandomValues(a); } catch (e) { for (i = 0; i < n; i++) a[i] = Math.random() * 256; }
+    for (i = 0; i < n; i++) s += (a[i] % 36).toString(36);
+    return s;
+  }
+  // 一次访问 = 一个浏览器标签页会话。多页站点里每翻一课就是一次页面加载，会话 ID 与「已计入访问」标记放 sessionStorage，
+  // 这样同一标签页内翻课不会被算成新访问；关掉标签页再开才算下一次。
+  function ss(k, v) {
+    try {
+      if (v === undefined) return sessionStorage.getItem(k);
+      sessionStorage.setItem(k, v);
+    } catch (e) { return null; }
+  }
+  sid = ss(K_SID);
+  if (!sid || !/^[A-Za-z0-9]{8,32}$/.test(sid)) { sid = rid(10); ss(K_SID, sid); }
+  function dnt() { return navigator.doNotTrack === '1' || navigator.doNotTrack === 'yes' || window.doNotTrack === '1'; }
+  function enabled() { return ls(K_OPT) !== '1' && !dnt(); }
+  function today() {
+    var d = new Date(), p = function (x) { return (x < 10 ? '0' : '') + x; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+  function ensureIds() {
+    var cid = ls(K_CID);
+    if (!cid || !/^[A-Za-z0-9]{8,32}$/.test(cid)) { cid = rid(12); ls(K_CID, cid); }
+    if (!ids) { // 本页面第一次上报；只有本标签页会话里的第一次才把访问次数 +1
+      var vn = parseInt(ls(K_VN), 10) || 0;
+      if (ss(K_COUNTED) !== '1' || vn < 1) { vn += 1; ls(K_VN, String(vn)); ss(K_COUNTED, '1'); }
+      var fd = ls(K_FD);
+      if (!fd || !/^\d{4}-\d{2}-\d{2}$/.test(fd)) { fd = today(); ls(K_FD, fd); }
+      ids = { cid: cid, vn: vn, fd: fd };
+    }
+    return ids;
+  }
+  function device() { var w = window.innerWidth || 0; return w < 768 ? 'mobile' : (w < 1100 ? 'tablet' : 'desktop'); }
+  function refHost() {
+    try {
+      if (!document.referrer) return '';
+      var h = new URL(document.referrer).hostname;
+      return h === location.hostname ? '' : h;
+    } catch (e) { return ''; }
+  }
+
+  function send(p) {
+    if (!isProd) { (window.__statsSent = window.__statsSent || []).push(p); renderLog(); return; }
+    var body = JSON.stringify(p), ok = false;
+    try { if (navigator.sendBeacon) ok = navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'text/plain;charset=UTF-8' })); } catch (e) {}
+    if (!ok) {
+      try { fetch(ENDPOINT, { method: 'POST', body: body, keepalive: true, mode: 'cors', credentials: 'omit', headers: { 'content-type': 'text/plain;charset=UTF-8' } }).catch(function () {}); } catch (e) {}
+    }
+  }
+  function flush() {
+    try {
+      if (!buf.length) return;
+      if (!enabled()) { buf = []; return; }
+      var id = ensureIds();
+      var batch = buf.splice(0, 50);
+      send({ v: 1, cid: id.cid, sid: sid, vn: id.vn, fd: id.fd, dev: device(), w: Math.round(window.innerWidth || 0), ref: refHost(), ev: batch });
+      if (buf.length) flush();
+    } catch (e) {}
+  }
+  function track(e, p) {
+    try {
+      if (!enabled()) return;
+      var ev = { e: e, t: Date.now() - t0 }, k;
+      if (p) for (k in p) ev[k] = p[k];
+      buf.push(ev);
+      if (!isProd) { localLog.push(ev); if (localLog.length > 200) localLog.shift(); renderLog(); }
+      if (buf.length >= 30) flush();
+    } catch (err) {}
+  }
+
+  // 卡片停留：每张展开的卡片单独计时；收起 / 切课 / 页面隐藏时结算，不足 1 秒的忽略，单次最多计 30 分钟。
+  function dwellStart(key) { if (!(key in dwell)) dwell[key] = Date.now(); }
+  function dwellEnd(key) {
+    var s = dwell[key];
+    if (s === undefined) return;
+    delete dwell[key];
+    var ms = Math.min(Date.now() - s, 30 * 60 * 1000);
+    if (ms >= 1000) { var p = key.split('|'); track('dwell', { l: p[0], c: p[1], ms: ms }); }
+  }
+  function endAll() { Object.keys(dwell).forEach(dwellEnd); }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') { paused = Object.keys(dwell); endAll(); flush(); }
+    else { paused.forEach(dwellStart); paused = []; }
+  });
+  window.addEventListener('pagehide', function () { endAll(); flush(); });
+  setInterval(flush, 30000);
+
+  // 阅读位置只存本地（供「继续上次阅读」用），与统计开关无关，不上传。
+  // 位置里连主问题文本和卡片序号一起存：多页站点里别的课的正文不在当前页面，「继续阅读」不能再靠本页索引反查。
+  function savePos(l, c) {
+    var q = '', k = 0;
+    try {
+      var cards = [].slice.call(document.querySelectorAll('#lesson-container .card'));
+      var card = cards.filter(function (x) { return x.dataset.card === String(c); })[0];
+      if (card) {
+        k = cards.indexOf(card) + 1;
+        var qe = card.querySelector('.card-q-text');
+        q = qe ? qe.textContent.replace(/\s+/g, ' ').trim().slice(0, 80) : '';
+      }
+    } catch (e) {}
+    ls(K_POS, JSON.stringify({ l: Number(l), c: String(c), k: k, q: q, t: Date.now() }));
+  }
+  function getPos() {
+    try { var p = JSON.parse(ls(K_POS) || 'null'); return p && p.l && p.c ? p : null; } catch (e) { return null; }
+  }
+  function onLesson(n, cardId) {
+    track('lesson', { l: String(n) });
+    if (cardId) dwellStart(n + '|' + cardId);
+    if (booted && cardId) savePos(n, cardId);
+  }
+  function onCard(n, cardId, opened) {
+    track('card', { l: String(n), c: String(cardId), s: opened ? 'open' : 'close' });
+    var key = n + '|' + cardId;
+    if (opened) { dwellStart(key); savePos(n, cardId); } else dwellEnd(key);
+  }
+
+  // ── 说明与开关面板 ──
+  function $(id) { return document.getElementById(id); }
+  function renderLog() {
+    var el = $('statsLog'), mask = $('statsMask');
+    if (!el || isProd || !mask || !mask.classList.contains('open')) return;
+    el.textContent = localLog.length ? localLog.slice(-40).map(function (e) {
+      var c = {}, k; for (k in e) if (k !== 'e') c[k] = e[k];
+      return e.e + ' ' + JSON.stringify(c);
+    }).join('\n') : '（还没有事件）';
+  }
+  function renderPanel() {
+    var on = enabled(), st = $('statsState'), btn = $('statsToggle'), link = $('statsLink');
+    if (st) {
+      st.textContent = dnt() ? '检测到你的浏览器开启了「Do Not Track」，统计已自动关闭。'
+        : (!on ? '统计已关闭：不会记录任何事件。'
+          : (isProd ? '统计已开启：匿名上报到本站自己的服务器。' : '本机预览模式：事件只保存在当前页面内存里，不会上传（线上站点才会真正上报）。'));
+    }
+    if (btn) { btn.style.display = dnt() ? 'none' : ''; btn.textContent = ls(K_OPT) === '1' ? '重新开启统计' : '关闭统计'; }
+    if (link) link.textContent = on ? '匿名统计 · 说明与关闭' : '匿名统计 · 已关闭（点此查看）';
+    var wrap = $('statsLogWrap'); if (wrap) wrap.style.display = (!isProd && on) ? 'block' : 'none';
+    renderLog();
+  }
+  function toggle() {
+    if (ls(K_OPT) === '1') { ls(K_OPT, null); }
+    else { ls(K_OPT, '1'); buf = []; localLog = []; dwell = {}; paused = []; ids = null; ls(K_CID, null); ls(K_VN, null); ls(K_FD, null); }
+    renderPanel();
+  }
+  function openPanel() { var m = $('statsMask'); if (m) m.classList.add('open'); renderPanel(); }
+  function closePanel() { var m = $('statsMask'); if (m) m.classList.remove('open'); }
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePanel(); });
+
+  track('open');
+  renderPanel();
+  return { track: track, onLesson: onLesson, onCard: onCard, endAll: endAll, flush: flush, savePos: savePos, getPos: getPos,
+    openPanel: openPanel, closePanel: closePanel, toggle: toggle, boot: function () { booted = true; }, isProd: isProd };
+})();
+</script>
+<script>
 // ── Card Toggle ──
 function toggleCard(qEl) {
   const card = qEl.closest('.card');
@@ -1036,6 +1307,7 @@ function toggleCard(qEl) {
     const cardId = card.dataset.card;
     if (!tabRendered[cardId]) { setTimeout(() => { renderQnA(cardId); tabRendered[cardId]=true; }, 0); }
   }
+  Stats.onCard(activeLesson, card.dataset.card, !wasActive);
   updateProgress();
 }
 
@@ -1062,6 +1334,7 @@ function toggleCardCheck(cb) {
     delete checks[cardId];
   }
   localStorage.setItem('card_checks', JSON.stringify(checks));
+  Stats.track('check', { l: String(activeLesson), c: String(cardId), s: cb.checked ? 'on' : 'off' });
   updateProgress();
 }
 
@@ -1082,6 +1355,7 @@ function switchTab(btn, tab, cardId) {
   const bar = btn.closest('.tab-bar');
   bar.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+  Stats.track('tab', { c: String(cardId), tab: tab === 'ai' ? 'ai' : 'qna' });
 
   const aiTab = document.getElementById('tab-ai-'+cardId);
   const qnaTab = document.getElementById('tab-qna-'+cardId);
@@ -1180,6 +1454,7 @@ function askAboutQnA(chatId) {
   if (!chatEl || !msgsEl) return;
 
   chatEl.classList.add('open');
+  Stats.track('ai_open', { c: String(chatId).replace(/-\d+$/, '') });
   if (!chatEl.querySelector('.tutor-quota-note')) msgsEl.parentNode.insertBefore(quotaNoteEl(), msgsEl);
 
   if (!qnaChatState[chatId]) {
@@ -1209,6 +1484,7 @@ async function sendQnAChat(chatId) {
 
   const question = inputEl.value.trim();
   if (!question || (qnaChatState[chatId]?.loading)) return;
+  Stats.track('ai_ask', { c: String(chatId).replace(/-\d+$/, '') });
 
   if (!qnaChatState[chatId]) qnaChatState[chatId] = { history: [{ role:'system', content:getSystemPrompt(chatId.split('-')[0]) }], context:{}, contextInjected: true };
   
@@ -1334,7 +1610,8 @@ function copyQnAChat(chatId) {
 }
 
 function toggleQnAItem(el) {
-  el.classList.toggle('open');
+  const opened = el.classList.toggle('open');
+  if (opened && el.dataset.qid) Stats.track('qna', { q: el.dataset.qid });
 }
 
 function escapeAttr(text) {
@@ -1353,6 +1630,7 @@ const chatInitialized = {};
 function startChat(cardId) {
   const chat = document.querySelector(`.llm-chat[data-llm="${cardId}"]`);
   chat.classList.add('open');
+  Stats.track('ai_open', { c: String(cardId) });
   chat.scrollIntoView({ behavior:'smooth', block:'nearest' });
   if (!chatInitialized[cardId]) {
     chatInitialized[cardId] = true;
@@ -1371,6 +1649,7 @@ async function sendLLM(cardId) {
 
   const question = input.value.trim();
   if (!question || (chatHistories[cardId]?._loading)) return;
+  Stats.track('ai_ask', { c: String(cardId) });
 
   if (!chatHistories[cardId]) chatHistories[cardId] = [{ role: 'system', content: getSystemPrompt(cardId) }];
   chatHistories[cardId]._loading = true;
@@ -1675,6 +1954,7 @@ document.addEventListener('keydown', e => {
       nextInactive.scrollIntoView({ behavior: 'smooth', block: 'start' });
       updateProgress();
       const cardId = nextInactive.dataset.card;
+      Stats.onCard(activeLesson, cardId, true);
       if (!tabRendered[cardId]) { setTimeout(() => { renderQnA(cardId); tabRendered[cardId]=true; }, 0); }
     }
   }
@@ -3002,7 +3282,7 @@ if (!listEl) return;
     window._qnaData[chatId] = { q: item.q, a: item.a };
     const checked = checks[chatId] ? 'checked' : '';
     return `
-    <div class="qna-item">
+    <div class="qna-item" data-qid="${chatId}">
       <div class="qna-item-q" onclick="toggleQnAItem(this.closest('.qna-item'))">
         <span class="q-num">${i+1}.</span>
         <span class="q-text">${escapeHtml(item.q)}</span>
@@ -3165,6 +3445,12 @@ const INLINE_LESSONS = {
 /*__LESSONS__*/
 };
 function switchLesson(n) {
+  // 多页站点：每课是独立页面，别的课的正文不在本页，直接跳转。
+  if (window.__SITE__ && Number(n) !== window.__SITE__.lesson) {
+    location.href = window.__SITE__.pages[String(n)] || './';
+    return;
+  }
+  Stats.endAll();
   activeLesson = n;
   document.querySelectorAll('.nav-item').forEach(function(el) {
     el.classList.toggle('active', el.dataset.lesson === String(n));
@@ -3192,7 +3478,14 @@ function switchLesson(n) {
   }
   updateProgress();
   restoreCardChecks();
-  container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  Stats.onLesson(n, card1 ? card1.dataset.card : null);
+  if (window.__SITE__) {
+    // 新页面的侧边栏滚动位置会重置，把当前课滚进可视区
+    var cur = document.querySelector('.nav-item.active');
+    if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest' });
+  } else {
+    container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 
 function getScope() {
@@ -3211,8 +3504,509 @@ function getCardContent(cardId) {
 };
 
 
-// ── Auto-load lesson 1 ──
-switchLesson(1);
+// ── Auto-load：单文件版默认第 1 课；多页站点版加载本页对应的那一课 ──
+switchLesson(window.__SITE__ ? window.__SITE__.lesson : 1);
+Stats.boot();
+</script>
+<script>
+// ── 课程搜索与「继续上次阅读」（搜索引擎 v2，2026-11-05）──
+// 排序：BM25F（主问题 > 课名 > 正文）+ 中文字二元组 + 英文前缀/拼写容错 + 中英同义词。
+// 单文件版索引只有课名与主问题；多页站点版额外带提示与卡片正文（共享的 search-index.<hash>.json，聚焦搜索框时才下载）。
+// 搜索词不上报，只上报「有没有结果、有几条」。
+(function () {
+  var SITE = window.__SITE__ || null;
+  var rows = null, loading = null, engine = null;
+  var CS = window.CourseSearch = {
+    buildMs: 0,
+    ready: function () { return loadIndex().then(function () { return true; }); },
+    rank: function (q) { return engine ? ranked(q).hits : []; },
+    debug: function (q) { var r = ranked(q); return { why: r.why, qdf: r.qdf, bestCov: r.bestCov, mass: r.mass, base: r.base, top: r.top, n: r.total, scores: r.scores, terms: r.terms, first: r.hits.slice(0, 3).map(function (e) { return (e.c || 'L' + e.l) + ' ' + e.text.slice(0, 20); }) }; }
+  };
+
+  function strip(html) {
+    return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+  }
+  // 统一行格式：{l 课号, c 卡片id|null, k 卡片序号, text 标题/主问题, body 正文, key 小写串, bodyKey}
+  function mk(l, c, k, text, body) {
+    var title = LESSON_TITLES[l] || '';
+    return { l: l, c: c, k: k, text: text, body: body || '',
+      key: (c ? title + ' ' + text : '第' + l + '课 ' + title).toLowerCase(), bodyKey: (body || '').toLowerCase() };
+  }
+  function buildLocal() {
+    var out = [];
+    var re = /<div class="card"[^>]*data-card="([^"]+)"[\s\S]*?<div class="card-q-text">([\s\S]*?)<\/div>/g;
+    Object.keys(INLINE_LESSONS).map(Number).sort(function (a, b) { return a - b; }).forEach(function (n) {
+      out.push(mk(n, null, 0, LESSON_TITLES[n] || '', ''));
+      var html = INLINE_LESSONS[n], m, k = 0;
+      re.lastIndex = 0;
+      while ((m = re.exec(html))) { k += 1; out.push(mk(n, m[1], k, strip(m[2]), '')); }
+    });
+    return out;
+  }
+  function finish(r) {
+    rows = r;
+    var t0 = performance.now();
+    engine = buildEngine(r);
+    CS.buildMs = Math.round(performance.now() - t0);
+    return rows;
+  }
+  function loadIndex() {
+    if (rows) return Promise.resolve(rows);
+    if (!SITE) return Promise.resolve(finish(buildLocal()));
+    if (!loading) {
+      loading = fetch(SITE.index).then(function (r) {
+        if (!r.ok) throw new Error('index ' + r.status);
+        return r.json();
+      }).then(function (data) {
+        return finish(data.map(function (r) { return mk(r[0], r[1] || null, r[2], r[3], r[4]); }));
+      }).catch(function (e) { loading = null; throw e; });
+    }
+    return loading;
+  }
+
+  // ── 分词：英文 / 数字按整词；中文按相邻两字（字二元组）。无需词典，对专业术语（显存、注意力）不会误切。──
+  // 依据：中文检索里字二元组索引不逊于词典分词（Kwok 1997, SIGIR "Chinese Text Retrieval Without Using a Dictionary"）。
+  var FUNC = '的了吗么呢吧啊呀是在有和与及或把被给让对就都也还又为什怎样如何能会可要该这那其之它他她我你们';
+  var TOKEN_RE = /[a-z0-9]+(?:\.[0-9]+)?|[\u4e00-\u9fa5]+/g;
+  function tokenize(text) {
+    var s = String(text).toLowerCase().replace(/[\u2010-\u2015_]/g, '-'), m, out = [], prev = null;
+    TOKEN_RE.lastIndex = 0;
+    while ((m = TOKEN_RE.exec(s))) {
+      var w = m[0];
+      if (/^[\u4e00-\u9fa5]/.test(w)) {
+        prev = null;
+        for (var i = 0; i + 1 < w.length; i++) {
+          var bg = w.substr(i, 2);
+          if (FUNC.indexOf(bg.charAt(0)) !== -1 && FUNC.indexOf(bg.charAt(1)) !== -1) continue; // 两字都是虚词，如「怎么」「什么」
+          out.push(bg);
+        }
+        if (w.length === 1 && FUNC.indexOf(w) === -1) out.push(w); // 单字（如「根」「卡」）仅在整段只有一个字时保留
+      } else {
+        out.push(w);
+        // 相邻英文再拼一个复合词：「kv cache」「kvcache」「Self-Attention」「selfattention」互相能对上
+        if (prev && prev.length + w.length <= 24) out.push(prev + w);
+        prev = w;
+      }
+    }
+    return out;
+  }
+  function compact(s) { return String(s).toLowerCase().replace(/[\s\-_.\u2010-\u2015]+/g, ''); }
+
+  // ── 中英同义词（人工审定的高置信词表，≈70 组）。同组内任一说法命中，其余说法一并算命中，权重 0.7。──
+  // 注意：不收录「提示 / 推理 / 缓存 / 代理」这类在课程里多义的词，宁缺勿滥。
+  var SYN = [
+    ['注意力', 'attention', 'self-attention', '自注意力'], ['多头注意力', 'multi-head attention', 'mha', 'multihead'],
+    ['位置编码', 'positional encoding', 'position embedding'], ['旋转位置编码', 'rope', 'rotary'],
+    ['分词器', 'tokenizer', '分词'], ['字节对编码', 'bpe', 'byte pair encoding', 'byte-pair'], ['词表', 'vocabulary', 'vocab'],
+    ['缩放定律', 'scaling law', 'scaling laws'], ['混合专家', 'moe', 'mixture of experts'],
+    ['幻觉', 'hallucination', '胡说', '瞎编', '编造', '一本正经'], ['量化', 'quantization', 'int4', 'int8', 'gptq', 'awq'],
+    ['监督微调', 'sft', 'supervised fine-tuning', 'instruction tuning', '指令微调'], ['微调', 'fine-tuning', 'finetune', 'finetuning'],
+    ['低秩适配', 'lora', 'low-rank adaptation', 'qlora'], ['人类反馈强化学习', 'rlhf', '强化学习人类反馈'],
+    ['直接偏好优化', 'dpo'], ['近端策略优化', 'ppo'], ['思维链', 'chain of thought', 'cot', '一步步想', '逐步推理'],
+    ['上下文学习', 'in-context learning', 'icl', '少样本', 'few-shot', 'few shot', '零样本', 'zero-shot'],
+    ['检索增强', 'rag', 'retrieval augmented', 'retrieval-augmented'], ['智能体', 'agent'], ['多智能体', 'multi-agent', 'multi agent'],
+    ['函数调用', 'function calling', 'tool use', 'tool calling', '工具调用'], ['梯度检查点', 'gradient checkpointing', 'activation recomputation', '激活重计算', '重计算'],
+    ['张量并行', 'tensor parallel', 'tensor parallelism'], ['流水线并行', 'pipeline parallel', 'pipeline parallelism', '气泡'],
+    ['数据并行', 'data parallel', 'data parallelism'], ['显存', 'vram', 'gpu memory', '内存', '爆显存', 'oom'],
+    ['键值缓存', 'kv cache', 'kvcache', 'key value cache'], ['困惑度', 'perplexity', 'ppl'], ['上下文窗口', 'context window', 'context length', '上下文长度', '长上下文'],
+    ['灾难性遗忘', 'catastrophic forgetting', '遗忘', '忘掉原来'], ['数据污染', 'contamination', '数据泄漏', '题目泄露', '见过测试题'],
+    ['嵌入', 'embedding', 'embeddings'], ['残差连接', 'residual connection', 'residual', 'skip connection'], ['层归一化', 'layernorm', 'layer norm', 'layer normalization'],
+    ['因果掩码', 'causal mask', 'causal masking', '下三角'], ['自回归', 'autoregressive', 'auto-regressive'], ['首字延迟', 'ttft', '首 token', '首字'],
+    ['吞吐', 'throughput', '吞吐量'], ['延迟', 'latency'], ['连续批处理', 'continuous batching', '组批', 'batching'], ['蒸馏', 'distillation', 'knowledge distillation'],
+    ['评测', 'benchmark', '榜单', '评估', 'evaluation', 'eval'], ['可复现', 'reproducibility', '复现', 'reproducible'], ['学习率', 'learning rate', 'lr schedule'],
+    ['预热', 'warmup', 'warm-up', 'warm up'], ['退火', 'annealing', 'cosine decay', '余弦衰减'], ['模型崩塌', 'model collapse'], ['合成数据', 'synthetic data'],
+    ['去重', 'deduplication', 'dedup', 'minhash'], ['预训练', 'pretraining', 'pre-training'], ['后训练', 'post-training', 'posttraining'], ['温度', 'temperature', '采样'],
+    ['推理模型', 'reasoning model', 'reasoning models'], ['可验证奖励', 'rlvr', 'verifiable reward', 'verifiable rewards'],
+    ['优化器', 'optimizer', 'adam', 'adamw'], ['混合精度', 'mixed precision', 'bf16', 'fp16', 'fp8'], ['激活值', 'activation', 'activations'],
+    ['前馈网络', 'ffn', 'feed forward', 'feed-forward', 'mlp'], ['编码器', 'encoder'], ['解码器', 'decoder'], ['损失函数', 'loss', '损失'],
+    ['模型上下文协议', 'mcp', 'model context protocol'], ['向量数据库', 'vector database', 'vector db', '向量库'], ['重排', 'rerank', 'reranker', 'reranking'],
+    ['提示注入', 'prompt injection', '指令注入'], ['沙箱', 'sandbox', 'sandboxing'], ['分页注意力', 'pagedattention', 'paged attention', 'vllm', 'sglang'],
+    ['反思', 'reflexion', 'reflection', 'self-refine'], ['奖励模型', 'reward model', '偏好数据'], ['过训练', 'overtraining', 'over-training']
+  ];
+
+  // 把每组同义词预先编译成：{ aliases: [{ compact, toks }] }。别名按「去空格去连字符」后的串匹配，所以 kv cache / kv-cache / kvcache 等价。
+  var SYN_C = SYN.map(function (g) {
+    return g.map(function (a) { return { compact: compact(a), latin: /^[a-z0-9 \-.]+$/i.test(a), toks: tokenize(a) }; });
+  });
+
+  // ── 索引：BM25F。三个字段加权：主问题/课名 3，课程标题 1.2，提示+正文 1。──
+  var W = { q: 3, l: 1.2, b: 1 }, K1 = 1.2, B = 0.75, MIN_COV = 0.35;
+  function buildEngine(all) {
+    var N = all.length, df = Object.create(null), qdf = Object.create(null), post = Object.create(null), docs = [], avg = { q: 0, l: 0, b: 0 };
+    all.forEach(function (e, id) {
+      var title = LESSON_TITLES[e.l] || '';
+      var f = e.c ? { q: tokenize(e.text), l: tokenize(title), b: tokenize(e.body) } : { q: tokenize(e.text), l: [], b: tokenize(e.body) };
+      docs.push({ len: { q: f.q.length, l: f.l.length, b: f.b.length } });
+      avg.q += f.q.length; avg.l += f.l.length; avg.b += f.b.length;
+      var seen = Object.create(null);
+      ['q', 'l', 'b'].forEach(function (fld) {
+        var tf = Object.create(null);
+        f[fld].forEach(function (t) { tf[t] = (tf[t] || 0) + 1; });
+        Object.keys(tf).forEach(function (t) {
+          var p = post[t] || (post[t] = Object.create(null));
+          (p[id] || (p[id] = { q: 0, l: 0, b: 0 }))[fld] = tf[t];
+          if (!seen[t]) { seen[t] = 1; df[t] = (df[t] || 0) + 1; }
+          if (fld === 'q') qdf[t] = (qdf[t] || 0) + 1;
+        });
+      });
+    });
+    avg.q = avg.q / N || 1; avg.l = avg.l / N || 1; avg.b = avg.b / N || 1;
+    var vocabLatin = Object.keys(post).filter(function (t) { return /^[a-z0-9]/.test(t); });
+    return { N: N, df: df, qdf: qdf, post: post, docs: docs, avg: avg, vocabLatin: vocabLatin, rows: all };
+  }
+  function idf(E, t) { var d = E.df[t] || 0; return Math.log(1 + (E.N - d + 0.5) / (d + 0.5)); }
+
+  // 带上限的编辑距离（含相邻字符互换，即 Damerau 的 OSA 变体），超过 max 提前返回 max+1。
+  function editDist(a, b, max) {
+    var la = a.length, lb = b.length;
+    if (Math.abs(la - lb) > max) return max + 1;
+    var prev2 = null, prev = [], cur, i, j;
+    for (j = 0; j <= lb; j++) prev[j] = j;
+    for (i = 1; i <= la; i++) {
+      cur = [i]; var rowMin = i;
+      for (j = 1; j <= lb; j++) {
+        var cost = a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1;
+        var v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+        if (prev2 && i > 1 && j > 1 && a.charAt(i - 1) === b.charAt(j - 2) && a.charAt(i - 2) === b.charAt(j - 1)) v = Math.min(v, prev2[j - 2] + 1);
+        cur[j] = v; if (v < rowMin) rowMin = v;
+      }
+      if (rowMin > max) return max + 1;
+      prev2 = prev; prev = cur;
+    }
+    return prev[lb];
+  }
+
+  // ── 查询扩展：返回 terms = { token: 权重 } 与 base = 原始查询里的 token 列表（用于算覆盖率）。──
+  function expand(E, q) {
+    var base = tokenize(q), terms = Object.create(null), cq = compact(q), viaFuzzy = Object.create(null), syn = Object.create(null);
+    function put(t, w) { if (w > (terms[t] || 0)) terms[t] = w; }
+    base.forEach(function (t) { put(t, 1); });
+    // 同义词：别名在 haystack 中出现（拉丁别名要求两侧不是字母数字，避免 rag 命中 storage）
+    function synPass(hay) {
+      SYN_C.forEach(function (g) {
+        var hit = g.some(function (a) {
+          if (!a.compact) return false;
+          var at = hay.indexOf(a.compact);
+          while (at !== -1) {
+            if (!a.latin) return true;
+            var l = hay.charAt(at - 1), r = hay.charAt(at + a.compact.length);
+            if (!/[a-z0-9]/.test(l) && !/[a-z0-9]/.test(r)) return true;
+            at = hay.indexOf(a.compact, at + 1);
+          }
+          return false;
+        });
+        if (hit) g.forEach(function (a) { a.toks.forEach(function (t) { put(t, 0.7); syn[t] = 1; }); });
+      });
+    }
+    synPass(cq);
+    // 英文：前缀（≥3 字符）与拼写容错（编辑距离 ≤1，长度 ≥5 时 ≤2）；只对词表里已有的词展开
+    base.forEach(function (t) {
+      if (!/^[a-z0-9]/.test(t) || t.length < 3 || E.post[t] && E.df[t] >= 3) return;
+      var max = t.length >= 5 ? (t.length >= 8 ? 2 : 1) : 1;
+      E.vocabLatin.forEach(function (v) {
+        if (v === t) return;
+        if (v.length > t.length && v.indexOf(t) === 0) { put(v, 0.6); (viaFuzzy[v] || (viaFuzzy[v] = [])).push(t); return; }
+        if (editDist(t, v, max) <= max) { put(v, 0.55); (viaFuzzy[v] || (viaFuzzy[v] = [])).push(t); }
+      });
+    });
+    var fixed = Object.keys(viaFuzzy).filter(function (v) { return viaFuzzy[v].some(function (t) { return v.indexOf(t) !== 0; }); });
+    if (fixed.length) synPass(' ' + fixed.map(compact).join(' ') + ' ');
+    // 覆盖关系：某组同义词命中时，组内任何 token 出现在文档里，都算「覆盖」了查询里触发该组的那些 token
+    var cover = Object.create(null);
+    SYN_C.forEach(function (g) {
+      var trig = [];
+      g.forEach(function (a) {
+        if (a.compact && cq.indexOf(a.compact) !== -1) a.toks.forEach(function (t) { if (base.indexOf(t) !== -1 && trig.indexOf(t) === -1) trig.push(t); });
+      });
+      if (!trig.length) return;
+      g.forEach(function (a) { a.toks.forEach(function (t) { (cover[t] || (cover[t] = [])).push.apply(cover[t], trig); }); });
+    });
+    Object.keys(viaFuzzy).forEach(function (v) { (cover[v] || (cover[v] = [])).push.apply(cover[v], viaFuzzy[v]); });
+    // 同义词组若是被「纠错后的词」触发的，组内任何词出现都算覆盖了那个错拼词（否则只含「量化」的卡会被覆盖率闸门误杀）
+    if (fixed.length) {
+      var typoBases = [];
+      fixed.forEach(function (v) { viaFuzzy[v].forEach(function (t) { if (v.indexOf(t) !== 0 && typoBases.indexOf(t) === -1) typoBases.push(t); }); });
+      SYN_C.forEach(function (g) {
+        var fired = g.some(function (a) { return fixed.some(function (v) { return a.compact === compact(v) || a.toks.indexOf(v) !== -1; }); });
+        if (fired) g.forEach(function (a) { a.toks.forEach(function (t) { (cover[t] || (cover[t] = [])).push.apply(cover[t], typoBases); }); });
+      });
+    }
+    return { terms: terms, base: base, cq: cq, cover: cover, syn: syn };
+  }
+
+  // 返回 { hits: [row...], needles: [高亮用的小写子串], total, mode }
+  function ranked(q) {
+    var E = engine, ex = expand(E, q); ranked.bestCov = 0;
+    if (!ex.base.length) return legacy(q);
+    var acc = Object.create(null), covered = Object.create(null), baseSet = Object.create(null), mass = 0, baseMass = Object.create(null);
+    ex.base.forEach(function (t) {
+      if (baseSet[t]) return;
+      baseSet[t] = 1;
+      // 查询里有、索引里没有的 token：CJK 二元组给小额质量；英文词给较大质量（多半是拼错或课程未涉及）
+      baseMass[t] = E.df[t] ? idf(E, t) : (/^[a-z0-9]/.test(t) ? 3 : 0.15);
+      mass += baseMass[t];
+    });
+    Object.keys(ex.terms).forEach(function (t) {
+      var p = E.post[t]; if (!p) return;
+      var w = ex.terms[t], ti = idf(E, t);
+      Object.keys(p).forEach(function (id) {
+        var d = E.docs[id], tf = 0, f = p[id];
+        ['q', 'l', 'b'].forEach(function (fld) {
+          if (!f[fld]) return;
+          var norm = 1 - B + B * (d.len[fld] / E.avg[fld]);
+          tf += W[fld] * f[fld] / norm;
+        });
+        acc[id] = (acc[id] || 0) + w * ti * (tf * (K1 + 1)) / (tf + K1);
+        var cv = covered[id] || (covered[id] = Object.create(null));
+        if (baseSet[t]) cv[t] = 1;
+        (ex.cover[t] || []).forEach(function (b) { cv[b] = 1; });
+      });
+    });
+    // 主题锚点：查询里至少要有一个词（或它的同义词 / 容错形）出现在某个主问题或课名里。
+    // 只出现在正文示例句里的词（「今天」「天气」）撑不起一次检索，否则无关问题也会拿到高分。
+    var anchored = false;
+    Object.keys(ex.terms).forEach(function (t) {
+      if (ex.terms[t] < 0.5 || anchored) return;
+      if (E.qdf[t]) anchored = true;                                        // 出现在某个主问题 / 课名里
+      else if (ex.cover[t] || ex.syn[t]) anchored = true;                    // 属于人工审定的同义词表，或是容错 / 前缀展开出来的词
+      else if (/^[a-z0-9]/.test(t) && (E.df[t] || 0) >= 2) anchored = true; // 索引里确实有、且不是一次性的英文词
+    });
+    if (!anchored) return { hits: [], needles: [], total: 0, mode: 'bm25f', top: 0, why: 'no-anchor', qdf: Object.keys(ex.terms).map(function (t) { return t + ':' + (E.qdf[t] || 0) + '/' + (E.df[t] || 0); }) };
+    // 覆盖率闸门：先算出每篇候选文档对查询的覆盖率，再按「相对最佳候选」设下限。
+    // 长的口语化查询里总有几个课程里没出现的字，不能要求每个词都命中；但也不能让只蹭到一个常见词的文档混进来。
+    var cands = [], bestCov = 0;
+    Object.keys(acc).forEach(function (id) {
+      var cv = covered[id], got = 0;
+      Object.keys(baseSet).forEach(function (b) { if (cv && cv[b]) got += baseMass[b]; });
+      var cov = mass ? got / mass : 1;
+      cands.push({ id: +id, cov: cov }); if (cov > bestCov) bestCov = cov;
+    });
+    var floor = MIN_COV; // 试过「相对最佳候选」的下限（0.6×best）：口语改写命中率没有任何提升，无关查询的噪声反而从平均 0.3 条涨到 4.0 条，已撤回
+    var list = [], top = 0;
+    cands.forEach(function (c) {
+      if (c.cov < floor) return;
+      var e = E.rows[c.id], s = acc[c.id] * (0.5 + 0.5 * c.cov);
+      if (ex.cq.length >= 3 && compact(e.text).indexOf(ex.cq) !== -1) s *= 1.5;       // 整句命中主问题/课名
+      else if (ex.cq.length >= 3 && compact(e.body).indexOf(ex.cq) !== -1) s *= 1.15;  // 整句命中正文
+      if (!e.c) s *= 1.05;                                                              // 课程条目略微靠前
+      list.push({ id: c.id, s: s }); if (s > top) top = s;
+    });
+    if (!list.length) return { hits: [], needles: [], total: 0, mode: 'bm25f', top: 0, why: 'low-cov', bestCov: ranked.bestCov, mass: mass, base: Object.keys(baseSet).map(function (t) { return t + '=' + baseMass[t].toFixed(2); }) };
+    list = list.filter(function (x) { return x.s >= top * 0.3; }).sort(function (a, b) { return b.s - a.s; });
+    var needles = Object.keys(ex.terms).filter(function (t) { return ex.terms[t] >= 0.5 && (t.length >= 2 || /^\d$/.test(t)); });
+    return { hits: list.map(function (x) { return E.rows[x.id]; }), needles: needles, total: list.length, mode: 'bm25f', top: top, terms: ex.terms, scores: list.slice(0, 5).map(function (x) { return +x.s.toFixed(2); }) };
+  }
+  // 兜底：查询里切不出任何 token（例如只输了一个汉字）时，退回「每个词都出现」的子串匹配。
+  function legacy(q) {
+    var terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return { hits: [], needles: [], total: 0, mode: 'legacy' };
+    var hits = engine.rows.filter(function (e) { return terms.every(function (t) { return e.key.indexOf(t) !== -1 || e.bodyKey.indexOf(t) !== -1; }); });
+    return { hits: hits, needles: terms, total: hits.length, mode: 'legacy' };
+  }
+
+  // ── 语义层（仅多页站点）：查询向量由代理 /s 现算（bge-m3），文档向量随站点发布，二者算余弦后与词法结果做 RRF 融合。──
+  // 参数来自离线评测（tmp/eval_hybrid.mjs）：闸门 / 阈值在 65 条调参查询上选，约束「无关查询平均返回 ≤1 条」。
+  // 两路等权（RRF 标准做法）：曾用语义权重 1.5，调参集上与等权持平（Hit@3 都是 98%），但真实浏览器里它把唯一正确的词法第一名挤出了前 3。
+  // 20 条留出查询 Hit@3：纯词法 50% → 混合 90%。语义层任何一步失败都静默退回纯词法。
+  var SEM = { gate: 0.55, th: 0.35, top: 10, ws: 1, wl: 1, k: 10 }, K_SEM_OFF = 'search_sem_off';
+  var semVec = null, semLoading = null, semDead = false, qvCache = Object.create(null);
+  function semOn() {
+    try { if (localStorage.getItem(K_SEM_OFF) === '1') return false; } catch (e) {}
+    return !!(SITE && SITE.sem) && !semDead;
+  }
+  function loadVec() {
+    if (semVec) return Promise.resolve(semVec);
+    if (!semLoading) {
+      semLoading = fetch(SITE.sem.vec).then(function (r) { if (!r.ok) throw new Error('vec ' + r.status); return r.arrayBuffer(); }).then(function (buf) {
+        var dv = new DataView(buf), n = dv.getUint32(0, true), d = dv.getUint32(4, true);
+        semVec = { n: n, d: d, scale: new Float32Array(buf.slice(8, 8 + 4 * n)), q: new Int8Array(buf, 8 + 4 * n, n * d) };
+        return semVec;
+      }).catch(function (e) { semLoading = null; throw e; });
+    }
+    return semLoading;
+  }
+  function embed(q) {
+    if (qvCache[q]) return Promise.resolve(qvCache[q]);
+    var ctl = window.AbortController ? new AbortController() : null, t = setTimeout(function () { if (ctl) ctl.abort(); }, 5000);
+    return fetch(SITE.sem.api, { method: 'POST', body: JSON.stringify({ q: q.slice(0, 64) }), headers: { 'content-type': 'text/plain;charset=UTF-8' }, signal: ctl ? ctl.signal : undefined })
+      .then(function (r) {
+        clearTimeout(t);
+        if (r.status === 403 || r.status === 503) semDead = true;      // 来源不在白名单 / 服务端未开语义层：本页不再尝试
+        if (!r.ok) throw new Error('embed ' + r.status);
+        return r.json();
+      }).then(function (j) { if (!j.v || j.v.length !== 1024) throw new Error('bad vec'); qvCache[q] = j.v; return j.v; });
+  }
+  // 返回按余弦从高到低的 [{id, s}]（id 是索引行号，与搜索索引同序，构建时已校验）
+  function semRank(qv, V) {
+    var n = 0, i, j; for (i = 0; i < qv.length; i++) n += qv[i] * qv[i]; n = Math.sqrt(n) || 1;
+    var out = [];
+    for (i = 0; i < V.n; i++) { var o = i * V.d, s = 0; for (j = 0; j < V.d; j++) s += V.q[o + j] * qv[j]; out.push({ id: i, s: s * V.scale[i] / n }); }
+    return out.sort(function (a, b) { return b.s - a.s; });
+  }
+  // RRF：score = Σ w / (k + rank)。语义层只有在最高余弦 ≥ gate 时才参与（挡住与课程无关的查询）。
+  function hybrid(lexR, qv, V) {
+    var sr = semRank(qv, V), use = sr.length && sr[0].s >= SEM.gate;
+    var sc = new Map(), sem = Object.create(null), lexSet = Object.create(null);
+    lexR.hits.slice(0, 40).forEach(function (e, r) { var id = engine.rows.indexOf(e); lexSet[id] = 1; sc.set(id, (sc.get(id) || 0) + SEM.wl / (SEM.k + r + 1)); });
+    if (use) sr.filter(function (x) { return x.s >= SEM.th; }).slice(0, SEM.top).forEach(function (x, r) {
+      sc.set(x.id, (sc.get(x.id) || 0) + SEM.ws / (SEM.k + r + 1)); if (!lexSet[x.id]) sem[x.id] = 1;
+    });
+    var ids = Array.from(sc.keys()).sort(function (a, b) { return sc.get(b) - sc.get(a); });
+    return { hits: ids.map(function (id) { return engine.rows[id]; }), semOnly: sem, needles: lexR.needles, total: ids.length, mode: use ? 'hybrid' : 'bm25f', topCos: sr.length ? sr[0].s : 0 };
+  }
+  CS.hybrid = function (q, qv) { return loadVec().then(function (V) { var r = hybrid(ranked(q), qv, V); return r.hits.map(function (e) { return { l: e.l, c: e.c, semOnly: !!r.semOnly[engine.rows.indexOf(e)] }; }); }); };
+  CS.semState = function () { return { available: !!(SITE && SITE.sem), on: semOn(), dead: semDead }; };
+
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function where(e) { return e.c ? '第 ' + e.l + ' 课 · 卡片 ' + e.k + (LESSON_TITLES[e.l] ? ' · ' + LESSON_TITLES[e.l] : '') : '第 ' + e.l + ' 课'; }
+  // 在原文上定位命中区间，再分段转义，避免搜 amp / lt 时把标签插进 &amp; / &lt; 实体里。
+  function mark(text, terms) {
+    var low = text.toLowerCase(), on = new Array(text.length + 1).join('0').split('').map(Number);
+    terms.forEach(function (t) {
+      if (!t) return;
+      for (var i = low.indexOf(t); i !== -1; i = low.indexOf(t, i + t.length)) {
+        for (var j = i; j < i + t.length && j < on.length; j++) on[j] = 1;
+      }
+    });
+    var out = '', i = 0;
+    while (i < text.length) {
+      var j = i; while (j < text.length && on[j] === on[i]) j++;
+      var seg = esc(text.slice(i, j));
+      out += on[i] ? '<mark>' + seg + '</mark>' : seg;
+      i = j;
+    }
+    return out;
+  }
+  // 正文摘要：取命中词最密集的一段；标题已经命中时不再给摘要。
+  function snippet(e, needles) {
+    var low = e.bodyKey, pos = [];
+    needles.forEach(function (t) { for (var i = low.indexOf(t); i !== -1 && pos.length < 400; i = low.indexOf(t, i + t.length)) pos.push([i, t]); });
+    if (!pos.length) return '';
+    var best = pos[0][0], bestN = 0;
+    pos.forEach(function (p) {
+      var seen = {}, n = 0;
+      pos.forEach(function (o) { if (o[0] >= p[0] - 10 && o[0] <= p[0] + 70 && !seen[o[1]]) { seen[o[1]] = 1; n++; } });
+      if (n > bestN) { bestN = n; best = p[0]; }
+    });
+    var from = Math.max(0, best - 28), to = Math.min(e.body.length, best + 70);
+    return (from > 0 ? '…' : '') + e.body.slice(from, to) + (to < e.body.length ? '…' : '');
+  }
+
+  function go(l, c) {
+    if (SITE && Number(l) !== SITE.lesson) {
+      location.href = (SITE.pages[String(l)] || './') + (c ? '#card=' + encodeURIComponent(c) : '');
+      return;
+    }
+    if (activeLesson !== l || !c) switchLesson(l);
+    if (!c) return;
+    openCard(c);
+  }
+  function openCard(c) {
+    var card = document.querySelector('#lesson-container .card[data-card="' + c + '"]');
+    if (!card) return;
+    if (!card.classList.contains('active')) toggleCard(card.querySelector('.card-q'));
+    else card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  var box = document.getElementById('sideSearch'), res = document.getElementById('sideResults'), resumeEl = document.getElementById('sideResume');
+  var timer = null, semTimer = null, lastHits = [], seq = 0;
+
+  function show(r, q) {
+    lastHits = r.hits.slice(0, 20);
+    if (!lastHits.length) { res.innerHTML = '<div class="side-empty">没有找到「' + esc(q.slice(0, 20)) + '」相关的课或卡片，换个说法试试</div>'; return; }
+    res.innerHTML = lastHits.map(function (e, i) {
+      var inTitle = r.needles.some(function (t) { return e.key.indexOf(t) !== -1; });
+      var sn = inTitle ? '' : snippet(e, r.needles);
+      var semTag = r.semOnly && r.semOnly[engine.rows.indexOf(e)] ? ' · 语义相近' : '';
+      return '<button type="button" class="side-hit" role="option" data-i="' + i + '">' + mark(e.text, r.needles) +
+        (sn ? '<span class="hit-snip">' + mark(sn, r.needles) + '</span>' : '') +
+        '<span class="hit-where">' + esc(where(e)) + semTag + '</span></button>';
+    }).join('') + (r.total > 20 ? '<div class="side-empty">还有 ' + (r.total - 20) + ' 条，换个更具体的词试试</div>' : '');
+    clearTimeout(timer);
+    timer = setTimeout(function () { Stats.track('search', { k: r.hits.length ? 'hit' : 'miss', n: Math.min(r.total, 999) }); }, 800);
+  }
+  function render() {
+    var q = box.value.trim(), my = ++seq;
+    if (!q) { res.innerHTML = ''; lastHits = []; return; }
+    if (!rows && SITE) res.innerHTML = '<div class="side-empty">正在加载搜索索引…</div>';
+    loadIndex().then(function () {
+      if (my !== seq) return; // 索引加载期间输入又变了，丢弃过期结果
+      var lexR = ranked(q);
+      show(lexR, q);
+      if (!semOn() || q.length < 2) return;
+      clearTimeout(semTimer);
+      semTimer = setTimeout(function () {
+        if (my !== seq) return;
+        Promise.all([embed(q), loadVec()]).then(function (a) {
+          if (my !== seq) return;
+          var r = hybrid(lexR, a[0], a[1]);
+          if (r.mode === 'hybrid') show(r, q);
+        }).catch(function () { /* 语义层失败：保留词法结果 */ });
+      }, 350);
+    }).catch(function () {
+      if (my !== seq) return;
+      lastHits = [];
+      res.innerHTML = '<div class="side-empty">搜索索引加载失败，请检查网络后重试。</div>';
+    });
+  }
+  function pick(e) {
+    go(e.l, e.c);
+    box.value = ''; res.innerHTML = ''; lastHits = []; seq++;
+  }
+  box.addEventListener('focus', function () { if (SITE) loadIndex().catch(function () {}); });
+  var semBtn = document.getElementById('semToggle');
+  function semLabel() {
+    if (!semBtn) return;
+    var st = CS.semState();
+    semBtn.style.display = st.available ? '' : 'none';
+    semBtn.textContent = st.on ? '关闭语义搜索' : '开启语义搜索';
+  }
+  if (semBtn) semBtn.addEventListener('click', function () {
+    try { if (semOn()) localStorage.setItem(K_SEM_OFF, '1'); else { localStorage.removeItem(K_SEM_OFF); semDead = false; } } catch (e) {}
+    semLabel();
+  });
+  semLabel();
+  box.addEventListener('input', render);
+  box.addEventListener('keydown', function (ev) {
+    ev.stopPropagation(); // 避免方向键触发全局「展开下一张卡片」
+    if (ev.key === 'Enter' && lastHits.length) { ev.preventDefault(); pick(lastHits[0]); }
+    if (ev.key === 'Escape') { box.value = ''; res.innerHTML = ''; lastHits = []; seq++; }
+  });
+  res.addEventListener('click', function (ev) {
+    var b = ev.target.closest('.side-hit');
+    if (b) pick(lastHits[Number(b.dataset.i)]);
+  });
+
+  // 继续上次阅读：位置由 Stats.savePos 在用户真正展开卡片时写入 localStorage（只存本地），连主问题文本一起存，
+  // 因此多页站点里不必加载任何索引就能显示横幅。旧版本存的位置没有 q 字段，单文件版仍可用本地索引补全。
+  (function renderResume() {
+    var pos = Stats.getPos();
+    if (!pos || (pos.l === 1 && String(pos.c) === '1')) return;
+    var q = pos.q || '', k = pos.k || 0;
+    if (!q && !SITE) {
+      var e = buildLocal().filter(function (x) { return x.l === pos.l && String(x.c) === String(pos.c); })[0];
+      if (e) { q = e.text; k = e.k; }
+    }
+    if (!q) return;
+    var label = '第 ' + pos.l + ' 课' + (k ? ' · 卡片 ' + k : '');
+    var short = q.length > 26 ? q.slice(0, 26) + '…' : q;
+    resumeEl.innerHTML = '<button type="button" class="side-resume">继续上次阅读<span class="hit-where">' + esc(label) + '：' + esc(short) + '</span></button>';
+    resumeEl.firstChild.addEventListener('click', function () {
+      Stats.track('resume', { l: String(pos.l), from: 'banner' });
+      resumeEl.innerHTML = '';
+      go(pos.l, pos.c);
+    });
+  })();
+
+  // 深链：#card=<卡片id> 打开并滚动到该卡片（站点内跨页搜索 / 继续阅读都靠它）。
+  (function deepLink() {
+    var m = /[#&]card=([^&]+)/.exec(location.hash || '');
+    if (!m) return;
+    var c = decodeURIComponent(m[1]);
+    setTimeout(function () { openCard(c); }, 50);
+  })();
+})();
 </script>
 </body>
 </html>

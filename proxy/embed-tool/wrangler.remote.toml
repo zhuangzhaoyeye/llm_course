@@ -1,0 +1,11 @@
+# 远程生成文档向量用（见 scripts/embed_docs.py）。workers.dev 在国内被 DNS 污染，所以绑一个临时子域名。用完执行 wrangler delete。
+name = "llm-course-ai-probe"
+main = "remote-worker.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+routes = [
+  { pattern = "ai-probe.taleverse.cn", custom_domain = true }
+]
+
+[ai]
+binding = "AI"
