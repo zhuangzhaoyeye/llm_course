@@ -1132,6 +1132,9 @@ window.Stats = (function () {
   var host = location.hostname;
   var isProd = location.protocol === 'https:' && !/^(localhost|127\.|\[::1\]|.*\.local)$/.test(host);
   var K_SID = 'stats_sid', K_COUNTED = 'stats_counted';
+  // 服务器端是否已经开通统计存储（Cloudflare D1）。sendBeacon 读不到响应，前端无法自己判断，只能在这里声明。
+  // 目前没有开通：服务器收到事件后直接丢弃。开通 D1 并绑定后，把它改成 true、重新构建发布（见 proxy/wrangler.toml 的 D1 注释）。
+  var STATS_STORED = false;
   var t0 = Date.now(), sid = '', buf = [], localLog = [], dwell = {}, paused = [], booted = false, ids = null;
 
   function ls(k, v) {
@@ -1274,7 +1277,8 @@ window.Stats = (function () {
     if (st) {
       st.textContent = dnt() ? '检测到你的浏览器开启了「Do Not Track」，统计已自动关闭。'
         : (!on ? '统计已关闭：不会记录任何事件。'
-          : (isProd ? '统计已开启：匿名上报到本站自己的服务器。' : '本机预览模式：事件只保存在当前页面内存里，不会上传（线上站点才会真正上报）。'));
+          : (isProd ? (STATS_STORED ? '统计已开启：匿名上报到本站自己的服务器。' : '统计已开启，但服务器暂未启用存储，事件不会被保存。')
+            : '本机预览模式：事件只保存在当前页面内存里，不会上传（线上站点才会真正上报）。'));
     }
     if (btn) { btn.style.display = dnt() ? 'none' : ''; btn.textContent = ls(K_OPT) === '1' ? '重新开启统计' : '关闭统计'; }
     if (link) link.textContent = on ? '匿名统计 · 说明与关闭' : '匿名统计 · 已关闭（点此查看）';
