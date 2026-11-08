@@ -178,6 +178,20 @@
           <div class="step-desc">&nbsp;&nbsp;&nbsp;&nbsp;= [0.43+0.28, 0.16+0.09]</div>
           <div class="step-desc" style="color:var(--success);font-weight:600;">&nbsp;&nbsp;&nbsp;&nbsp;= <strong>[0.71, 0.25]</strong>  ← 这个向量同时包含了"我"和"吃"的信息</div>
         </div>
+        <!-- 交互式分步动画：Self-Attention 计算走查（可播放） -->
+        <div class="anim-panel" id="animPanel">
+          <div class="anim-head">
+            <div class="anim-title">🎬 分步动画 · Self-Attention 计算走查</div>
+            <div class="anim-controls">
+              <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+              <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+              <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+            </div>
+          </div>
+          <div class="anim-stepbar" id="animStepbar"></div>
+          <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+          <div class="anim-caption" id="animCaption"></div>
+        </div>
       </div>
       <div class="content-section">
         
