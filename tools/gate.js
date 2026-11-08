@@ -29,16 +29,18 @@ function run(cmd) {
 const p = run('node tools/provenance_check.js');
 const r = run('node tools/review_check.js --all');
 const c = run('node tools/coverage_check.js');
+const s = run('python3 scripts/build_site.py --check');
 
 const tail = (s, n) =>
   s.split('\n').filter((l) => /\[FAIL\]|FAIL \d+|存在 FAIL|禁止/.test(l)).slice(0, n).join('\n');
 
-const blocked = p.code !== 0 || r.code !== 0 || c.code !== 0;
+const blocked = p.code !== 0 || r.code !== 0 || c.code !== 0 || s.code !== 0;
 
 const report = {
   provenance: { code: p.code, fails: tail(p.out, 8) },
   review: { code: r.code, fails: tail(r.out, 8) },
   coverage: { code: c.code, fails: tail(c.out, 8) },
+  site: { code: s.code, fails: tail(s.out, 8) },
   verdict: blocked ? 'BLOCKED' : 'OPEN',
 };
 
@@ -54,6 +56,9 @@ if (process.argv.includes('--json')) {
   if (r.code !== 0) console.log(tail(r.out, 8) || '  (见 review_check 完整输出)');
   console.log(`[锁3] coverage_check (覆盖地图归档/锚点/无残留) → exit ${c.code}`);
   if (c.code !== 0) console.log(tail(c.out, 8) || '  (见 coverage_check 完整输出)');
+  const siteFail = s.out.split('\n').filter((l) => /FAIL/.test(l)).slice(0, 4).join('\n');
+  console.log(`[锁4] build_site.py --check (语义向量/站点一致) → exit ${s.code}`);
+  if (s.code !== 0) console.log(siteFail || '  (见 build_site.py --check 完整输出)');
   console.log('----------------------------------------');
   if (blocked) {
     console.log('GATE = BLOCKED');

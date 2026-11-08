@@ -85,10 +85,15 @@ description: 生成或修改课程卡片内容，强制走因果链、五阶段�
 node tools/review_check.js --lesson <id>   # 校验逐条核验报告覆盖度（零依赖）
 node tools/coverage_check.js               # 覆盖地图归档/锚点/学生页面无残留（新课必过）
 node tools/content_verify.js --src         # 内容层门禁
-python3 scripts/build.py                   # 构建
+python3 scripts/build.py                   # 构建单文件版
 node tools/content_verify.js               # 产物层门禁
 node tools/verify.js                       # 渲染层（装了 Playwright 时）
+python3 scripts/embed_docs.py              # 重算语义向量（新课必跑，否则语义搜索降级；见 30-dev-rules.md 第六节第 9 条）
+python3 scripts/build_site.py              # 构建多页站点版
+python3 scripts/build_site.py --check      # 校验语义向量不陈旧 + site/ 与源一致（gate 第 4 把锁）
 ```
+
+> **语义向量是硬要求（2026-11-08）**：新增/修改课程正文后必须重算语义向量并跑通 `build_site.py --check`，否则 gate BLOCKED，站点会静默降级成纯词法搜索。`embed_docs.py` 走远程方式（起临时 Cloudflare Worker），步骤见脚本顶部。
 
 然后再**调用 `card-review` skill 对新增内容做一次独立质检**——生成者不能只用自己的标准验收自己的产出。两步都过才算完成。
 

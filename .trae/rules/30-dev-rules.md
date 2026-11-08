@@ -94,8 +94,8 @@ python3 scripts/embed_docs.py         # 课程正文改了之后重算语义向�
 
 | 触发条件 | 动作 |
 |----------|------|
-| 改了 `src/lessons/*.html` 或 `src/shell.html` | 构建（产物会自动落到 `~/Downloads/dist_course.html`）→ `content_verify.js` → `verify.js` |
-| 改了 CSS / 侧边栏 / 交互 JS | 构建（同上自动交付 Downloads）→ `verify.js` |
+| 改了 `src/lessons/*.html` 或 `src/shell.html` | 构建（产物会自动落到 `~/Downloads/dist_course.html`）→ `content_verify.js` → `verify.js` → **`embed_docs.py` 重算语义向量 → `build_site.py`** |
+| 改了 CSS / 侧边栏 / 交互 JS | 构建（同上自动交付 Downloads）→ `verify.js` → `build_site.py`（不涉及向量，但需重建站点） |
 | 改了 `manifest.json` | `build.py --check` + `content_verify.js` |
 | 改了 `tools/*.js` 或 `scripts/build.py` | 跑该脚本自身验证自洽性 |
 | **改了 `.trae/rules/**` 或 `.trae/skills/**`** | **跑「规则卫生」5 条清单（第八节）——规则/skill 的增删改一律由读数决定，不靠即兴** |
@@ -150,6 +150,7 @@ python3 scripts/embed_docs.py         # 课程正文改了之后重算语义向�
 6. 课间 `.footer-nav` 前后导航链接
 7. `content_verify.js` 与 `verify.js` 无需改（按 manifest 与 DOM 自动遍历），但必须跑通
 8. **覆盖地图（docs 侧，非交付物）**：`docs/coverage-maps.md` 补该课一节（四段：本领域标准知识块 / 本课覆盖 / 其余去向 / 有意不讲），并在 `tools/coverage_check.js` 的 `ANCHORS` 登记该课锚点 —— 否则 `coverage_check` FAIL → gate BLOCKED
+9. **语义向量必须重算（2026-11-08 用户要求，永久生效）**：新增/修改课程正文后，先 `python3 scripts/embed_docs.py` 重算语义向量（只补算变化行），再 `python3 scripts/build_site.py`。**否则语义向量陈旧，`build_site.py --check` FAIL → gate BLOCKED**，站点会静默降级成纯词法搜索（丢失"换个说法/中英互通/错拼"的语义匹配）。**禁止以"词法搜索能用"为由降级部署**——新课必须支持完整的既有搜索功能。
 
 ## 七、当前门禁结果（基线，2026-09-29）
 
