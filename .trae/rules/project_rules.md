@@ -7,7 +7,7 @@ alwaysApply: true
 
 > 规则文件索引：`00-preflight.md`（**强制前置检查**）· `project_rules.md`（总纲 / Harness）· `10-course-design.md`（课程设计理念）· `15-naming.md`（**名词对齐表**：口语说法 ↔ HTML 类名）· `20-content-rules.md`（内容铁律 / 卡片质量清单 / 三大验证维度）· `30-dev-rules.md`（开发工程 / 验证 / 防御）· `40-ai-tutor.md`（AI 助教规范）
 >
-> 技能索引（按需加载，路由表见第三节）：`.trae/skills/preflight-search`（每轮必调）· `.trae/skills/course-content` · `.trae/skills/card-review` · `.trae/skills/course-build` · `.trae/skills/course-verify` · `.trae/skills/course-beautify`（视觉精修）
+> 技能索引（按需加载，路由表见第三节）：`.trae/skills/preflight-search`（每轮必调）· `.trae/skills/course-content` · `.trae/skills/card-review` · `.trae/skills/course-build` · `.trae/skills/course-verify` · `.trae/skills/juejin-publish` · `.trae/skills/csdn-publish` · `.trae/skills/session-handoff`
 
 # 第一铁律（覆盖其余一切细则）
 
@@ -81,7 +81,9 @@ dist_course.html             产物：构建生成，禁止手改
 | **用户说「检查」「自检」「质检」「体检」「评审」**、判断卡片是否达标 | `card-review` |
 | 构建、打包、重新生成产物、改侧边栏或课程映射表 | `course-build` |
 | 跑验证脚本、交付前把关、刚修完一个缺陷 | `course-verify` |
-| **美化、视觉精修、排版/配色、截图对比、让某张卡像标杆卡一样好看** | `course-beautify` |
+| 把文章发到**掘金** / 存或更新掘金草稿 | `juejin-publish` |
+| 把文章发到 **CSDN** / 存或更新 CSDN 草稿 | `csdn-publish` |
+| 用户说「交接」「开新窗口」「新开对话」「保存上下文」「handoff」等 | `session-handoff` |
 
 **串联与逐条铁律**：生成（`course-content`）完成后**必须串联质检（`card-review`）**；两者都必须**逐条过**「每张主问题 + 该主问题下挂的每一条追问」，一条不漏、不抽样、不省 token，且**每条逐条联网核验**，产出 `reports/<id>-逐条核验.md`，由 `tools/review_check.js` 校验覆盖度——报告缺失或覆盖不全 = 等于没做。
 
@@ -120,6 +122,8 @@ dist_course.html             产物：构建生成，禁止手改
 | **15** | **内容改过 ≠ 台账还有效**：内容任何改动都使该课台账过期，必须重核验并 `--stamp`；未全绿禁止进入下一任务 | 补完追问直接宣布"第 2 课 FAIL 0" |
 | **16** | **任何内容都必须逐条联网核验**（含算术、推导、语义）——即使很有把握；台账每行须留联网证据（http 或 `query=`），由 `review_check.js` H1f 强制 | 「这个我确定，不用搜」；只给事实类联网 |
 | **17** | **交付标准 = 0 FAIL 且 0 WARN**（IRON-RULE-0，2026-09-29 用户要求，永久生效）：`gate.js` 必须 `GATE = OPEN`，且 `provenance_check` / `review_check --all` / `content_verify --src` 三条**全部 FAIL 0 且 WARN 0**，`build.py --check` PASS。WARN 必须当轮处置（改内容或改误报检查器），**禁止"记录在案、下轮再说"**；任一 WARN 未清时**不得声称"已完成"** | 说"FAIL 清零了"但留着 8 条 WARN；把 FAIL 降级成 WARN 来"清零" |
+| **18** | **对外发帖只存草稿，不替用户点"发布"**（掘金 / CSDN 走 `juejin-publish` / `csdn-publish`）：登录态只放独立配置目录，**禁止读取用户日常浏览器的 cookie、禁止把凭证写进文件或回复**；存完必须**回读服务器上的草稿**校验，不凭"点了保存"报成功；**每次新建或更新草稿后，回复里必须给出可点击的草稿链接**（掘金 `https://juejin.cn/editor/drafts/<ID>`、CSDN `https://editor.csdn.net/md?articleId=<ID>`），拿不到 ID 就明说，不得省略；正式发布需用户明确同意 | 替用户点发布；把 cookie 贴进对话；只看"保存成功"提示就报成功 |
+| **19** | **凡需要用户在网页上亲自操作的事，必须同时做到两点**（2026-11-02 用户要求，长期有效）：① **能代填的一律先填好**——能用链接参数预填就给预填链接（如 GitHub 新建 issue 的 `?title=…&body=…`），能用 MCP / 脚本写入的先写入，用户只剩点按钮；② **回复里必须给出该操作的可点击网址**，并写清点哪里、做什么。新出现的网页操作地址登记到本文件第六节 | 只说"去设置里上传"却不给网址；表单能预填却让用户自己复制粘贴 |
 
 ## 五、迭代日志格式
 
@@ -135,3 +139,20 @@ dist_course.html             产物：构建生成，禁止手改
 ```
 
 触发条件（满足任一即记录，但**必须先与用户确认**）：新增自动化检查项 / 验证分数任一维度提升 >5% / 修复系统性 Bug / 规则文件升级 / 引入新工具链 / 内容质量方法论有可总结进步 / 克服了阻碍多轮的难题。
+
+## 六、需要用户网页操作的地址登记
+
+规则见第四节第 19 条：**每次需要你操作时，回复里都要附网址，并尽量先代填**。已核实可用的地址：
+
+| 场景 | 网址 | 我先做的 / 你要做的 |
+|---|---|---|
+| 上传仓库社交预览图 | https://github.com/zhuangzhaoyeye/llm_course/settings | 图已备好 `assets/social-preview.png`；你在 Settings → Social preview → Edit → Upload an image 上传（GitHub 无 API） |
+| 向 GitHubDaily 提交自荐 | https://github.com/GitHubDaily/GitHubDaily/issues/new | 我生成带 `title`、`body` 参数的预填链接；你登录后点 Submit new issue |
+| 看掘金草稿箱 | https://juejin.cn/creator/content/article/draft | 页面默认停在"文章"标签，看"草稿箱(N)" |
+| 看 CSDN 草稿箱 | https://mp.csdn.net/mp_blog/manage/article | 顶部有"已发布(N) / 草稿箱(N)"计数 |
+| 草稿本身 | 掘金 `https://juejin.cn/editor/drafts/<ID>`；CSDN `https://editor.csdn.net/md?articleId=<ID>` | 每次更新草稿后都发（第 18 条） |
+| 开启 GitHub Discussions | https://github.com/zhuangzhaoyeye/llm_course/settings | 本机无 `gh`、无 token，无法代开。你在 Settings → General → Features 勾选 **Discussions**，再点 Set up discussions 发一条欢迎帖。开启前 `/discussions` 返回 404（2026-11-05 实测），站点页脚和 README 里的讨论区链接此时是死链 |
+| 创建 D1 统计库并部署 Worker | 无网页入口，命令行：`cd proxy && npx wrangler d1 create llm-course-stats` | 见 `proxy/wrangler.toml` 的 D1 注释；统计上线前线上收不到数据 |
+
+没有核实过的地址（Google Search Console、百度站长平台、V2EX 发帖页等）不写进表里，首次用到并核实后再登记。
+

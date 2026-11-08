@@ -1,0 +1,185 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 35 课：决策模型</h2>
+    <p class="subtitle">前面从 Transformer 讲到 Agent，模型始终在"写句子"——每答一道选择题，它都要逐字生成一段文字再猜答案。这一课问一个更底层的问题：<strong>如果任务本来就是"选一个 / 打个分 / 判个对错"，为什么非要用"写一段话"来完成？</strong>我们沿着"生成的不匹配 → 成本 → 可靠性 → 概率的本质"一路推，最后逼出一个新范式——决策模型（decision model）：它不写句子，直接输出每个选项的概率。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清"生成"与"决策"这两种任务对模型输出的要求有什么根本不同，并判断一个任务该走哪条路<br>② 用具体数字算清自回归做决策的代价（token 数、前向次数、时间），并对比决策模型的单次前向<br>③ 解释为什么自回归会编造选项、格式漂移、信心不可靠、换序就变，而决策模型为什么能同时避开这四点<br>④ 分清「决策模型」（Drex / DPDM）与「推理模型」（第 12 课）这两条分岔路各自解决什么</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步逻辑递进：从"任务本质"到"决策模型"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">一个"决策"任务（选答案 / 打勾 / 打分）的本质，是输出<strong>每个选项的得分</strong>，而不是写一段关于答案的文字——<strong>这就要求</strong>先看清：自回归 LLM 逐 <b>token</b> 做选择时，实际在"写一句话"，而不是"选一个答案"。<b class="rn-key">决策要的是分数，不是文字</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">既然「<b>决策要的是分数，不是文字</b>」，<strong>那么</strong>用"写句子"去选一个答案就要付出多余代价——<strong>这就要求</strong>算清这笔账：生成 N 个 token 就是 N 次前向，而决策模型一次前向就够了。<b class="rn-key">生成比选择贵一个量级</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">既然「<b>生成比选择贵一个量级</b>」，<strong>而且</strong>"写"还会跑偏——<strong>这就要求</strong>正视自回归的格式漂移：它逐 <b>token</b> 生成时可能编造不存在的选项、输出格式五花八门、还得事后解析。<b class="rn-key">写出来的话会跑偏</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">既然「<b>写出来的话会跑偏</b>」，<strong>那么</strong>即便写对了，隐式的"信心"也不可信、换个选项顺序答案还会变——<strong>这就要求</strong>区分"生成出来的话"和"真实的 <b>token</b> 级概率判断"。<b class="rn-key">话对≠信心对</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">既然「<b>话对≠信心对</b>」，<strong>所以</strong>回到任务本质：决策要的本就是概率分布（而非生成 <b>token</b>）——<strong>这就要求</strong>把"决策"从"生成"里拆出来，让模型直接输出每个选项的概率。<b class="rn-key">决策的本质是概率</b>。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">既然「<b>决策的本质是概率</b>」，<strong>所以</strong>需要一个专门学"条件预测"的模型（不生成 <b>token</b>、直接输出概率）——<strong>这就要求</strong>看 DPDM（共享冻结预测器）与 Drex（决策模型）怎么做到、效果如何，并分清它和"推理模型"的分岔。<b class="rn-key">决策要专门的模型</b>。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">决策模型</span><span class="meta-tag">Drex</span><span class="meta-tag">DPDM</span><span class="meta-tag">自回归 vs 非自回归</span><span class="meta-tag">概率输出</span><span class="meta-tag">校准与稳定性</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="35-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">让 LLM 从 A/B/C/D 里选一个答案时，它到底是在"选"还是在"写"？</div><div class="card-q-hint">提示：想想模型是怎么产出答案的——它是一下子蹦出"B"，还是一个字一个字地把答案"写"出来？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>自回归语言模型（autoregressive，即"每次只生成下一个字、再把新字拼回输入接着生成"）是 GPT 一族的根基（Radford 等，2018，Improving Language Understanding by Generative Pre-Training）。它的训练目标是"预测下一个词"，所以推理时也只会"续写"——哪怕任务只是"四选一"，它也只会一个字一个字地往外写一段话，再在话里"说出"答案。</div>
+      <div class="content-section"><p>这是整课的第一问：<strong>一道选择题，模型到底在"选"还是"写"？</strong></p><p><strong>因为</strong>模型只有一个动作——自回归（autoregressive）生成：每一步预测下一个 token，再把预测结果拼回输入。它没有"从四个里挑一个"的捷径，只能把"选 B"这件事写成一段文字。<strong>就像</strong>让你从四张答题卡里选一张，你却必须先写一篇短文、再在文末说"我选 B"——不是不能，是绕了一大圈。<strong>所以</strong>先看清这一圈绕在哪。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第一笔账：一个"选 B"被写成了多少步</div>
+        <div class="step"><div class="step-title">Step 1：逐 token 生成"答案是 B"</div>
+          <table><tr><th>步骤</th><th>这一步生成</th><th>此时输入里已有哪些词</th></tr><tr><td>1</td><td>"答案"</td><td>（题目）</td></tr><tr><td>2</td><td>"是"</td><td>题目 + "答案"</td></tr><tr><td>3</td><td>"B"</td><td>题目 + "答案是"</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条观察：光说出"答案是 B"就要 <strong>3 次生成</strong>（每次都是一次完整前向）。而任务真正需要的只是那一个"B"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：真实回答比这更长</div>
+          <table><tr><th>生成内容</th><th>token 数（示意）</th></tr><tr><td>最短："B"</td><td>1</td></tr><tr><td>常见："答案是 B"</td><td>3</td></tr><tr><td>带解释："答案是 B，因为……"</td><td>20–50</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：<strong>3 token = 3 次前向，50 token = 50 次前向</strong>——决策任务要的"一个选择"，被自回归放大成了 1 到 50 个 token 的文本，每一个 token 都是一次前向计算。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 核心矛盾</div><p>任务要的是一个<strong>选择</strong>（挑出 B），模型却只能<strong>生成</strong>（写一段话）。<strong>没有"直接选"这条路</strong>，所以它只能把选择"翻译"成文字，再让下游从文字里把答案"挖"出来。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','35-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','35-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-35-1" class="llm-section"><button class="llm-btn" onclick="startChat('35-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="35-1"><div class="chat-toolbar"><button onclick="copyChat('35-1')">📋 复制对话</button><button onclick="clearChat('35-1')">🗑 清空</button><button onclick="stopLLM('35-1')" id="stop-btn-35-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('35-1')" id="regenerate-btn-35-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="35-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"选 vs 写"有疑问？比如「为什么模型不能直接选」「所有任务都要写吗」？<br><br>我会用具体数字回答你——模型到底是怎么"写"出答案的。</div></div><div class="chat-input-row"><textarea data-input="35-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('35-1')}" rows="1" placeholder="例如：模型为什么不直接输出B？"></textarea><button onclick="sendLLM('35-1')">发送</button></div></div></div>
+      <div id="tab-qna-35-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('35-1')">🔄 换一批</button></div><div class="qna-list" data-qna="35-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="35-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">选一个答案，为什么要付出一整段话的计算代价？</div><div class="card-q-hint">提示：把"写一个字"看成"算一次"。写 30 个字的答案，和只输出一个概率，各自要"算"多少次？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>自回归生成的成本与输出长度成正比：每多生成一个 token，就多一次完整的前向计算。而决策模型（decision model）的诉求恰恰相反——Drex 家族（Nace AI，2026）报告其最大模型 <strong>Drex Max</strong> 单次决策约 <strong>183 毫秒</strong>，因为它是"一次前向直接输出每个选项的概率"，没有逐 token 生成的循环。</div>
+      <div class="content-section"><p>上一张卡片看到：选择被翻译成了文字。这一张问：<strong>这笔翻译费是多少？</strong></p><p><strong>因为</strong>自回归的每一步生成都是一次完整前向（forward，即把输入从头到尾过一遍网络），生成 30 个 token 就是 30 次前向；而决策模型一次前向就同时给出所有选项的概率。<strong>就像</strong>点外卖：自回归是"一道菜一道菜地单独下单、每次付一次配送费"；决策模型是"一次下单把整桌菜都点了"。<strong>所以</strong>把两种路径的计算量摆在一起算。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第二笔账：前向次数差一个量级</div>
+        <div class="step"><div class="step-title">Step 1：两种路径的前向次数</div>
+          <table><tr><th>路径</th><th>要算几次前向</th><th>说明</th></tr><tr><td>自回归生成 30 token</td><td><strong>30 次</strong></td><td>每 token 一次</td></tr><tr><td>决策模型（单次前向）</td><td><strong>1 次</strong></td><td>同时出全部概率</td></tr><tr><td>倍数</td><td>30 ÷ 1 = <strong>30×</strong></td><td>——</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：30 次对 1 次，计算量差 <strong>30 倍</strong>（此处 30 是"带解释的回答"的 token 数示意；最短的"B"是 1 token，倍数为 1×，代价取决于你让它写多长）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：换成时间（示意口径）</div>
+          <table><tr><th>路径</th><th>耗时（示意）</th></tr><tr><td>自回归生成 30 token（约 50 token/秒）</td><td>30 ÷ 50 = <strong>600 ms</strong></td></tr><tr><td>Drex Max 单次决策</td><td>约 <strong>183 ms</strong></td></tr><tr><td>相对</td><td>600 ÷ 183 ≈ <strong>3.3×</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：在"自回归 50 token/秒"这个<strong>示意速率</strong>下，30 token 约 600ms，是 Drex 报告 183ms 的约 3.3 倍。50 token/秒是示意假设，真实速率随模型与硬件变化；Drex 的 183ms 来自其论文/官方口径。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 核心矛盾</div><p>同样的"选一个答案"，<strong>写出来</strong>要 30 次前向、几百毫秒；<strong>直接输出概率</strong>只要 1 次前向、183 毫秒。<strong>代价不是固定的，而是随"你让它写多长"线性上涨</strong>——写越多、浪费越多。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','35-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','35-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-35-2" class="llm-section"><button class="llm-btn" onclick="startChat('35-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="35-2"><div class="chat-toolbar"><button onclick="copyChat('35-2')">📋 复制对话</button><button onclick="clearChat('35-2')">🗑 清空</button><button onclick="stopLLM('35-2')" id="stop-btn-35-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('35-2')" id="regenerate-btn-35-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="35-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对成本有疑问？比如「1 次前向为什么能出所有概率」「30 倍是固定的吗」？<br><br>我可以帮你把 token 数和前向次数算得更细。</div></div><div class="chat-input-row"><textarea data-input="35-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('35-2')}" rows="1" placeholder="例如：为什么生成30个token就是30次前向？"></textarea><button onclick="sendLLM('35-2')">发送</button></div></div></div>
+      <div id="tab-qna-35-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('35-2')">🔄 换一批</button></div><div class="qna-list" data-qna="35-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="35-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">就算不计成本，让 LLM 从 A/B/C/D 里选，它为什么还可能选出一个根本不存在的"E"？</div><div class="card-q-hint">提示：想想"生成"的本质——它是不是照着概率"抽"下一个字？抽的时候，有没有一种可能抽出一个题目里没有的选项？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>自回归生成是"逐步采样"：每一步都从词表上的概率分布里抽一个 token。因为没有"只能输出 A/B/C/D 之一"的硬约束，生成过程随时可能抽出一个题目之外的词——表现为编造选项、格式漂移（format drift）、或输出无法被程序解析的文本。这正是下游要写大量"解析 + 重试 + 兜底"代码的原因。</div>
+      <div class="content-section"><p>上一张卡片算了成本的账。这一张问：<strong>除了贵，写出来的答案还可靠吗？</strong></p><p><strong>因为</strong>自回归的每一步是从词表里"抽"下一个字，而词表里有几万个 token，不是只有 A/B/C/D 四个。没有硬约束时，它完全可能抽出"E"、或者输出"我认为是 B"这种需要额外解析的文本。<strong>就像</strong>让一个会写字的人"圈答案"，他却可能画出一个题目里没有的符号，或者写一句"我猜是B"——你得再费一道工序去读懂他到底选了什么。<strong>所以</strong>看它到底能"跑偏"到哪。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第三笔账：写出来的话会跑偏</div>
+        <div class="step"><div class="step-title">Step 1：同一个"选 B"，自回归可能写成几种样子</div>
+          <table><tr><th>可能的输出</th><th>下游要做什么</th></tr><tr><td>"B"</td><td>直接用</td></tr><tr><td>"答案是 B"</td><td>要解析出"B"</td></tr><tr><td>"我认为选 B"</td><td>要解析出"B"</td></tr><tr><td>"E"（编造）</td><td><strong>无法处理，重试</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条观察：同一个答案可以有无穷多种"写法"，每一种都要下游去解析；最坏情况是<strong>编造出选项之外的东西</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：格式漂移的代价</div>
+          <table><tr><th>做法</th><th>是否需要解析</th><th>失败后果</th></tr><tr><td>自回归输出文本</td><td>是（格式不定）</td><td>解析失败 → 重试 / 报错</td></tr><tr><td>决策模型输出概率</td><td>否（结构固定）</td><td>直接取 argmax 或按概率用</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条对比：决策模型输出的是<strong>固定结构</strong>（每个选项一个概率），没有"解析"这道工序，也就没有"解析失败"这层风险。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 核心矛盾</div><p>自回归的"自由"在生成任务里是优点，在决策任务里是<strong>负担</strong>：它没有"只能选 A/B/C/D"的边界，所以<strong>可能编造、可能漂移、必须解析</strong>。决策模型把输出空间从"整张词表"收窄到"这几个选项"，跑偏这件事从根上就不存在。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','35-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','35-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-35-3" class="llm-section"><button class="llm-btn" onclick="startChat('35-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="35-3"><div class="chat-toolbar"><button onclick="copyChat('35-3')">📋 复制对话</button><button onclick="clearChat('35-3')">🗑 清空</button><button onclick="stopLLM('35-3')" id="stop-btn-35-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('35-3')" id="regenerate-btn-35-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="35-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"跑偏"有疑问？比如「为什么它不保证只输出A/B/C/D」「能不能用提示约束住」？<br><br>我会用例子说明：提示是软约束，为什么拦不住跑偏。</div></div><div class="chat-input-row"><textarea data-input="35-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('35-3')}" rows="1" placeholder="例如：加一句只输出A/B/C/D不行吗？"></textarea><button onclick="sendLLM('35-3')">发送</button></div></div></div>
+      <div id="tab-qna-35-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('35-3')">🔄 换一批</button></div><div class="qna-list" data-qna="35-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="35-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">模型说"我很确定选 B"——它真的确定吗？换个选项顺序它还会选同一个吗？</div><div class="card-q-hint">提示：把"它说确定"和"它真实可信"分开想。再想：同样的题，把 A 和 C 换个位置，答案会不会变？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>自回归模型说出口的"我确定"只是一段文字，不等于真实的概率判断——它的"信心"是<strong>隐式</strong>的，藏在它生成的那句话里，无法直接读出、也常与事实不符（即校准性 calibration 差）。同时，自回归对选项的<strong>顺序敏感</strong>：同样的题，A/B/C/D 换个位置，答案可能就变。Drex 论文特别强调其模型"calibrated"（校准的）且"stable under reordering of the options"（对选项重排稳定）。</div>
+      <div class="content-section"><p>上一张卡片看到逐 <b>token</b> 生成会跑偏。这一张问更隐蔽的一点：<strong>就算格式写对了，它的信心可信吗？</strong></p><p><strong>因为</strong>自回归只输出一段话，"信心"没有独立的数值出口——你说"确定"，可你没有给出"90% 还是 55% 的把握"这个数；而且它对选项的排列位置敏感，换个顺序就可能改口。<strong>就像</strong>问一个人"你确定吗"，他拍胸脯说确定，但你把两个选项左右对调再问，他却犹豫了——这种"确定"不可靠。<strong>所以</strong>要一个能直接读出把握大小的输出。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第四笔账：话对 ≠ 信心对</div>
+        <div class="step"><div class="step-title">Step 1：隐式信心 vs 显式概率</div>
+          <table><tr><th>输出形式</th><th>能读出"把握多大"吗</th><th>例子</th></tr><tr><td>自回归："我确定选 B"</td><td><strong>不能</strong>（只有文字，无数值）</td><td>是 90% 还是 55%？不知道</td></tr><tr><td>决策模型</td><td><strong>能</strong>（每个选项一个数）</td><td>P(B)=0.72</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条对比：决策模型的概率是<strong>显式的数字</strong>，可以直接用来定阈值、算期望、做风险控制；自回归的"确定"只是形容词。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：换序稳定性</div>
+          <table><tr><th>情形</th><th>自回归（对顺序敏感）</th><th>决策模型（对重排稳定）</th></tr><tr><td>选项顺序 A/B/C/D</td><td>选 B</td><td>P(B)=0.72</td></tr><tr><td>换序 D/C/B/A</td><td><strong>可能改选 C</strong></td><td>P(B) 仍 ≈ 0.72</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条对照：换序是"同一个决策"的无关扰动，理想模型不应受影响；自回归会受影响（答案漂移），决策模型则声称对此稳定（Drex 口径）。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 核心矛盾</div><p>决策需要两样东西：<strong>一个可读出的把握（概率）</strong>和<strong>不受无关扰动影响（换序不变）</strong>。自回归把把握藏在文字里、又对顺序敏感；决策模型把概率显式输出、并对重排稳定——<strong>这才是"可依赖的决策"。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','35-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','35-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-35-4" class="llm-section"><button class="llm-btn" onclick="startChat('35-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="35-4"><div class="chat-toolbar"><button onclick="copyChat('35-4')">📋 复制对话</button><button onclick="clearChat('35-4')">🗑 清空</button><button onclick="stopLLM('35-4')" id="stop-btn-35-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('35-4')" id="regenerate-btn-35-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="35-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对信心与稳定性有疑问？比如「校准是什么意思」「换序为什么会变」？<br><br>我会用概率的例子，讲清"话对"和"信心对"的区别。</div></div><div class="chat-input-row"><textarea data-input="35-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('35-4')}" rows="1" placeholder="例如：什么叫校准（calibration）？"></textarea><button onclick="sendLLM('35-4')">发送</button></div></div></div>
+      <div id="tab-qna-35-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('35-4')">🔄 换一批</button></div><div class="qna-list" data-qna="35-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="35-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">如果决策的本质就是"打分"，那能不能让模型直接输出每个选项的概率？</div><div class="card-q-hint">提示：四个选项，四个概率，加起来应该等于几？想清楚这个约束，再想模型该怎么"输出"它。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>这就是"决策模型"的定义：给定一个 state（状态，即一份文档、记录或 agent 上下文，可选带图像）和若干 question（每个问题是在一组选项里做选择 / 判断是或否 / 在有序尺度上打分），模型<strong>一次性输出每个选项的概率</strong>，而不是生成文字。Drex（Nace AI，2026）是一个家族、共 4 个开源决策模型，输出即概率分布。</div>
+      <div class="content-section"><p>前面四张卡片把"逐 <b>token</b> 生成做决策"的四个问题摆完了。这一张是转折：<strong>回到任务本身——决策要的到底是什么？</strong></p><p><strong>因为</strong>四选一、打勾、打分，这些任务的答案天然是"每个选项一个分数/概率"，而概率有个硬约束：<strong>加起来等于 1</strong>。既然要的就是概率，那就让模型直接输出概率，而不是输出一段"藏着概率"的文字。<strong>就像</strong>裁判打分：他举起"9.5 分"的牌子，而不是写一段"我觉得这个表现值 9.5 分"的评语。<strong>所以</strong>看决策模型怎么定义输入输出。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第五笔账：概率就是天然的决策格式</div>
+        <div class="step"><div class="step-title">Step 1：四个选项的概率分布</div>
+          <table><tr><th>选项</th><th>概率</th></tr><tr><td>A</td><td>0.05</td></tr><tr><td>B</td><td><strong>0.72</strong></td></tr><tr><td>C</td><td>0.15</td></tr><tr><td>D</td><td>0.08</td></tr><tr><td>合计</td><td>0.05+0.72+0.15+0.08 = <strong>1.00</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：0.05 + 0.72 + 0.15 + 0.08 = <strong>1.00</strong>。概率分布"和为 1"的约束，让它天然适合表示"选一个"——直接取最大项（argmax）就是答案，而各项之间的大小还能表达"把握多少"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：决策模型 vs 自回归的输入输出</div>
+          <table><tr><th>项</th><th>自回归 LLM</th><th>决策模型</th></tr><tr><td>输入</td><td>题目（一段话）</td><td>state + question + 选项</td></tr><tr><td>输出</td><td>一段文字</td><td>每个选项的概率</td></tr><tr><td>取答案</td><td>解析文字</td><td>argmax 或按概率用</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条对比：决策模型把"选答案"这件事实名化成了一个<strong>数值输出</strong>，绕开了生成和解析这两道工序。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 核心矛盾</div><p>决策要的从来不是"一段话"，而是"<strong>一个概率分布</strong>"。自回归把概率塞进文字里让你猜；决策模型把概率<strong>直接摆出来</strong>——于是成本、跑偏、信心、换序这四个问题，都在"输出概率"这一设计里被同时化解。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','35-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','35-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-35-5" class="llm-section"><button class="llm-btn" onclick="startChat('35-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="35-5"><div class="chat-toolbar"><button onclick="copyChat('35-5')">📋 复制对话</button><button onclick="clearChat('35-5')">🗑 清空</button><button onclick="stopLLM('35-5')" id="stop-btn-35-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('35-5')" id="regenerate-btn-35-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="35-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"概率输出"有疑问？比如「概率怎么变成答案」「为什么和为1」？<br><br>我会用具体数字，讲清决策模型怎么定义输入输出。</div></div><div class="chat-input-row"><textarea data-input="35-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('35-5')}" rows="1" placeholder="例如：概率怎么用来做决策？"></textarea><button onclick="sendLLM('35-5')">发送</button></div></div></div>
+      <div id="tab-qna-35-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('35-5')">🔄 换一批</button></div><div class="qna-list" data-qna="35-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="35-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">怎么训练一个"只会做决策"的模型，并且让它举一反三到没见过的新问题？</div><div class="card-q-hint">提示：一个模型要同时会"判断工具用没用对、候选好不好、推理对不对"——这些不同任务，能不能共用一个"预测器"？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>两篇 2026 年的工作给出两条实现路径。<strong>Drex</strong>（Nace AI，arXiv:2611.07854）是"决策基础模型"：家族 4 个开源模型，旗舰 Drex Max 在真实数据决策上可与前沿模型竞争，同时快、校准好、对选项重排稳定；论文与模型页称 Drex 2.0 为 <strong>35B</strong> 参数、约 <strong>3B</strong> 每 token 激活（MoE，即"混合专家"——每次只激活一部分专家，参数量大但算得少）。<strong>DPDM</strong>（Decoupled Predictive Decision Making，Stable AI 与清华，arXiv:2611.02075）则把决策拆成两半：语言模型做<strong>语义表示</strong>，一个<strong>冻结的共享条件预测器</strong>做预测，全程不改任何权重。</div>
+      <div class="content-section"><p>上一张卡片确立了"输出概率"的方向。这一张问：<strong>这个"决策模型"到底怎么造？</strong></p><p><strong>因为</strong>agent 里有多种决策（工具判不判、候选好不好、推理对不对），如果每个都单独训一个模型，成本爆炸；所以要一个能"举一反三"的通用预测器。<strong>就像</strong>一个裁判可以同时给体操、跳水、花样滑冰打分——不是每项运动都配一个裁判，而是"打分"这个通用能力复用。<strong>所以</strong>看两条实现路径。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 第六笔账：两条实现路径与它们的数字</div>
+        <div class="step"><div class="step-title">Step 1：Drex 的规模与速度</div>
+          <table><tr><th>项</th><th>数值</th></tr><tr><td>模型家族</td><td>4 个开源决策模型</td></tr><tr><td>Drex 2.0 总参数</td><td><strong>35B</strong></td></tr><tr><td>每 token 激活参数（MoE）</td><td>约 <strong>3B</strong></td></tr><tr><td>单次决策耗时（Drex Max）</td><td>约 <strong>183 ms</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：35B 参数里每次只激活约 3B（35 ÷ 3 ≈ <strong>11.7×</strong> 的稀疏比），这是它能又快又省的原因——"记得多、算得少"。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：DPDM 的架构与效果</div>
+          <table><tr><th>组件</th><th>职责</th></tr><tr><td>语言模型（语义编码器）</td><td>把记录转成语义表示</td></tr><tr><td>共享条件预测器（冻结）</td><td>从表示预测各决策目标</td></tr><tr><td>关键点</td><td>推理时<strong>不改任何权重</strong></td></tr></table>
+          <table><tr><th>指标</th><th>数值</th></tr><tr><td>50 个基准的平均准确率（few-shot 基线）</td><td>78.80%</td></tr><tr><td>加 DPDM 后</td><td><strong>84.92%</strong></td></tr><tr><td>提升</td><td>84.92 − 78.80 = <strong>+6.12 个百分点</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：84.92% − 78.80% = <strong>+6.12pp</strong>。关键在"冻结"——预测器不训练，靠预训练得到的通用推理能力，配上具体任务的 evidence（证据）就完成预测。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：和"推理模型"（第 12 课）分岔</div>
+          <table><tr><th>路径</th><th>做法</th><th>方向</th></tr><tr><td>推理模型（第 12 课）</td><td>更长链式思维（CoT）</td><td><strong>更长的生成</strong></td></tr><tr><td>决策模型（本课）</td><td>砍掉生成、直接出概率</td><td><strong>更短的输出</strong></td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术无关的一条分岔：面对"难决策"，第 12 课往"多想几步"走，本课往"不写直接判"走——<strong>一个加生成、一个减生成</strong>，解决的是两类不同任务。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>决策模型不是"把 LLM 变小"，而是<strong>换一种输出契约</strong>：输入 state + question + options，输出概率分布。Drex 用 MoE 把 35B 压到每 token 只激活 3B，而 Drex Max 单次决策 183ms；DPDM 用一个冻结的共享预测器，50 个基准平均 +6.12pp 且不改权重。它和"推理模型"是两条相反的路：<strong>一个靠更长思考，一个靠更短输出。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','35-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','35-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-35-6" class="llm-section"><button class="llm-btn" onclick="startChat('35-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="35-6"><div class="chat-toolbar"><button onclick="copyChat('35-6')">📋 复制对话</button><button onclick="clearChat('35-6')">🗑 清空</button><button onclick="stopLLM('35-6')" id="stop-btn-35-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('35-6')" id="regenerate-btn-35-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="35-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对实现路径有疑问？比如「MoE 是什么」「冻结预测器怎么工作」「和推理模型什么关系」？<br><br>我会用具体数字，讲清 Drex 和 DPDM 各自怎么落地。</div></div><div class="chat-input-row"><textarea data-input="35-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('35-6')}" rows="1" placeholder="例如：MoE的3B激活是什么意思？"></textarea><button onclick="sendLLM('35-6')">发送</button></div></div></div>
+      <div id="tab-qna-35-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('35-6')">🔄 换一批</button></div><div class="qna-list" data-qna="35-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 35 课完成 · 已到本课程最后一课</p>
+    <a href="#" onclick="switchLesson(34);return false;">← 上一课：报告、成本与责任</a>
+  </div></div>

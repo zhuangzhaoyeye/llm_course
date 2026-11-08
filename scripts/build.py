@@ -2,8 +2,12 @@
 """把 src/ 组装成单文件自包含产物 dist_course.html。
 
 用法:
-    python3 scripts/build.py            # 构建到 dist_course.html
+    python3 scripts/build.py            # 构建到 dist_course.html，并复制一份到 ~/Downloads/
     python3 scripts/build.py --check    # 只校验当前产物与源是否一致，不写文件
+
+交付约定（2026-11-08 用户要求）:
+    每次真正构建后，产物会自动复制到 ~/Downloads/dist_course.html，
+    方便直接双击查看，不必回项目目录找。--check 不复制。
 
 原理:
     src/shell.html 是除课程正文以外的全部内容（head / style / body 骨架 / 侧边栏 / 全部 JS），
@@ -85,6 +89,17 @@ EXTERNAL_RESOURCE_RE = re.compile(
 )
 
 
+def deliver_to_downloads(data: bytes) -> None:
+    """把产物复制到 ~/Downloads，方便直接双击打开。复制失败只告警，不让构建失败。"""
+    target = Path.home() / "Downloads" / OUT.name
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        print(f"OK    已复制到 {target}")
+    except OSError as exc:
+        print(f"WARN  复制到 {target} 失败（构建产物本身有效）：{exc}")
+
+
 def main() -> int:
     built = render()
 
@@ -107,6 +122,7 @@ def main() -> int:
     OUT.write_text(built, encoding="utf-8")
     size = OUT.stat().st_size
     print(f"OK    已生成 {OUT.relative_to(ROOT)}（{len(built)} 字符 / {size} 字节）")
+    deliver_to_downloads(built.encode("utf-8"))
     return 0
 
 

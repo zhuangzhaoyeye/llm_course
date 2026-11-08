@@ -1,0 +1,14 @@
+# 课程站国内可访问镜像：Cloudflare Workers 静态资源，自定义域名 learn.taleverse.cn
+# 部署前先在仓库根执行：python3 scripts/build_site.py（生成 site/）
+# 然后在本目录执行：npx wrangler deploy
+name = "llm-course-site"
+main = "index.js"
+compatibility_date = "2026-11-01"
+
+routes = [{ pattern = "learn.taleverse.cn", custom_domain = true }]
+
+[assets]
+binding = "ASSETS"
+directory = "../../site"
+# 站点内部链接写的是 lesson-N.html，必须原样提供，不能 307 跳到 /lesson-N
+html_handling = "none"

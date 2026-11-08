@@ -1,12 +1,15 @@
 # 第一性原理大模型课程
 
 > **读完一个机制，你能不能在白板上用几个数字，从头把它算一遍？**
-> 这套写给**传统算法工程师**的大模型课程，从 Transformer 一路讲到 Agent：34 课、204 张卡片，每张从一个问题出发，用具体数字把机制算清楚。
+> 这套写给**传统算法工程师**的大模型课程，从 Transformer 一路讲到 Agent，再追到 2026 年的决策模型（JEV / Drex）：35 课、210 张卡片，每张从一个问题出发，用具体数字把机制算清楚。
 > 既是我自己的学习笔记，也想分享给同样要补大模型知识的人，**欢迎提意见**。
+> **课程会持续追踪前沿热点**：像 JEV、Drex、决策模型这样的新概念一出现，我就把它做成能"自己算一遍"的系统课，让你在这里学到最新的热点知识，而不是读几个月前就过时的二手总结。
 
-> **English:** A 34-lesson Chinese LLM course for algorithm engineers (recsys → Transformer → training/inference engineering → Agents). Every mechanism is worked through by hand with concrete numbers. Single HTML page, no login.
+> **English:** A 35-lesson Chinese LLM course for algorithm engineers (recsys → Transformer → training/inference engineering → Agents → frontier decision models). Every mechanism is worked through by hand with concrete numbers. Single HTML page, no login.
 
 **在线阅读：<https://zhuangzhaoyeye.github.io/llm-course/>**（每课一个独立网址、免登录、手机可看）
+
+> 国内访问较慢或打不开时，用镜像站：**<https://learn.taleverse.cn/>**（内容与主站一致，同一套构建产物）
 
 如果这套课对你有帮助，欢迎点右上角 **Star**，也欢迎 [提 Issue 纠错或反馈](../../issues/new/choose)。
 
@@ -53,9 +56,10 @@
 | 计算走查 | 懂了概念，算不来 | 用最小的真实例子算到底。例如第 21 课：0.95¹⁰ ≈ 0.599，二十步只剩 0.358；第 17 课：4096×4096 的更新有 16,777,216 个数，LoRA（r=8）只学 65,536 个，压缩 256 倍；第 15 课：70B 模型每个 token 的 KV Cache 是 0.3125 MiB，8K 上下文就是 2.5 GiB |
 | 冲突可见 | 记住解法，不知道代价 | 不只讲怎么做，还算不这么做的后果。例如第 17 课：可训练参数压到千分之几，65B 还是训不动，因为 130 GB 的冻结权重还在显存里 |
 
-## 最近更新（2026-11-05）
+## 最近更新（2026-11-08）
 
-- **每课一个独立网址。** 34 课各有独立页面和标题（如 `/lesson-7.html`），正文直接写在 HTML 里，不执行 JS 也能被搜索引擎读到，可以直接把某一课的链接发给别人。
+- **新增第 35 课「决策模型」（JEV / Drex / DPDM）。** 这是"前沿拓展"部分的第一课，讲 2026 年刚冒出来的决策模型范式：自回归 LLM 做选择题其实在"写"答案，而决策模型不写一个字、直接输出每个选项的概率。配有"热点雷达"每天追踪 arXiv 与 HuggingFace，后续会持续把值得学的热点做成新课。
+- **每课一个独立网址。** 35 课各有独立页面和标题（如 `/lesson-7.html`），正文直接写在 HTML 里，不执行 JS 也能被搜索引擎读到，可以直接把某一课的链接发给别人。
 - **站内搜索支持"换个说法也能找到"。** 在侧边栏输入一句话，比如"为什么不能一直用 LoRA""模型怎么知道词的顺序"，会同时按关键词和语义找卡片；支持中英互通（`低秩适配` ↔ `LoRA`）和错拼（`tokenzier`）。语义部分用 Cloudflare Workers AI 的 bge-m3 向量，关键词部分是 BM25。**这句话会发到本站服务器算向量，不保存；可在页面里一键关闭。**
   - 如实的数字：我手写了 85 条查询自测（其中 20 条是调参时没看过的留出集）。前 3 条命中率，留出集上纯关键词 50% → 混合 90%。样本小、标准答案是我自己标的，只能说明方向，不是严格基准。
 - **"继续上次阅读"。** 回到网站时，侧边栏会出现上次读到的那张卡片，一键回去。位置只存在你的浏览器本地。
@@ -109,8 +113,11 @@
 | 三 · 训练与推理工程 | 13–19 | 分布式训练、显存账本与混合精度、KV Cache 与推理内存、量化与压缩、微调工程、推理引擎、大模型评测 |
 | 四 · Agent 工程 | 20–28 | 提示工程、从 Prompt 到 Agent、工具调用、MCP 协议、记忆与 RAG、规划与反思、多智能体与协议、Agent 训练、Agent 评测与生产化 |
 | 五 · 自主研究 | 29–34 | 自主研究全景与自主度分级、文献锚定与选题、假设规划与搜索、长时程执行与状态、验证复现与评审、报告成本与责任 |
+| 六 · 前沿拓展 | 35 | 决策模型（JEV / Drex / DPDM）：不写一个字，直接输出每个选项的概率 |
 
 每课 6 张卡片，每张卡片带 5 条以上的预设追问，答案同样带表格和数字。
+
+> **前沿拓展怎么来？** 我搭了一个"热点雷达"：每天从 arXiv 和 HuggingFace 采集前沿信号，按"热 + 有足够内容能成课"两条标准筛选，再由人确认后做成新课。第 35 课的决策模型（JEV / Drex / DPDM）就是雷达筛出来的第一批。以后有真正值得学的热点，会持续往这个部分里加课。
 
 ---
 
@@ -118,7 +125,7 @@
 
 ### 一、产物与源码
 
-课程有两种产物：**单文件版**是一个自包含的 HTML（KaTeX 已内联，无 CDN，可离线打开，只有关键词搜索）；**多页站点版**是 34 个独立页面，用于在线发布，多了全文与语义搜索。两者来自同一份源码。
+课程有两种产物：**单文件版**是一个自包含的 HTML（KaTeX 已内联，无 CDN，可离线打开，只有关键词搜索）；**多页站点版**是 35 个独立页面，用于在线发布，多了全文与语义搜索。两者来自同一份源码。
 
 ```
 src/lessons/manifest.json     课程映射表，唯一事实源（id = 课号）
@@ -219,13 +226,20 @@ node tools/content_verify.js --src   # 内容层门禁（零依赖）
 npm install && npx playwright install chromium && node tools/verify.js   # 渲染层
 ```
 
+镜像站（`learn.taleverse.cn`）用的就是同一份 `site/`，改完内容后重新部署：
+
+```bash
+python3 scripts/build_site.py
+cd proxy/site-worker && npx wrangler deploy    # 需要已登录 Cloudflare 账号
+```
+
 **关于校验脚本的可运行范围**：`review_check.js`、`provenance_check.js`、`coverage_check.js` 依赖作者本地的逐条核验台账与覆盖地图，这些未随仓库公开，克隆后无法运行，仅供参考其校验思路。`build.py`、`content_verify.js`、`verify.js` 在干净克隆里实测可直接运行。
 
 ## 目录
 
 | 路径 | 内容 |
 |---|---|
-| `src/` | 课程源码：`lessons/`（34 课正文 + manifest）、`shell.html`、`assets/` |
+| `src/` | 课程源码：`lessons/`（35 课正文 + manifest）、`shell.html`、`assets/` |
 | `scripts/` | 构建脚本（单文件版、多页站点版、语义向量生成） |
 | `tools/` | 校验脚本 |
 | `proxy/` | Cloudflare Worker：AI 助教代理、语义搜索 `/s`、匿名统计 `/e`（含单元测试） |

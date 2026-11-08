@@ -72,7 +72,12 @@ alwaysApply: true
 | **用户说「检查」「自检」「质检」「体检」「评审」**、判断卡片是否达标 | `.trae/skills/card-review/SKILL.md` |
 | 构建、打包、重新生成产物、改侧边栏或课程映射表 | `.trae/skills/course-build/SKILL.md` |
 | 跑验证脚本、交付前把关、刚修完一个缺陷 | `.trae/skills/course-verify/SKILL.md` |
-| **美化、视觉精修、排版/配色、截图对比、让某张卡像标杆卡一样好看** | `.trae/skills/course-beautify/SKILL.md` |
+| 把文章发到掘金 / 存或更新掘金草稿 | `.trae/skills/juejin-publish/SKILL.md` |
+| 把文章发到 CSDN / 存或更新 CSDN 草稿 | `.trae/skills/csdn-publish/SKILL.md` |
+| 把文章发到知乎 / 存或更新知乎草稿 | `.trae/skills/zhihu-publish/SKILL.md` |
+| **用户说「发布第 X 课」「把这课发三个平台」** | `.trae/skills/course-publish/SKILL.md`（一课三平台，串行存草稿） |
+| **用户问统计数据、访问量、多少人看、哪节课火** | `.trae/skills/stats-report/SKILL.md`（必须实跑，不许估算） |
+| 用户说「交接」「开新窗口」「新开对话」「保存上下文」「handoff」等 | `.trae/skills/session-handoff/SKILL.md` |
 | 任意一轮对话（无条件） | `.trae/skills/preflight-search/SKILL.md` |
 | **本轮修改了 `.trae/rules/**` 或 `.trae/skills/**`** | `.trae/rules/30-dev-rules.md` 第八节「规则卫生」（5 条清单） |
 

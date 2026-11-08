@@ -8,8 +8,8 @@ reports/
 docs/
 技术分享/
 
-# wrangler 本地缓存
-proxy/.wrangler/
+# wrangler 本地缓存（任意层级）
+.wrangler/
 
 # 多页站点构建产物
 site/

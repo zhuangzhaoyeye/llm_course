@@ -73,6 +73,7 @@ const ANCHORS = {
   32: ['File-as-Bus', 'worktree', '长时程', 'best-so-far'],
   33: ['silent error', 'PaperBench', '复现', '五维'],
   34: ['L5', '免责', 'token', '可回滚'],
+  35: ['token', '决策模型', 'Drex', 'DPDM'],
 };
 
 const rows = [];

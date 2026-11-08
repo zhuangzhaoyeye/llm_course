@@ -36,6 +36,7 @@ dist_course.html             产物，禁止手改
 | 3 | 课程 HTML 注入进 `#lesson-container`，切课走 `switchLesson(n)` | 便于多课切换与内容隔离 |
 | 4 | 进度状态一律走 localStorage（`card_checks` / `qna_checks`） | 刷新不丢进度 |
 | 5 | 卡片 ID 在整份 HTML 内**全局唯一** | `data-card` / `tab-ai-N` / `qna-list[data-qna=N]` 靠它关联 |
+| 6 | **每次真正构建后，产物自动复制到 `~/Downloads/dist_course.html`**（`build.py` 内置，`--check` 不复制） | 用户（2026-11-08 要求）要能直接双击打开，不必回项目目录找；写成代码而非口令，避免漏做 |
 
 ## 三、卡片 DOM 契约（硬性）
 
@@ -93,8 +94,8 @@ python3 scripts/embed_docs.py         # 课程正文改了之后重算语义向�
 
 | 触发条件 | 动作 |
 |----------|------|
-| 改了 `src/lessons/*.html` 或 `src/shell.html` | 构建 → `content_verify.js` → `verify.js` |
-| 改了 CSS / 侧边栏 / 交互 JS | 构建 → `verify.js` |
+| 改了 `src/lessons/*.html` 或 `src/shell.html` | 构建（产物会自动落到 `~/Downloads/dist_course.html`）→ `content_verify.js` → `verify.js` |
+| 改了 CSS / 侧边栏 / 交互 JS | 构建（同上自动交付 Downloads）→ `verify.js` |
 | 改了 `manifest.json` | `build.py --check` + `content_verify.js` |
 | 改了 `tools/*.js` 或 `scripts/build.py` | 跑该脚本自身验证自洽性 |
 | **改了 `.trae/rules/**` 或 `.trae/skills/**`** | **跑「规则卫生」5 条清单（第八节）——规则/skill 的增删改一律由读数决定，不靠即兴** |

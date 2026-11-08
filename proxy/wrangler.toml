@@ -12,7 +12,7 @@ routes = [
 
 [vars]
 # 只允许这个站点调用；多个用英文逗号分隔。Origin 可以被伪造，只能挡掉普通滥用，真正的保护是下面的限额。
-ALLOWED_ORIGINS = "https://zhuangzhaoyeye.github.io"
+ALLOWED_ORIGINS = "https://zhuangzhaoyeye.github.io,https://learn.taleverse.cn"
 PER_IP_PER_MINUTE = "5"
 PER_IP_PER_DAY = "20"
 # 整站每天一共多少次（所有人加起来）。各 1 次实测（高峰价）：不联网约 0.0008 元（265 入/35 出，但那是不带卡片正文的短问题，是下限）；联网约 0.032 元（9795 入/315 出 + 2 次搜索），约 40 倍。真实使用带卡片正文，费用介于两者之间偏下。
@@ -37,15 +37,14 @@ SEARCH_PER_IP_PER_MINUTE = "30"
 SEARCH_PER_IP_PER_DAY = "600"
 SEARCH_GLOBAL_PER_DAY = "20000"
 # 允许调用 /s 的来源：线上站点 + 本机预览（只放行 /s，AI 助教仍只认 ALLOWED_ORIGINS）
-SEARCH_ORIGINS = "https://zhuangzhaoyeye.github.io,http://127.0.0.1:8766"
+SEARCH_ORIGINS = "https://zhuangzhaoyeye.github.io,https://learn.taleverse.cn,http://127.0.0.1:8766"
 
-# D1 数据库绑定：先在 proxy/ 下执行 `npx wrangler d1 create llm-course-stats`，把输出的 database_id 填进来，
-# 取消下面 4 行的注释，再执行 `npx wrangler d1 execute llm-course-stats --remote --file=schema.sql` 建表，最后 `npx wrangler deploy`。
+# D1 数据库绑定（2026-11-06 已创建并启用）。
 # 没绑定时 /e 会静默丢弃事件（返回 204 + x-stats: disabled），不影响 AI 助教。
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "llm-course-stats"
-# database_id = "<wrangler d1 create 输出的 id>"
+[[d1_databases]]
+binding = "DB"
+database_name = "llm-course-stats"
+database_id = "770a37f5-2b1e-48f4-9926-8a8714dbf37f"
 
 [[durable_objects.bindings]]
 name = "LIMITER"
