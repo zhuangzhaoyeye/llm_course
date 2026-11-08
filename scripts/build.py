@@ -7,7 +7,7 @@
 
 交付约定（2026-11-08 用户要求）:
     每次真正构建后，产物会自动复制到 ~/Downloads/dist_course.html，
-    方便直接双击查看，不必回项目目录找。--check 不复制。
+    并用默认浏览器自动打开，不必回项目目录找。--check 不复制也不打开。
 
 原理:
     src/shell.html 是除课程正文以外的全部内容（head / style / body 骨架 / 侧边栏 / 全部 JS），
@@ -21,6 +21,7 @@
 """
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -96,6 +97,11 @@ def deliver_to_downloads(data: bytes) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
         print(f"OK    已复制到 {target}")
+        try:
+            subprocess.run(["open", str(target)], check=False)
+            print(f"OK    已用浏览器打开 {target}")
+        except OSError as exc:
+            print(f"WARN  自动打开失败（文件已就绪）：{exc}")
     except OSError as exc:
         print(f"WARN  复制到 {target} 失败（构建产物本身有效）：{exc}")
 
