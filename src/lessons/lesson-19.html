@@ -135,6 +135,20 @@
           <div class="step-desc" style="margin-top:4px;">算术：口径与 Step 1/2 <strong>完全一致</strong>——要求两条 95% 区间<strong>不重叠</strong>（即 2×1.96×SE ≤ Δ），把 SE=√(p(1−p)/n) 代进去就得到 n ≈ 4×(1.96/Δ)²×p(1−p)；p=0.5 最坏时 (1.96/Δ)²。想分辨 <strong>5 个点</strong>要 <strong>1,537</strong> 题、<strong>3 个点</strong>要 <strong>4,268</strong> 题（自检：n=1000 时 (1.96/√1000) ≈ 6.2%，与 Step 1 对上）。<strong>所以"题数"不是随手定的，而是由你要检测的最小差异（和"两区间不重叠"这个判据）倒推出来的。</strong></div>
         </div>
       </div>
+      <!-- 交互式分步动画：评测方差 · 标准误（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 评测方差：标准误怎么算</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>"跑三遍差几个点"这个问题的答案<strong>不是一个数，而是一条公式</strong>：n 越小、p 越接近 0.5，噪声越大。凡是要下"谁更强"的结论，先问三件事——<strong>题数多少、区间多宽、两个区间有没有重叠</strong>。没有置信区间的排名，本质上是在比较两团噪声。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','19-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','19-4')">🤔 你可能还想问</button></div>
       <div id="tab-ai-19-4" class="llm-section"><button class="llm-btn" onclick="startChat('19-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="19-4"><div class="chat-toolbar"><button onclick="copyChat('19-4')">📋 复制对话</button><button onclick="clearChat('19-4')">🗑 清空</button><button onclick="stopLLM('19-4')" id="stop-btn-19-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('19-4')" id="regenerate-btn-19-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="19-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对评测方差有疑问？比如「差 2 分算不算提升」「要多少题才够」？<br><br>报出题数与正确率，我帮你算标准误、置信区间与最小可分辨差异。</div></div><div class="chat-input-row"><textarea data-input="19-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('19-4')}" rows="1" placeholder="例如：500 道题，差 4 分算显著吗？"></textarea><button onclick="sendLLM('19-4')">发送</button></div></div></div>

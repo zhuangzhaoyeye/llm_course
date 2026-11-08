@@ -7,7 +7,7 @@
 
     <div class="lesson-goal">
       <div class="goal-label">🎯 学完这 6 步你将能够：</div>
-      <div class="goal-text">① 用 p^N 算出长任务的失败率：p=0.95 时 10 步全对仅 <strong>0.599</strong>、20 步只剩 <strong>0.359</strong>，先规划能把 10 步抬到 <strong>0.904</strong><br>② 用 b^d 估分解方案的搜索代价（3³=27、5³=125、5⁴=625），并说清「每步可独立验证」才是粒度下限<br>③ 用 Tree of Thoughts 的 <strong>4%→74%</strong> 与 Reflexion 的 <strong>80%→91%</strong> 两个数字，说清结构化探索与语言化反思各自的收益与代价</div>
+      <div class="goal-text">① 用 p^N 算出长任务的失败率：p=0.95 时 10 步全对仅 <strong>0.599</strong>、20 步只剩 <strong>0.358</strong>，先规划能把 10 步抬到 <strong>0.904</strong><br>② 用 b^d 估分解方案的搜索代价（3³=27、5³=125、5⁴=625），并说清「每步可独立验证」才是粒度下限<br>③ 用 Tree of Thoughts 的 <strong>4%→74%</strong> 与 Reflexion 的 <strong>80%→91%</strong> 两个数字，说清结构化探索与语言化反思各自的收益与代价</div>
     </div>
 
     <div class="roadmap">
@@ -39,8 +39,8 @@
       <div class="calc-block">
         <div class="label">🧮 第一笔账：步数如何放大失败</div>
         <div class="step"><div class="step-title">Step 1：步数一多，成功率就掉</div>
-          <table><tr><th>任务步数 N</th><th>全对成功率 p^N（p=0.95）</th><th>至少错一步</th></tr><tr><td>5 步</td><td>0.95⁵ ≈ <strong>0.774</strong></td><td>约 23%</td></tr><tr><td>10 步</td><td>0.95¹⁰ ≈ <strong>0.599</strong></td><td>约 40%</td></tr><tr><td>20 步</td><td>0.95²⁰ ≈ <strong>0.359</strong></td><td>约 64%</td></tr></table>
-          <div class="step-desc" style="margin-top:4px;">算术：单步 95% 看着很高，但 10 步只剩 <strong>0.599</strong>、20 步只剩 <strong>0.359</strong>——<strong>错误是乘性累积的</strong>，步数越多次方越低。</div>
+          <table><tr><th>任务步数 N</th><th>全对成功率 p^N（p=0.95）</th><th>至少错一步</th></tr><tr><td>5 步</td><td>0.95⁵ ≈ <strong>0.774</strong></td><td>约 23%</td></tr><tr><td>10 步</td><td>0.95¹⁰ ≈ <strong>0.599</strong></td><td>约 40%</td></tr><tr><td>20 步</td><td>0.95²⁰ ≈ <strong>0.358</strong></td><td>约 64%</td></tr></table>
+          <div class="step-desc" style="margin-top:4px;">算术：单步 95% 看着很高，但 10 步只剩 <strong>0.599</strong>、20 步只剩 <strong>0.358</strong>——<strong>错误是乘性累积的</strong>，步数越多次方越低。</div>
         </div>
         <div class="step"><div class="step-title">Step 2：先规划能把曲线抬回来</div>
           <table><tr><th>做法</th><th>单步正确率</th><th>10 步全对</th></tr><tr><td>不规划，直接做</td><td>0.95</td><td>0.95¹⁰ ≈ <strong>0.599</strong></td></tr><tr><td>先花 1 步做计划，再执行</td><td>0.99</td><td>0.99¹⁰ ≈ <strong>0.904</strong></td></tr></table>
@@ -50,6 +50,20 @@
           <table><tr><th>项</th><th>数值</th></tr><tr><td>总步数</td><td>10</td></tr><tr><td>出错位置</td><td>第 3 步</td></tr><tr><td>被影响的后续步数</td><td>10 − 3 = <strong>7 步</strong></td></tr></table>
           <div class="step-desc" style="margin-top:4px;">算术：第 3 步出错，后面 <strong>7 步</strong>都要带着这个错误推理。这不是「扣一步的分」，而是把错误写进 <b>context</b>、让后续全在错的前提上工作——<strong>所以「尽早发现并纠错」比「最后重来」便宜得多。</strong></div>
         </div>
+      </div>
+      <!-- 交互式分步动画：步数如何放大失败（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 步数如何放大失败（p^N 连乘）</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
       </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>长任务的第一原则是<strong>先想再做</strong>：规划不是装饰，而是把每步正确率抬上来的杠杆；而错误一旦写进 <b>context</b> 就会被后续继承。记住这个量级——<strong>规划花 1 步，救回的是整条链的成功率</strong>。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','25-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','25-1')">🤔 你可能还想问</button></div>

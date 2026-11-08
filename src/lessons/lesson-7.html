@@ -194,6 +194,20 @@
           <div class="step-desc" style="margin-top:4px;">Llama 3 405B 实际用了 15.6T token（约 38:1），介于 Chinchilla 最优与激进过训练之间——这是"训练成本"与"推理成本"的折中。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：决策流程：给定预算 C（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 决策流程：给定预算 C，五步定方案</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>这套流程的价值在于：<strong>它把"造模型"从"烧钱试错"变成了"先算后做"</strong>。给定预算，你能提前算出模型该多大、数据要多少、会不会撞数据墙——而不是训完才发现配方不对。<strong>这也是为什么第二部分后续每一课（数据、预训练、微调、对齐）都要建立在这张算力账上。</strong></p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','7-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','7-6')">🤔 你可能还想问</button></div>
       <div id="tab-ai-7-6" class="llm-section"><button class="llm-btn" onclick="startChat('7-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="7-6"><div class="chat-toolbar"><button onclick="copyChat('7-6')">📋 复制对话</button><button onclick="clearChat('7-6')">🗑 清空</button><button onclick="stopLLM('7-6')" id="stop-btn-7-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('7-6')" id="regen-btn-7-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="7-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对决策流程有疑问？比如"怎么判断一份训练配方是否合理？""预算翻倍该怎么调整？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="7-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('7-6')}" rows="1" placeholder="例如：如果预算只有 1/10，模型该造多大？"></textarea><button onclick="sendLLM('7-6')">发送</button></div></div></div>

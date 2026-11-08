@@ -108,6 +108,20 @@
           <div class="step-desc" style="margin-top:4px;">算术：<strong>80 万条步级标注</strong>是过程奖励的门槛。所以工程上常见折中：先用结果奖励冷启动，再对关键步骤补过程奖励。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：结果奖励 vs 过程奖励（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 结果奖励 vs 过程奖励</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>结果奖励的问题不是"不准"，而是<strong>太粗</strong>——它把"整条轨迹"压成一个数，于是既奖错也罚错。过程奖励用 5.8 个点的优势换来了精确定位能力，代价是要标中间步。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','27-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','27-3')">🤔 你可能还想问</button></div>
       <div id="tab-ai-27-3" class="llm-section"><button class="llm-btn" onclick="startChat('27-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="27-3"><div class="chat-toolbar"><button onclick="copyChat('27-3')">📋 复制对话</button><button onclick="clearChat('27-3')">🗑 清空</button><button onclick="stopLLM('27-3')" id="stop-btn-27-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('27-3')" id="regenerate-btn-27-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="27-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对结果 / 过程奖励有疑问？比如「没有人工标注怎么办」「过程奖励怎么自动生成」？<br><br>说清你的任务与可用的判分方式，我帮你选奖励方案。</div></div><div class="chat-input-row"><textarea data-input="27-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('27-3')}" rows="1" placeholder="例如：过程奖励的数据怎么来？"></textarea><button onclick="sendLLM('27-3')">发送</button></div></div></div>

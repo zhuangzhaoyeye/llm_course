@@ -219,6 +219,20 @@
           <tr><td>缩放平移</td><td>γ×norm + β</td><td>γ 和 β 是可学习参数，恢复表达能力</td></tr></table>
         </div>
       </div>
+      <!-- 交互式分步动画：残差连接与 LayerNorm（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 残差连接与 LayerNorm</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 残差 + LayerNorm = 深度训练的基石</div><p>没有残差：24 层梯度衰减 98%，浅层几乎学不到。没有 LayerNorm：24 层梯度放大 2.6e6 倍，数值爆炸。两者配合让 6 层、24 层甚至 96 层都能稳定训练——这是 Transformer 从 6 层扩展到千亿参数的前提。</p></div>
 
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','2-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','2-4')">🤔 你可能还想问</button></div>

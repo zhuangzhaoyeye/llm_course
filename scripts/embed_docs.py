@@ -139,7 +139,7 @@ def main() -> int:
             print(f"  已完成 {min(s + BATCH, len(todo))}/{len(todo)}")
     elif todo:
         proc = subprocess.Popen(
-            ["npx", "-y", "wrangler@latest", "dev", "--ip", "127.0.0.1", "--port", str(PORT), "--remote"],
+            ["npx", "-y", "wrangler@latest", "dev", "--ip", "127.0.0.1", "--port", str(PORT)],
             cwd=TOOL_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
         try:

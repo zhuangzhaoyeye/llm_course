@@ -200,6 +200,20 @@
           <div class="step-desc" style="color:var(--success);font-weight:600;margin-top:6px;">6.74B 不是估的：它 = 32 层的 Attention + FFN，加上首尾两张各 131.07M 的词表，再加可忽略的 RMSNorm。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：7B 参数账（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 参数账：一块一块加出来</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>「7B」不是一个大概的数字，而是每一块矩阵乘出来加总的结果：<strong>32 层的 Attention + FFN 吃掉了约 96%，首尾两张词表各占 1.95%</strong>。其中 LM Head（把隐藏向量投影成词表概率的输出层）和 Embedding 是两张独立的大表——Llama 2 没有做 weight tying（权重绑定：让输入查表和输出投影共用同一份矩阵）；如果共享，就能省下 131.07M ≈ 1.9% 的参数。这也解释了工程上为什么要权衡「词表大小」和「是否共享」：词表越大，首尾两张表越贵。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','5-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','5-6')">🤔 你可能还想问</button></div>
       <div id="tab-ai-5-6" class="llm-section"><button class="llm-btn" onclick="startChat('5-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="5-6"><div class="chat-toolbar"><button onclick="copyChat('5-6')">📋 复制对话</button><button onclick="clearChat('5-6')">🗑 清空</button><button onclick="stopLLM('5-6')" id="stop-btn-5-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('5-6')" id="regen-btn-5-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="5-6"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对「7B 到底怎么算出来」有疑问？比如「MHA 换成 GQA 会少多少参数？」「weight tying 省下的 1.9% 值不值？」「Llama 3 8B 的 8.03B 怎么来的？」<br><br>我会用具体数字帮你算。</div></div></div><div class="chat-input-row"><textarea data-input="5-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('5-6')}" rows="1" placeholder="例如：如果词表从 32000 扩到 128256，首尾两张表会涨多少？"></textarea><button onclick="sendLLM('5-6')">发送</button></div></div></div>

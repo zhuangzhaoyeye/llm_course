@@ -51,6 +51,20 @@
           <div class="step-desc" style="margin-top:4px;">算术：两段的<strong>算术强度</strong>差 = 1000 ÷ 1 ≈ <strong>1000 倍</strong>——prefill 一次喂进 1024 个 token（大矩阵-矩阵乘、吃算力），decode 一次只喂 1 个 token（矩阵-向量乘、吃带宽）。所以同一个模型、同一张卡，prefill 卡在算力、decode 卡在带宽——这是整课所有优化手段的出发点。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：prefill / decode 算术强度差 1000 倍（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · prefill / decode 算术强度差</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>把 prefill 与 decode 混为一谈，会做出错误的优化决策：给 decode 堆算力（没用，它等的是数据），或给 prefill 堆带宽（也没用，它等的是计算）。<strong>"先分清一段计算卡在哪个资源上"</strong>，是推理引擎里所有取舍（批量、调度、分离）的前置判断。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','18-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','18-1')">🤔 你可能还想问</button></div>
       <div id="tab-ai-18-1" class="llm-section"><button class="llm-btn" onclick="startChat('18-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="18-1"><div class="chat-toolbar"><button onclick="copyChat('18-1')">📋 复制对话</button><button onclick="clearChat('18-1')">🗑 清空</button><button onclick="stopLLM('18-1')" id="stop-btn-18-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('18-1')" id="regen-btn-18-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="18-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 prefill / decode 的差异有疑问？比如「为什么 decode 是带宽受限」「TTFT 和 TPOT 分别被谁决定」？<br><br>报模型规模和卡型，我帮你把两段的算术强度算出来。</div></div><div class="chat-input-row"><textarea data-input="18-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('18-1')}" rows="1" placeholder="例如：为什么 decode 阶段加算力没用？"></textarea><button onclick="sendLLM('18-1')">发送</button></div></div></div>

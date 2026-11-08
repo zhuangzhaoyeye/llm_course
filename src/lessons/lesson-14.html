@@ -191,6 +191,20 @@
           <div class="step-desc" style="margin-top:4px;">所以"装得下"只是下限。真实配置常在<strong>数十张</strong>量级（估算/示意，无可核实的一手来源，需按具体配置实测）；本课算出来的 32 张是<strong>下限</strong>，真实配置由余量与吞吐目标决定。这也解释了为什么同一个模型，不同团队的"需要几张卡"能差一倍——他们报的是下限、推荐值、还是实测配置。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：70B 要几张 80GB 卡（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 从 TB 级到张卡</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>把三张卡片的结论串起来就是一条完整的账：<strong>① ZeRO-1/2 因为要留完整权重，永远装不进 80 GB，只有 ZeRO-3 可行；② 激活必须靠重算压到 10 GB 量级，否则永远超标；③ 两者的组合给出了明确的下限——32 张。</strong>算账的价值正在这里：它把"要几张卡"从一个经验数字，变成一句可以逐项复核的乘法与除法。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','14-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','14-6')">🤔 你可能还想问</button></div>
       <div id="tab-ai-14-6" class="llm-section"><button class="llm-btn" onclick="startChat('14-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="14-6"><div class="chat-toolbar"><button onclick="copyChat('14-6')">📋 复制对话</button><button onclick="clearChat('14-6')">🗑 清空</button><button onclick="stopLLM('14-6')" id="stop-btn-14-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('14-6')" id="regen-btn-14-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="14-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对卡数估算有疑问？比如"如果换成 40 GB 卡呢？""为什么不能靠 offload 解决？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="14-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('14-6')}" rows="1" placeholder="例如：如果序列是 8K，最少要几张卡？"></textarea><button onclick="sendLLM('14-6')">发送</button></div></div></div>

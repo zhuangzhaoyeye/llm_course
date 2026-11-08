@@ -51,6 +51,20 @@
           <div class="step-desc" style="margin-top:4px;">所以第一刀该先问一句：<strong>我缺的是"显存"还是"吞吐"？</strong>缺显存就切模型，缺吞吐就切数据——混着上也没关系，但要先知道每把刀各自在治什么。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：第一笔账·405B 训练显存账（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 第一笔账：训练显存账</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>训练显存不是一个数字，而是一句乘法：<strong>每参数几字节 × 参数量</strong>。记住"混合精度 + Adam ≈ 16 B/参数"这个口径，任何模型的账都能当场算出来：405B 是 6.48 TB，70B 是 1.12 TB，7B 是 112 GB。算完账才知道该切哪一刀——<strong>不先算账就堆卡，是最常见的浪费</strong>。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','13-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','13-1')">🤔 你可能还想问</button></div>
       <div id="tab-ai-13-1" class="llm-section"><button class="llm-btn" onclick="startChat('13-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="13-1"><div class="chat-toolbar"><button onclick="copyChat('13-1')">📋 复制对话</button><button onclick="clearChat('13-1')">🗑 清空</button><button onclick="stopLLM('13-1')" id="stop-btn-13-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('13-1')" id="regen-btn-13-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="13-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对显存账有疑问？比如"为什么 master 要用 fp32？""LoRA（即冻结大部分权重、只训练一小部分低秩增量参数的省显存微调）微调能不能少算几份？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="13-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('13-1')}" rows="1" placeholder="例如：训一个 70B 模型，显存账该怎么算？"></textarea><button onclick="sendLLM('13-1')">发送</button></div></div></div>

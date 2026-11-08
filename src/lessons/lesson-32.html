@@ -163,6 +163,20 @@
           <div class="step-desc" style="margin-top:4px;">算术：23 小时 = <strong>82,800 秒</strong>，轮均 ≈ <strong>1,119 秒</strong>（约 18.6 分钟）。<strong>"跑得久"和"烧得多"是两笔账，必须同时给。</strong></div>
         </div>
       </div>
+      <!-- 交互式分步动画：74 轮的总 token 与时间账（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 总 token 与时间账</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>长时程的成本公式 = <strong>时间 × 并发 × 单价</strong>，其中 token 是暗账。对照口径（第 26 课）：单 Agent ≈4×、多智能体 ≈15× 普通对话。判定：<strong>报一条 run 时，能不能同时给出小时数与总 token 数。</strong></p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','32-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','32-5')">🤔 你可能还想问</button></div>
       <div id="tab-ai-32-5" class="llm-section"><button class="llm-btn" onclick="startChat('32-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="32-5"><div class="chat-toolbar"><button onclick="copyChat('32-5')">📋 复制对话</button><button onclick="clearChat('32-5')">🗑 清空</button><button onclick="stopLLM('32-5')" id="stop-btn-32-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('32-5')" id="regenerate-btn-32-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="32-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对成本账有疑问？比如「74 轮要花多少 token」「4× 和 15× 怎么用」？<br><br>说清你的模型与步数，我帮你估一条 run 的账。</div></div><div class="chat-input-row"><textarea data-input="32-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('32-5')}" rows="1" placeholder="例如：一次 74 轮的 run 多少钱？"></textarea><button onclick="sendLLM('32-5')">发送</button></div></div></div>

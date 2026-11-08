@@ -79,6 +79,20 @@
           <div class="step-desc" style="margin-top:4px;">算术：要 8 次全对到 99%，单次要 0.9987 以上（0.9987⁸ ≈ 0.99）。注意这是按<strong>保守下界 p^k 反推的充分条件</strong>——真实 pass^k 不低于 p^k，所以做到 0.9987 一定够、反之未必要这么高。现实中仍很难。所以工程上不追求"单次完美"，而是<strong>对关键动作加重试 + 幂等 + 人工确认</strong>。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：pass^k 可靠性衰减（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · pass^k 可靠性衰减</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>可靠性的正确量法是 <strong>pass^k（连续 k 次全对）</strong>，p^k 是它的<strong>下界</strong>（真实值不低于 p^k），比单次成功率严格得多。生产上的结论很实在：<strong>别指望"单次做到完美"，要给关键动作准备重试、幂等与人审兜底。</strong></p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','28-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','28-2')">🤔 你可能还想问</button></div>
       <div id="tab-ai-28-2" class="llm-section"><button class="llm-btn" onclick="startChat('28-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="28-2"><div class="chat-toolbar"><button onclick="copyChat('28-2')">📋 复制对话</button><button onclick="clearChat('28-2')">🗑 清空</button><button onclick="stopLLM('28-2')" id="stop-btn-28-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('28-2')" id="regenerate-btn-28-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="28-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 pass^k 有疑问？比如「k 取多少合适」「怎么提升稳定性」？<br><br>说清你的场景与容错要求，我帮你定 k 与兜底策略。</div></div><div class="chat-input-row"><textarea data-input="28-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('28-2')}" rows="1" placeholder="例如：pass^k 里 k 该取多少？"></textarea><button onclick="sendLLM('28-2')">发送</button></div></div></div>

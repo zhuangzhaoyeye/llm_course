@@ -143,6 +143,20 @@
           <div class="step-desc" style="margin-top:4px;">算术无关的一条对比：决策模型把"选答案"这件事实名化成了一个<strong>数值输出</strong>，绕开了生成和解析这两道工序。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：概率分布 → 和为 1 → argmax 取答案（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 概率分布 → 归一化 → argmax 取答案</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 核心矛盾</div><p>决策要的从来不是"一段话"，而是"<strong>一个概率分布</strong>"。自回归把概率塞进文字里让你猜；决策模型把概率<strong>直接摆出来</strong>——于是成本、跑偏、信心、换序这四个问题，都在"输出概率"这一设计里被同时化解。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','35-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','35-5')">🤔 你可能还想问</button></div>
       <div id="tab-ai-35-5" class="llm-section"><button class="llm-btn" onclick="startChat('35-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="35-5"><div class="chat-toolbar"><button onclick="copyChat('35-5')">📋 复制对话</button><button onclick="clearChat('35-5')">🗑 清空</button><button onclick="stopLLM('35-5')" id="stop-btn-35-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('35-5')" id="regenerate-btn-35-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="35-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"概率输出"有疑问？比如「概率怎么变成答案」「为什么和为1」？<br><br>我会用具体数字，讲清决策模型怎么定义输入输出。</div></div><div class="chat-input-row"><textarea data-input="35-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('35-5')}" rows="1" placeholder="例如：概率怎么用来做决策？"></textarea><button onclick="sendLLM('35-5')">发送</button></div></div></div>

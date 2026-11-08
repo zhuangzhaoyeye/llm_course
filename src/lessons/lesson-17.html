@@ -79,6 +79,20 @@
           <div class="step-desc" style="margin-top:4px;">算术：r × (4096 + 4096) 即参数量；r = 1 → 8,192（1/2048）、r = 8 → 65,536（1/256）、r = 64 → 524,288（1/32）。<strong>rank 越大，可学的东西越多、但省得越少</strong>——这是第 3、第 5 张卡片要处理的取舍。另一个工程红利：部署时可以把 BA 加回基座（<strong>W<sub>merged</sub> = W₀ + BA</strong>），形状不变，<strong>推理零额外延迟</strong>。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：ΔW = BA 低秩分解（256 倍压缩账）（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · ΔW = BA 低秩分解</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>LoRA 不是"近似地学一遍全量"，而是<strong>换了一个受约束的参数空间</strong>：它假设"任务需要的改变落在少数方向上"。这个假设在指令微调上通常成立（所以能 256 倍地省），但它也是一个<strong>能力上界</strong>——改变如果本质上需要全秩，LoRA 就够不到（第 5 张卡片展开）。B 初始化为 0 这个细节也别忘了：它保证训练从"等于基座"出发，而不是从随机扰动出发。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','17-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','17-2')">🤔 你可能还想问</button></div>
       <div id="tab-ai-17-2" class="llm-section"><button class="llm-btn" onclick="startChat('17-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="17-2"><div class="chat-toolbar"><button onclick="copyChat('17-2')">📋 复制对话</button><button onclick="clearChat('17-2')">🗑 清空</button><button onclick="stopLLM('17-2')" id="stop-btn-17-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('17-2')" id="regen-btn-17-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="17-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 ΔW = BA 有疑问？比如「为什么 B 要初始化为 0」「r 到底选多大」？<br><br>报一个投影矩阵的维度，我帮你算参数量与压缩比。</div></div><div class="chat-input-row"><textarea data-input="17-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('17-2')}" rows="1" placeholder="例如：r=16 时，一个 4096×4096 投影要训多少参数？"></textarea><button onclick="sendLLM('17-2')">发送</button></div></div></div>

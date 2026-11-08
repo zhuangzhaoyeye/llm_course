@@ -107,6 +107,20 @@
           <div class="step-desc" style="margin-top:4px;">算术：5 ÷ 12 ≈ 41.7% ≈ 42%。<strong>评审器分数再高，也不能替代对工件的核查</strong>——独立评估一上手，就发现近一半实验根本跑不通。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：多评审一致性（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 多评审一致性</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>接受之前的判断必须<strong>独立且看证据</strong>：多评审 + 回查工件（数据 / 日志 / 代码 / 复现清单），而不是信"结论一句话"。判据是：<strong>换一个不参与生产的人，能否仅凭你留下的证据复现同一判断。</strong></p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','33-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','33-3')">🤔 你可能还想问</button></div>
       <div id="tab-ai-33-3" class="llm-section"><button class="llm-btn" onclick="startChat('33-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="33-3"><div class="chat-toolbar"><button onclick="copyChat('33-3')">📋 复制对话</button><button onclick="clearChat('33-3')">🗑 清空</button><button onclick="stopLLM('33-3')" id="stop-btn-33-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('33-3')" id="regenerate-btn-33-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="33-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对独立评审有疑问？比如「几个人合适」「一致性怎么算」？<br><br>说清你的风险等级，我帮你定评审人数与判据。</div></div><div class="chat-input-row"><textarea data-input="33-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('33-3')}" rows="1" placeholder="例如：几个评审才算够？"></textarea><button onclick="sendLLM('33-3')">发送</button></div></div></div>

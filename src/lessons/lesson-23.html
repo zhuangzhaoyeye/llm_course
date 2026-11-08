@@ -51,6 +51,20 @@
           <div class="step-desc" style="margin-top:4px;">算术：当 M、N 同步放大时，M×N 与 M+N 的差距从 4.0 倍拉到约 <strong>16.7</strong> 倍——乘法按规模平方涨、加法只线性涨。这正是 MCP 这类协议存在的理由。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：M×N → M+N 接入成本（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · M×N 乘法 → M+N 加法</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>MCP 解决的<strong>不是</strong>模型能力问题，而是一个<strong>生态乘法</strong>：把 M×N 份点对点适配，换成 M+N 份对协议的实现。它借鉴 LSP 的成功经验——协议只规定「怎么交换 context」，不规定「交换什么业务」，所以既能接各类工具，也不会绑死在某一家。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','23-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','23-1')">🤔 你可能还想问</button></div>
       <div id="tab-ai-23-1" class="llm-section"><button class="llm-btn" onclick="startChat('23-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="23-1"><div class="chat-toolbar"><button onclick="copyChat('23-1')">📋 复制对话</button><button onclick="clearChat('23-1')">🗑 清空</button><button onclick="stopLLM('23-1')" id="stop-btn-23-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('23-1')" id="regenerate-btn-23-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="23-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 M×N 这笔账有疑问？比如「M+N 到底省了多少」「规模大了会怎样」？<br><br>告诉我你的宿主数与工具数，我帮你算这笔接入账。</div></div><div class="chat-input-row"><textarea data-input="23-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('23-1')}" rows="1" placeholder="例如：5 个宿主、20 个工具，能省多少份？"></textarea><button onclick="sendLLM('23-1')">发送</button></div></div></div>

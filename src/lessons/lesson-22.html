@@ -107,6 +107,20 @@
           <div class="step-desc" style="margin-top:4px;">算术：k=3 意味着最坏 <strong>4 次</strong>调用（4 份成本）。更危险的是副作用：一次「下单」超时后重试，可能真的<strong>下两单</strong>。<strong>所以重试必须配幂等键</strong>——让同一个业务请求无论重试几次都只生效一次，这也是「能改变世界的工具」必须付出的纪律。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：重试把成功率从 0.9 抬到 0.9999（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 重试抬成功率</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>工具出错的兜法是一条三步链：<strong>校验（能否执行）→ 回填错误（让模型知道错在哪）→ 重试（带上限与幂等）</strong>。关键认知是：<strong>只读工具重试只是浪费；会写数据的工具，重试必须有幂等保护</strong>——否则「更稳的重试」会变成「更多的重复下单」。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','22-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','22-3')">🤔 你可能还想问</button></div>
       <div id="tab-ai-22-3" class="llm-section"><button class="llm-btn" onclick="startChat('22-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="22-3"><div class="chat-toolbar"><button onclick="copyChat('22-3')">📋 复制对话</button><button onclick="clearChat('22-3')">🗑 清空</button><button onclick="stopLLM('22-3')" id="stop-btn-22-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('22-3')" id="regenerate-btn-22-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="22-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对「工具出错」有疑问？比如「重试几次合适」「幂等键怎么设计」？<br><br>说清你的工具是只读还是写数据，我帮你定重试与幂等策略。</div></div><div class="chat-input-row"><textarea data-input="22-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('22-3')}" rows="1" placeholder="例如：写数据的工具重试要注意什么？"></textarea><button onclick="sendLLM('22-3')">发送</button></div></div></div>

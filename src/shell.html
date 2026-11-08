@@ -3528,6 +3528,7 @@ function switchLesson(n) {
   updateProgress();
   restoreCardChecks();
   Stats.onLesson(n, card1 ? card1.dataset.card : null);
+  initAnim();
   if (window.__SITE__) {
     // 新页面的侧边栏滚动位置会重置，把当前课滚进可视区
     var cur = document.querySelector('.nav-item.active');
@@ -3553,14 +3554,19 @@ function getCardContent(cardId) {
 };
 
 
-// ── Auto-load：单文件版默认第 1 课；多页站点版加载本页对应的那一课 ──
-switchLesson(window.__SITE__ ? window.__SITE__.lesson : 1);
-Stats.boot();
-
-/* ================= 分步动画（第 1 课 Card 2 · Self-Attention 计算走查） ================= */
-/* 存在性守卫：只有第 1 课（DOM 中存在 animCanvas）才初始化，其余 34 课零副作用。 */
-if (document.getElementById('animCanvas')) {
-(function(){
+/* ================= 分步动画（逐课计算走查 · 数据驱动） ================= */
+/* 每课在 ANIM_STEPS[课号] 登记一组步骤；正文（lesson-N.html）放入 .anim-panel 容器。
+   initAnim() 在 switchLesson 渲染后调用：按 activeLesson 取步骤，无动画/无 animCanvas 则返回（其余课零副作用）。 */
+var ANIM_STEPS = {};
+const ACCENT = '#4F46E5';
+const QCOL = '#2563EB';   // Q 蓝
+const KCOL = '#B45309';   // K 琥珀
+const VCOL = '#0E9F6E';   // V 绿
+const RESCOL = '#DC2626'; // 结果红（突出最终答案）
+const INK = '#1F2430';
+var _animStop = null;
+function initAnim(){
+  if(_animStop){ try{ _animStop(); }catch(e){} _animStop = null; }
   const cv = document.getElementById('animCanvas');
   if(!cv) return;
   const ctx = cv.getContext('2d');
@@ -3568,13 +3574,6 @@ if (document.getElementById('animCanvas')) {
   const DPR = Math.min(2, window.devicePixelRatio || 1);
   cv.width = LW * DPR; cv.height = LH * DPR;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-
-  const ACCENT = '#4F46E5';
-  const QCOL = '#2563EB';   // Q 蓝
-  const KCOL = '#B45309';   // K 琥珀
-  const VCOL = '#0E9F6E';   // V 绿
-  const RESCOL = '#DC2626'; // 结果红（突出最终答案）
-  const INK = '#1F2430';
 
   // 工具：圆角矩形
   function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
@@ -3618,7 +3617,7 @@ if (document.getElementById('animCanvas')) {
     ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   }
 
-  const STEPS = [
+  if(!ANIM_STEPS[1]) ANIM_STEPS[1] = [
     // ---------- STEP 0：输入 Embedding ----------
     {
       caption: '<b>Step 1 · 输入 Embedding</b>：句子 = [「我」,「吃」]，每个词是一个 3 维向量（示意值）。',
@@ -3746,6 +3745,2214 @@ if (document.getElementById('animCanvas')) {
     },
   ];
 
+  if(!ANIM_STEPS[2]) ANIM_STEPS[2] = [
+    // ---------- STEP 0：无残差 · 梯度指数衰减 ----------
+    {
+      caption: '<b>Step 1 · 无残差 x_l=F_l(x_{l-1})</b>：梯度每过一层 ×0.85。12 层后剩 <b>0.14</b>、24 层后剩 <b>0.02</b>、48 层后剩 <b>0.0004</b>——浅层几乎学不到。',
+      nodes: [
+        {x:50,y:80,w:110,h:52,label:'梯度',value:'1.0',color:INK,fill:'#FBF6EE'},
+        {x:280,y:80,w:240,h:52,label:'12 层 · 每层 ×0.85',value:'0.85¹²',color:KCOL,fill:'#FDF6EC'},
+        {x:640,y:80,w:160,h:52,label:'剩余',value:'0.14',color:RESCOL},
+        {x:50,y:200,w:110,h:52,label:'梯度',value:'1.0',color:INK,fill:'#FBF6EE'},
+        {x:280,y:200,w:240,h:52,label:'24 层 · 每层 ×0.85',value:'0.85²⁴',color:KCOL,fill:'#FDF6EC'},
+        {x:640,y:200,w:160,h:52,label:'剩余',value:'0.02',color:RESCOL},
+        {x:50,y:320,w:110,h:52,label:'梯度',value:'1.0',color:INK,fill:'#FBF6EE'},
+        {x:280,y:320,w:240,h:52,label:'48 层 · 每层 ×0.85',value:'0.85⁴⁸',color:KCOL,fill:'#FDF6EC'},
+        {x:640,y:320,w:160,h:52,label:'剩余',value:'0.0004',color:RESCOL},
+      ],
+      flows: [
+        {v:'1.0',x1:105,y1:106,x2:280,y2:106,delay:0.0,dur:0.6,color:INK},
+        {v:'0.14',x1:400,y1:106,x2:640,y2:106,delay:0.7,dur:0.6,color:RESCOL},
+        {v:'1.0',x1:105,y1:226,x2:280,y2:226,delay:1.5,dur:0.6,color:INK},
+        {v:'0.02',x1:400,y1:226,x2:640,y2:226,delay:2.2,dur:0.6,color:RESCOL},
+        {v:'1.0',x1:105,y1:346,x2:280,y2:346,delay:3.0,dur:0.6,color:INK},
+        {v:'0.0004',x1:400,y1:346,x2:640,y2:346,delay:3.7,dur:0.6,color:RESCOL},
+      ],
+      end: 4.8,
+    },
+    // ---------- STEP 1：有残差 · 梯度放大 ----------
+    {
+      caption: '<b>Step 2 · 有残差 x_l=x_{l-1}+F_l(x_{l-1})</b>：梯度 = I + 0.85I = <b>1.85</b>/层。12 层放大到 <b>1607</b>、24 层 <b>2.6e6</b>——不消失了，但会爆炸，需要 LayerNorm 压回。',
+      nodes: [
+        {x:50,y:110,w:110,h:56,label:'梯度',value:'1.0',color:INK,fill:'#FBF6EE'},
+        {x:280,y:110,w:240,h:56,label:'12 层 · 每层 ×1.85',value:'1.85¹²',color:VCOL,fill:'#F0FDF4'},
+        {x:640,y:110,w:170,h:56,label:'放大到',value:'1607',color:RESCOL},
+        {x:50,y:280,w:110,h:56,label:'梯度',value:'1.0',color:INK,fill:'#FBF6EE'},
+        {x:280,y:280,w:240,h:56,label:'24 层 · 每层 ×1.85',value:'1.85²⁴',color:VCOL,fill:'#F0FDF4'},
+        {x:640,y:280,w:170,h:56,label:'放大到',value:'2.6e6',color:RESCOL},
+      ],
+      flows: [
+        {v:'1.0',x1:105,y1:138,x2:280,y2:138,delay:0.0,dur:0.6,color:INK},
+        {v:'1607',x1:400,y1:138,x2:640,y2:138,delay:0.7,dur:0.6,color:RESCOL},
+        {v:'1.0',x1:105,y1:308,x2:280,y2:308,delay:1.5,dur:0.6,color:INK},
+        {v:'2.6e6',x1:400,y1:308,x2:640,y2:308,delay:2.2,dur:0.6,color:RESCOL},
+      ],
+      end: 3.2,
+    },
+    // ---------- STEP 2：LayerNorm 归一化 ----------
+    {
+      caption: '<b>Step 3 · LayerNorm 两步</b>：对向量 [2, 6, 4, 8] 先减均值 μ=(2+6+4+8)/4=<b>5</b>，再除标准差 σ=√((9+1+1+9)/4)≈<b>2.24</b>，得到 [-1.34, 0.45, -0.45, 1.34]。',
+      nodes: [
+        {x:250,y:24,w:160,h:40,label:'减均值',value:'μ = 5',color:KCOL,fill:'#FDF6EC'},
+        {x:520,y:24,w:190,h:40,label:'除标准差',value:'σ ≈ 2.24',color:VCOL,fill:'#F0FDF4'},
+        {x:50,y:90,w:90,h:48,label:'分量',value:'2',color:INK},
+        {x:250,y:90,w:160,h:48,label:'−μ',value:'-3',color:KCOL},
+        {x:520,y:90,w:180,h:48,label:'÷σ',value:'-1.34',color:RESCOL},
+        {x:50,y:175,w:90,h:48,label:'分量',value:'6',color:INK},
+        {x:250,y:175,w:160,h:48,label:'−μ',value:'1',color:KCOL},
+        {x:520,y:175,w:180,h:48,label:'÷σ',value:'0.45',color:RESCOL},
+        {x:50,y:260,w:90,h:48,label:'分量',value:'4',color:INK},
+        {x:250,y:260,w:160,h:48,label:'−μ',value:'-1',color:KCOL},
+        {x:520,y:260,w:180,h:48,label:'÷σ',value:'-0.45',color:RESCOL},
+        {x:50,y:345,w:90,h:48,label:'分量',value:'8',color:INK},
+        {x:250,y:345,w:160,h:48,label:'−μ',value:'3',color:KCOL},
+        {x:520,y:345,w:180,h:48,label:'÷σ',value:'1.34',color:RESCOL},
+      ],
+      flows: [
+        {v:'2',x1:140,y1:114,x2:250,y2:114,delay:0.0,dur:0.5,color:INK},
+        {v:'-3',x1:410,y1:114,x2:520,y2:114,delay:0.3,dur:0.5,color:KCOL},
+        {v:'6',x1:140,y1:199,x2:250,y2:199,delay:0.9,dur:0.5,color:INK},
+        {v:'1',x1:410,y1:199,x2:520,y2:199,delay:1.2,dur:0.5,color:KCOL},
+        {v:'4',x1:140,y1:284,x2:250,y2:284,delay:1.8,dur:0.5,color:INK},
+        {v:'-1',x1:410,y1:284,x2:520,y2:284,delay:2.1,dur:0.5,color:KCOL},
+        {v:'8',x1:140,y1:369,x2:250,y2:369,delay:2.7,dur:0.5,color:INK},
+        {v:'3',x1:410,y1:369,x2:520,y2:369,delay:3.0,dur:0.5,color:KCOL},
+      ],
+      end: 4.0,
+    },
+  ];
+
+
+
+  if(!ANIM_STEPS[3]) ANIM_STEPS[3] = [
+  // ---------- 卡 3-3 · GQA 的 KV Cache 参数账 ----------
+  {
+    caption: '<b>Step 1 · 一个 token 的 Key/Value 多大</b>：4 头 × 64 维 = <b>256 个数</b>，float16 每个 2 字节 = <b>512 字节</b>，K+V 两份 = <b>1024 字节 ≈ 1 KB</b>。',
+    nodes: [
+      {x:40,y:150,w:240,h:64,label:'一个 token 的 Key',value:'4头 × 64维 = 256',color:'#1F2430',fill:'#FBF6EE'},
+      {x:360,y:150,w:220,h:64,label:'float16 = 2 字节',value:'256 × 2 = 512 字节',color:'#2563EB'},
+      {x:650,y:150,w:190,h:64,label:'K + V 两份',value:'1024 字节 ≈ 1 KB',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'256',x1:280,y1:182,x2:360,y2:182,delay:0.0,dur:0.6,color:'#1F2430'},
+      {v:'512 字节',x1:580,y1:182,x2:650,y2:182,delay:0.8,dur:0.6,color:'#2563EB',w:80},
+    ],
+    end: 2.0,
+  },
+  {
+    caption: '<b>Step 2 · 生成 1024 token 要缓存多少 KV</b>：生成第 512 个字要缓存 511 个历史 KV × 8 层 ≈ <b>4 MB</b>；生成第 1024 个字要缓存 1023 个 × 8 层 ≈ <b>8 MB</b>——随上下文线性膨胀。',
+    nodes: [
+      {x:40,y:90,w:180,h:56,label:'生成第 512 个字',value:'511 个历史 KV',color:'#1F2430',fill:'#FBF6EE'},
+      {x:300,y:90,w:190,h:56,label:'× 8 层',value:'511 KB × 8',color:'#2563EB'},
+      {x:580,y:90,w:200,h:56,label:'显存',value:'≈ 4 MB',color:'#DC2626'},
+      {x:40,y:280,w:180,h:56,label:'生成第 1024 个字',value:'1023 个历史 KV',color:'#1F2430',fill:'#FBF6EE'},
+      {x:300,y:280,w:190,h:56,label:'× 8 层',value:'1023 KB × 8',color:'#2563EB'},
+      {x:580,y:280,w:200,h:56,label:'显存',value:'≈ 8 MB',color:'#DC2626'},
+    ],
+    flows: [
+      {v:'511',x1:220,y1:118,x2:300,y2:118,delay:0.0,dur:0.6,color:'#1F2430'},
+      {v:'4 MB',x1:490,y1:118,x2:580,y2:118,delay:0.8,dur:0.6,color:'#DC2626'},
+      {v:'1023',x1:220,y1:308,x2:300,y2:308,delay:1.6,dur:0.6,color:'#1F2430'},
+      {v:'8 MB',x1:490,y1:308,x2:580,y2:308,delay:2.4,dur:0.6,color:'#DC2626'},
+    ],
+    end: 3.5,
+  },
+  {
+    caption: '<b>Step 3 · 真实规模放大（32 头 / 128 维 / 32 层 / 1024 token / fp16）</b>：MHA 32 头独立 K/V = <b>512 MB</b>，MQA 全共享 = <b>16 MB</b>（省 97%），GQA 8 组共享 = <b>128 MB</b>（省 75%）。',
+    nodes: [
+      {x:40,y:36,w:520,h:42,label:'配置',value:'32 头 · 128 维 · 32 层 · 1024 token · fp16',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:118,w:250,h:58,label:'MHA · 32 头独立 K/V',value:'32 × 2 × 128 × …',color:'#1F2430'},
+      {x:520,y:118,w:200,h:58,label:'KV Cache',value:'512 MB',color:'#DC2626'},
+      {x:40,y:224,w:250,h:58,label:'MQA · 共享 1 对 K/V',value:'1 × 2 × 128 × …',color:'#B45309'},
+      {x:520,y:224,w:200,h:58,label:'KV Cache',value:'16 MB',color:'#DC2626'},
+      {x:40,y:330,w:250,h:58,label:'GQA · 8 组共享 KV',value:'8 × 2 × 128 × …',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:520,y:330,w:200,h:58,label:'KV Cache',value:'128 MB',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'512 MB',x1:290,y1:147,x2:520,y2:147,delay:0.0,dur:0.6,color:'#DC2626'},
+      {v:'16 MB',x1:290,y1:253,x2:520,y2:253,delay:0.9,dur:0.6,color:'#DC2626'},
+      {v:'128 MB',x1:290,y1:359,x2:520,y2:359,delay:1.8,dur:0.6,color:'#DC2626'},
+    ],
+    end: 3.0,
+  },
+  {
+    caption: '<b>Step 4 · GQA 省了多少 KV Cache</b>：(512 − 128) / 512 = 384 / 512 = <b>75%</b>——用很小的质量损失换掉 3/4 的 KV 显存（对比：MQA 全共享省 97%，但质量有可感知下降）。',
+    nodes: [
+      {x:60,y:160,w:200,h:64,label:'MHA',value:'512 MB',color:'#1F2430',fill:'#FBF6EE'},
+      {x:340,y:160,w:200,h:64,label:'GQA · 8 组共享',value:'128 MB',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:620,y:160,w:220,h:64,label:'省下',value:'(512−128)/512',color:'#B45309',fill:'#FDF6EC'},
+      {x:690,y:300,w:150,h:64,label:'结果',value:'75%',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'512',x1:260,y1:192,x2:340,y2:192,delay:0.0,dur:0.6,color:'#1F2430'},
+      {v:'128',x1:540,y1:192,x2:620,y2:192,delay:0.8,dur:0.6,color:'#0E9F6E'},
+      {v:'= 75%',x1:730,y1:224,x2:760,y2:300,delay:1.6,dur:0.7,color:'#DC2626',w:64},
+    ],
+    end: 2.8,
+  },
+];
+
+  // NOTE: 卡 4-2 的 Step 5 只写「(s,t) 出现 1 次」，未点明同轮 (lowe,s) 也是 1 次（平局）。
+//       本动画按卡片既定结论呈现（r 先行合并 lower，再合并 st → 12/12），未改正文。
+if(!ANIM_STEPS[4]) ANIM_STEPS[4] = [
+  // ---------- 卡 4-2 · BPE 合并走查 ----------
+  {
+    caption: '<b>Step 1 · 初始化</b>：把 "low / lower / lowest" 按字符拆开，初始词表只有 <b>7</b> 个符号 {l,o,w,e,r,s,t}，目标 <b>12</b>，还需 <b>5</b> 次合并。',
+    nodes: [
+      {x:40,y:52,w:150,h:46,label:'语料',value:'low',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:116,w:150,h:46,label:'语料',value:'lower',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:180,w:150,h:46,label:'语料',value:'lowest',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:300,w:62,h:46,label:'符号',value:'l',color:'#1F2430',fill:'#FBF6EE'},
+      {x:112,y:300,w:62,h:46,label:'符号',value:'o',color:'#1F2430',fill:'#FBF6EE'},
+      {x:184,y:300,w:62,h:46,label:'符号',value:'w',color:'#1F2430',fill:'#FBF6EE'},
+      {x:256,y:300,w:62,h:46,label:'符号',value:'e',color:'#1F2430',fill:'#FBF6EE'},
+      {x:328,y:300,w:62,h:46,label:'符号',value:'r',color:'#1F2430',fill:'#FBF6EE'},
+      {x:400,y:300,w:62,h:46,label:'符号',value:'s',color:'#1F2430',fill:'#FBF6EE'},
+      {x:472,y:300,w:62,h:46,label:'符号',value:'t',color:'#1F2430',fill:'#FBF6EE'},
+      {x:600,y:70,w:200,h:46,label:'目标词表',value:'12 个符号',color:'#DC2626'},
+      {x:600,y:140,w:200,h:46,label:'还需合并',value:'5 次',color:'#B45309',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'7 个',x1:534,y1:323,x2:600,y2:93,delay:0.0,dur:0.6,color:'#1F2430'},
+      {v:'+5',x1:700,y1:116,x2:700,y2:140,delay:0.7,dur:0.5,color:'#B45309'},
+    ],
+    end: 1.8,
+  },
+  {
+    caption: '<b>Step 2 · 合并 lo</b>：统计相邻对频率，(l,o) 出现 <b>3</b> 次最高 → 合并成 <b>lo</b>，词表 <b>8/12</b>。',
+    nodes: [
+      {x:40,y:70,w:150,h:50,label:'词',value:'l · o · w',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:150,w:150,h:50,label:'词',value:'l · o · w · e · r',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:230,w:150,h:50,label:'词',value:'l · o · w · e · s · t',color:'#1F2430',fill:'#FBF6EE'},
+      {x:250,y:150,w:160,h:50,label:'最高频对',value:'(l, o) × 3',color:'#B45309',fill:'#FDF6EC'},
+      {x:460,y:150,w:120,h:50,label:'合并',value:'lo',color:'#0E9F6E'},
+      {x:640,y:150,w:170,h:50,label:'词表',value:'8 / 12',color:'#DC2626'},
+    ],
+    flows: [
+      {v:'3',x1:190,y1:175,x2:250,y2:175,delay:0.0,dur:0.5,color:'#B45309'},
+      {v:'lo',x1:410,y1:175,x2:460,y2:175,delay:0.6,dur:0.5,color:'#0E9F6E'},
+      {v:'8/12',x1:580,y1:175,x2:640,y2:175,delay:1.2,dur:0.5,color:'#DC2626'},
+    ],
+    end: 2.2,
+  },
+  {
+    caption: '<b>Step 3 · 合并 low</b>：lo 出现后重新数，(lo,w) 出现 <b>3</b> 次 → 合并成 <b>low</b>，词表 <b>9/12</b>。',
+    nodes: [
+      {x:40,y:70,w:150,h:50,label:'词',value:'lo · w',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:150,w:150,h:50,label:'词',value:'lo · w · e · r',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:230,w:150,h:50,label:'词',value:'lo · w · e · s · t',color:'#1F2430',fill:'#FBF6EE'},
+      {x:250,y:150,w:160,h:50,label:'最高频对',value:'(lo, w) × 3',color:'#B45309',fill:'#FDF6EC'},
+      {x:460,y:150,w:120,h:50,label:'合并',value:'low',color:'#0E9F6E'},
+      {x:640,y:150,w:170,h:50,label:'词表',value:'9 / 12',color:'#DC2626'},
+    ],
+    flows: [
+      {v:'3',x1:190,y1:175,x2:250,y2:175,delay:0.0,dur:0.5,color:'#B45309'},
+      {v:'low',x1:410,y1:175,x2:460,y2:175,delay:0.6,dur:0.5,color:'#0E9F6E'},
+      {v:'9/12',x1:580,y1:175,x2:640,y2:175,delay:1.2,dur:0.5,color:'#DC2626'},
+    ],
+    end: 2.2,
+  },
+  {
+    caption: '<b>Step 4 · 合并 lowe</b>：(low,e) 出现 <b>2</b> 次 → 合并成 <b>lowe</b>，词表 <b>10/12</b>。',
+    nodes: [
+      {x:40,y:110,w:150,h:50,label:'词',value:'low · e · r',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:200,w:150,h:50,label:'词',value:'low · e · s · t',color:'#1F2430',fill:'#FBF6EE'},
+      {x:250,y:155,w:160,h:50,label:'最高频对',value:'(low, e) × 2',color:'#B45309',fill:'#FDF6EC'},
+      {x:460,y:155,w:120,h:50,label:'合并',value:'lowe',color:'#0E9F6E'},
+      {x:640,y:155,w:170,h:50,label:'词表',value:'10 / 12',color:'#DC2626'},
+    ],
+    flows: [
+      {v:'2',x1:190,y1:180,x2:250,y2:180,delay:0.0,dur:0.5,color:'#B45309'},
+      {v:'lowe',x1:410,y1:180,x2:460,y2:180,delay:0.6,dur:0.5,color:'#0E9F6E'},
+      {v:'10/12',x1:580,y1:180,x2:640,y2:180,delay:1.2,dur:0.5,color:'#DC2626'},
+    ],
+    end: 2.2,
+  },
+  {
+    caption: '<b>Step 5 · 收尾合并</b>：(lowe,r) 与 (lowe,s) 各 <b>1</b> 次平局，r 先行合并 <b>lower</b>；最后 (s,t) 合并 <b>st</b> → 词表 <b>12/12</b>，训练完成。',
+    nodes: [
+      {x:40,y:70,w:150,h:50,label:'词',value:'lowe · r',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:150,w:150,h:50,label:'词',value:'lowe · s · t',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:250,w:210,h:50,label:'平局',value:'(lowe,r)=(lowe,s)=1',color:'#B45309',fill:'#FDF6EC'},
+      {x:280,y:70,w:130,h:50,label:'合并①',value:'lower',color:'#0E9F6E'},
+      {x:280,y:170,w:130,h:50,label:'合并②',value:'st',color:'#0E9F6E'},
+      {x:460,y:70,w:200,h:50,label:'词表',value:'11 / 12',color:'#DC2626'},
+      {x:460,y:170,w:200,h:50,label:'词表',value:'12 / 12 ✓',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:40,y:340,w:620,h:80,label:'最终词表（12 个符号）',value:'{l,o,w,e,r,s,t,lo,low,lowe,lower,st}',color:'#1F2430',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'r 先行',x1:250,y1:275,x2:280,y2:95,delay:0.0,dur:0.55,color:'#B45309'},
+      {v:'11/12',x1:410,y1:95,x2:460,y2:95,delay:0.65,dur:0.5,color:'#DC2626'},
+      {v:'(s,t)',x1:190,y1:175,x2:280,y2:195,delay:1.2,dur:0.55,color:'#B45309'},
+      {v:'12/12',x1:410,y1:195,x2:460,y2:195,delay:1.85,dur:0.5,color:'#0E9F6E'},
+    ],
+    end: 3.0,
+  },
+];
+
+  if(!ANIM_STEPS[5]) ANIM_STEPS[5] = [
+  {
+    caption: '<b>Step 1 · 摆出超参</b>：hidden_size d=4096、32 层、32 头、FFN 中间维 <b>11008</b>、词表 <b>32000</b>，目标是把 <b>6.74B</b> 一块一块加出来。',
+    nodes: [
+      {x:40,y:60,w:170,h:60,label:'hidden_size d',value:'4096',color:'#1F2430',fill:'#FBF6EE'},
+      {x:250,y:60,w:170,h:60,label:'层数 layers',value:'32',color:'#1F2430',fill:'#FBF6EE'},
+      {x:460,y:60,w:170,h:60,label:'注意力头 heads',value:'32',color:'#1F2430',fill:'#FBF6EE'},
+      {x:670,y:60,w:170,h:60,label:'FFN 中间维',value:'11008',color:'#1F2430',fill:'#FBF6EE'},
+      {x:250,y:200,w:170,h:60,label:'词表 vocab',value:'32000',color:'#1F2430',fill:'#FBF6EE'},
+      {x:500,y:200,w:170,h:60,label:'目标参数',value:'6.74B',color:'#DC2626',fill:'#FDF6EC'}
+    ],
+    flows: [],
+    end: 3.0
+  },
+  {
+    caption: '<b>Step 2 · 每层 Attention</b>：MHA 有 4 个 <b>4096×4096</b> 矩阵（Q/K/V/O），每个 <b>16.78M</b>，合计 <b>67.11M</b>。',
+    nodes: [
+      {x:40,y:80,w:150,h:60,label:'W_q 4096×4096',value:'16.78M',color:'#1F2430',fill:'#FBF6EE'},
+      {x:230,y:80,w:150,h:60,label:'W_k 4096×4096',value:'16.78M',color:'#1F2430',fill:'#FBF6EE'},
+      {x:420,y:80,w:150,h:60,label:'W_v 4096×4096',value:'16.78M',color:'#1F2430',fill:'#FBF6EE'},
+      {x:610,y:80,w:150,h:60,label:'W_o 4096×4096',value:'16.78M',color:'#1F2430',fill:'#FBF6EE'},
+      {x:300,y:270,w:200,h:60,label:'每层 Attention',value:'67.11M',color:'#2563EB',fill:'#FBF6EE'}
+    ],
+    flows: [
+      {v:'16.78M',x1:115,y1:140,x2:390,y2:270,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'16.78M',x1:305,y1:140,x2:400,y2:270,delay:0.7,dur:0.6,color:'#2563EB'},
+      {v:'16.78M',x1:495,y1:140,x2:410,y2:270,delay:1.4,dur:0.6,color:'#2563EB'},
+      {v:'16.78M',x1:685,y1:140,x2:420,y2:270,delay:2.1,dur:0.6,color:'#2563EB'}
+    ],
+    end: 4.0
+  },
+  {
+    caption: '<b>Step 3 · 每层 FFN</b>：SwiGLU 的 3 个 <b>4096×11008</b> 矩阵（gate/up/down），每个 <b>45.09M</b>，合计 <b>135.27M</b>。',
+    nodes: [
+      {x:40,y:80,w:180,h:60,label:'gate 4096×11008',value:'45.09M',color:'#1F2430',fill:'#FBF6EE'},
+      {x:300,y:80,w:180,h:60,label:'up 4096×11008',value:'45.09M',color:'#1F2430',fill:'#FBF6EE'},
+      {x:560,y:80,w:180,h:60,label:'down 11008×4096',value:'45.09M',color:'#1F2430',fill:'#FBF6EE'},
+      {x:300,y:270,w:220,h:60,label:'每层 FFN',value:'135.27M',color:'#B45309',fill:'#FDF6EC'}
+    ],
+    flows: [
+      {v:'45.09M',x1:130,y1:140,x2:390,y2:270,delay:0.0,dur:0.6,color:'#B45309'},
+      {v:'45.09M',x1:390,y1:140,x2:405,y2:270,delay:0.7,dur:0.6,color:'#B45309'},
+      {v:'45.09M',x1:650,y1:140,x2:420,y2:270,delay:1.4,dur:0.6,color:'#B45309'}
+    ],
+    end: 4.0
+  },
+  {
+    caption: '<b>Step 4 · 每层合计 ×32</b>：67.11M + 135.27M = <b>202.38M</b>，再乘 32 层 = <b>6476.01M</b>。',
+    nodes: [
+      {x:60,y:80,w:180,h:60,label:'Attention',value:'67.11M',color:'#2563EB',fill:'#FBF6EE'},
+      {x:320,y:80,w:180,h:60,label:'FFN',value:'135.27M',color:'#B45309',fill:'#FDF6EC'},
+      {x:580,y:80,w:200,h:60,label:'每层合计',value:'202.38M',color:'#1F2430',fill:'#F0FDF4'},
+      {x:300,y:280,w:240,h:70,label:'× 32 层',value:'6476.01M',color:'#0E9F6E',fill:'#F0FDF4'}
+    ],
+    flows: [
+      {v:'67.11M',x1:150,y1:140,x2:660,y2:80,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'135.27M',x1:410,y1:140,x2:680,y2:80,delay:0.7,dur:0.6,color:'#B45309'},
+      {v:'202.38M',x1:680,y1:140,x2:420,y2:280,delay:1.4,dur:0.7,color:'#0E9F6E'}
+    ],
+    end: 4.2
+  },
+  {
+    caption: '<b>Step 5 · 加词表对账</b>：6476.01M + 131.07M + 131.07M + 0.27M = <b>6738.42M ≈ 6.74B</b>，与官方一致。',
+    nodes: [
+      {x:40,y:60,w:180,h:60,label:'32 层 Block',value:'6476.01M',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:40,y:180,w:180,h:60,label:'Embedding 32000×4096',value:'131.07M',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:300,w:180,h:60,label:'LM Head 32000×4096',value:'131.07M',color:'#1F2430',fill:'#FBF6EE'},
+      {x:300,y:180,w:180,h:60,label:'RMSNorm',value:'0.27M',color:'#1F2430',fill:'#FBF6EE'},
+      {x:560,y:200,w:220,h:80,label:'总计',value:'6.74B',color:'#DC2626',fill:'#FDF6EC'}
+    ],
+    flows: [
+      {v:'6476.01M',x1:220,y1:90,x2:560,y2:220,delay:0.0,dur:0.7,color:'#0E9F6E'},
+      {v:'131.07M',x1:220,y1:210,x2:560,y2:235,delay:0.8,dur:0.7,color:'#1F2430'},
+      {v:'131.07M',x1:220,y1:330,x2:560,y2:250,delay:1.6,dur:0.7,color:'#1F2430'},
+      {v:'0.27M',x1:480,y1:210,x2:560,y2:265,delay:2.4,dur:0.6,color:'#1F2430'}
+    ],
+    end: 4.8
+  }
+];
+
+  // 分步动画数据：第 6 课 · Card 6-6「多步推理的复利衰减」
+// 数字严格对齐 src/lessons/lesson-6.html Card 6-6 calc-block Step 2（python3 复算一致）：
+//   0.95^1=0.950, 0.95^5≈0.774, 0.95^10≈0.599, 0.95^20≈0.359
+//   0.99^1=0.990, 0.99^5≈0.951, 0.99^10≈0.904, 0.99^20≈0.818
+if(!ANIM_STEPS[6]) ANIM_STEPS[6] = [
+  {
+    caption: '<b>Step 1 · 起点（n=1）</b>：单步正确率 <b>95%</b> 与 <b>99%</b>，只走 1 步，综合正确率还是 <b>0.950</b> 与 <b>0.990</b>。',
+    nodes: [
+      {x:40,y:70,w:220,h:60,label:'单步正确率',value:'p = 0.95',color:'#2563EB',fill:'#FBF6EE'},
+      {x:620,y:70,w:220,h:60,label:'95% 路线',value:'0.950',color:'#2563EB',fill:'#FBF6EE'},
+      {x:400,y:150,w:80,h:60,label:'步数',value:'n = 1',color:'#B45309',fill:'#FDF6EC'},
+      {x:40,y:250,w:220,h:60,label:'单步正确率',value:'p = 0.99',color:'#0E9F6E',fill:'#FBF6EE'},
+      {x:620,y:250,w:220,h:60,label:'99% 路线',value:'0.990',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'0.95¹',x1:260,y1:100,x2:620,y2:100,delay:0.4,dur:0.9,color:'#2563EB'},
+      {v:'0.99¹',x1:260,y1:280,x2:620,y2:280,delay:1.3,dur:0.9,color:'#0E9F6E'},
+    ],
+    end: 3.6
+  },
+  {
+    caption: '<b>Step 2 · 5 步</b>：0.95⁵ ≈ <b>0.774</b>，0.99⁵ ≈ <b>0.951</b>——差距从 0.04 拉大到 <b>0.177</b>。',
+    nodes: [
+      {x:40,y:70,w:220,h:60,label:'单步正确率',value:'p = 0.95',color:'#2563EB',fill:'#FBF6EE'},
+      {x:620,y:70,w:220,h:60,label:'95% 路线',value:'0.774',color:'#2563EB',fill:'#FBF6EE'},
+      {x:400,y:150,w:80,h:60,label:'步数',value:'n = 5',color:'#B45309',fill:'#FDF6EC'},
+      {x:40,y:250,w:220,h:60,label:'单步正确率',value:'p = 0.99',color:'#0E9F6E',fill:'#FBF6EE'},
+      {x:620,y:250,w:220,h:60,label:'99% 路线',value:'0.951',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'0.95⁵',x1:260,y1:100,x2:620,y2:100,delay:0.4,dur:0.9,color:'#2563EB'},
+      {v:'0.99⁵',x1:260,y1:280,x2:620,y2:280,delay:1.3,dur:0.9,color:'#0E9F6E'},
+    ],
+    end: 3.6
+  },
+  {
+    caption: '<b>Step 3 · 10 步</b>：0.95¹⁰ ≈ <b>0.599</b>（不到六成），0.99¹⁰ ≈ <b>0.904</b>。',
+    nodes: [
+      {x:40,y:70,w:220,h:60,label:'单步正确率',value:'p = 0.95',color:'#2563EB',fill:'#FBF6EE'},
+      {x:620,y:70,w:220,h:60,label:'95% 路线',value:'0.599',color:'#DC2626',fill:'#FBF6EE'},
+      {x:400,y:150,w:80,h:60,label:'步数',value:'n = 10',color:'#B45309',fill:'#FDF6EC'},
+      {x:40,y:250,w:220,h:60,label:'单步正确率',value:'p = 0.99',color:'#0E9F6E',fill:'#FBF6EE'},
+      {x:620,y:250,w:220,h:60,label:'99% 路线',value:'0.904',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'0.95¹⁰',x1:260,y1:100,x2:620,y2:100,delay:0.4,dur:0.9,color:'#2563EB'},
+      {v:'0.99¹⁰',x1:260,y1:280,x2:620,y2:280,delay:1.3,dur:0.9,color:'#0E9F6E'},
+    ],
+    end: 3.6
+  },
+  {
+    caption: '<b>Step 4 · 20 步</b>：0.95²⁰ ≈ <b>0.359</b>，0.99²⁰ ≈ <b>0.818</b>。',
+    nodes: [
+      {x:40,y:70,w:220,h:60,label:'单步正确率',value:'p = 0.95',color:'#2563EB',fill:'#FBF6EE'},
+      {x:620,y:70,w:220,h:60,label:'95% 路线',value:'0.359',color:'#DC2626',fill:'#FBF6EE'},
+      {x:400,y:150,w:80,h:60,label:'步数',value:'n = 20',color:'#B45309',fill:'#FDF6EC'},
+      {x:40,y:250,w:220,h:60,label:'单步正确率',value:'p = 0.99',color:'#0E9F6E',fill:'#FBF6EE'},
+      {x:620,y:250,w:220,h:60,label:'99% 路线',value:'0.818',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'0.95²⁰',x1:260,y1:100,x2:620,y2:100,delay:0.4,dur:0.9,color:'#2563EB'},
+      {v:'0.99²⁰',x1:260,y1:280,x2:620,y2:280,delay:1.3,dur:0.9,color:'#0E9F6E'},
+    ],
+    end: 3.6
+  },
+  {
+    caption: '<b>Step 5 · 结论</b>：误差乘性累积——20 步后 95% 路线只剩 <b>0.359</b>，99% 路线还有 <b>0.818</b>，差距被放大到 <b>0.459</b>。',
+    nodes: [
+      {x:60,y:120,w:240,h:64,label:'95% 路线 · 20 步',value:'0.359',color:'#DC2626',fill:'#FBF6EE'},
+      {x:580,y:120,w:240,h:64,label:'99% 路线 · 20 步',value:'0.818',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:320,y:300,w:240,h:64,label:'差距被放大到',value:'0.459',color:'#B45309',fill:'#FDF6EC'},
+    ],
+    flows: [],
+    end: 4.0
+  },
+];
+
+  if(!ANIM_STEPS[7]) ANIM_STEPS[7] = [
+  // ---------- STEP 0：预算 -> 算力 ----------
+  {
+    caption: '<b>Step 1 · 把预算换算成算力</b>：16384 张卡跑 54 天，单卡峰值 989 TFLOPS × 50% 利用率 ≈ <b>4.9e14 FLOP/s</b>；总算力 C = 16384 × 4.9e14 × (54×86400) ≈ <b>3.8×10²⁵ FLOPs</b>。',
+    nodes: [
+      {x:60,y:80,w:180,h:52,label:'GPU 规模',value:'16384 卡',color:'#1F2430',fill:'#FBF6EE'},
+      {x:60,y:250,w:180,h:52,label:'单卡有效算力',value:'4.9e14 FLOP/s',color:'#2563EB',fill:'#F0FDF4'},
+      {x:330,y:80,w:180,h:52,label:'训练时长',value:'54 天',color:'#1F2430',fill:'#FBF6EE'},
+      {x:330,y:250,w:180,h:52,label:'换算成秒',value:'4.67e6 s',color:'#B45309',fill:'#FDF6EC'},
+      {x:610,y:140,w:230,h:72,label:'总算力 C = 卡数 × 速率 × 秒数',value:'3.8e25 FLOPs',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'16384',x1:150,y1:106,x2:610,y2:155,delay:0.0,dur:0.6,color:'#1F2430',w:60},
+      {v:'4.9e14',x1:150,y1:276,x2:610,y2:190,delay:0.7,dur:0.6,color:'#2563EB',w:66},
+      {v:'54天',x1:420,y1:106,x2:420,y2:250,delay:1.4,dur:0.6,color:'#1F2430',w:56},
+      {v:'4.67e6',x1:420,y1:276,x2:610,y2:210,delay:2.0,dur:0.6,color:'#B45309',w:66},
+    ],
+    end: 3.2,
+  },
+  // ---------- STEP 1：算力 -> 模型大小 ----------
+  {
+    caption: '<b>Step 2 · 反解模型大小</b>：由 C ≈ 120N² 得 N = √(C/120)；3.8e25 ÷ 120 = <b>3.17e23</b>，开平方 ≈ <b>5.6e11</b>，即 <b>560B</b> 参数（Chinchilla 最优）。',
+    nodes: [
+      {x:50,y:140,w:180,h:60,label:'预算 C',value:'3.8e25',color:'#1F2430',fill:'#FBF6EE'},
+      {x:290,y:140,w:180,h:60,label:'÷ 120',value:'3.17e23',color:'#B45309',fill:'#FDF6EC'},
+      {x:530,y:140,w:180,h:60,label:'开平方',value:'5.6e11',color:'#2563EB',fill:'#F0FDF4'},
+      {x:770,y:140,w:100,h:60,label:'模型大小',value:'560B',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'3.8e25',x1:140,y1:170,x2:290,y2:170,delay:0.0,dur:0.6,color:'#1F2430',w:70},
+      {v:'3.17e23',x1:380,y1:170,x2:530,y2:170,delay:0.7,dur:0.6,color:'#B45309',w:70},
+      {v:'5.6e11',x1:620,y1:170,x2:770,y2:170,delay:1.4,dur:0.6,color:'#2563EB',w:66},
+    ],
+    end: 2.5,
+  },
+  // ---------- STEP 2：模型大小 -> token 数 -> 检查数据 ----------
+  {
+    caption: '<b>Step 3 · 定 token 数并检查数据</b>：560B × 20 = <b>11.2T</b>（Chinchilla 最优）；Llama 3 405B 实际用 <b>15.6T</b>（≈38:1）；对比数据存量 216T，都还够用。',
+    nodes: [
+      {x:60,y:80,w:190,h:56,label:'Chinchilla 最优',value:'560B · 20:1',color:'#1F2430',fill:'#FBF6EE'},
+      {x:330,y:80,w:180,h:56,label:'训练 token',value:'11.2T',color:'#2563EB',fill:'#F0FDF4'},
+      {x:60,y:250,w:190,h:56,label:'Llama 3 实际',value:'405B · 38:1',color:'#1F2430',fill:'#FBF6EE'},
+      {x:330,y:250,w:180,h:56,label:'训练 token',value:'15.6T',color:'#2563EB',fill:'#F0FDF4'},
+      {x:600,y:150,w:240,h:80,label:'数据存量检查',value:'216T → 都够',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'560B',x1:155,y1:108,x2:330,y2:108,delay:0.0,dur:0.6,color:'#1F2430',w:56},
+      {v:'405B',x1:155,y1:278,x2:330,y2:278,delay:0.7,dur:0.6,color:'#1F2430',w:56},
+      {v:'11.2T',x1:420,y1:108,x2:600,y2:170,delay:1.5,dur:0.6,color:'#2563EB',w:56},
+      {v:'15.6T',x1:420,y1:278,x2:600,y2:215,delay:2.2,dur:0.6,color:'#2563EB',w:56},
+    ],
+    end: 3.3,
+  },
+];
+
+  if(!ANIM_STEPS[8]) ANIM_STEPS[8] = [
+  {
+    caption: '<b>Step 1 · 三种定配比路线</b>：启发式零成本但可能次优；下游任务调要训上千个模型；DoReMi 用 <b>280M</b> 小模型自动搜权重，成本低、不依赖下游任务。',
+    nodes: [
+      {x:40,y:120,w:250,h:90,label:'路线 1 · 启发式',value:'零额外成本',color:'#1F2430',fill:'#FBF6EE'},
+      {x:315,y:120,w:250,h:90,label:'路线 2 · 下游任务调',value:'训上千个模型',color:'#1F2430',fill:'#FBF6EE'},
+      {x:590,y:120,w:250,h:90,label:'路线 3 · DoReMi',value:'280M 搜权重',color:'#2563EB',fill:'#F0FDF4'}
+    ],
+    flows: [],
+    end: 3.0
+  },
+  {
+    caption: '<b>Step 2 · 参数账</b>：代理模型 <b>280M</b> 只有目标模型 <b>8B</b> 的约 <b>1/30</b>（反向 8B ÷ 280M ≈ <b>30 倍</b>），所以搜索成本被压到约 1/30。',
+    nodes: [
+      {x:50,y:150,w:220,h:90,label:'代理模型',value:'280M',color:'#1F2430',fill:'#FBF6EE'},
+      {x:360,y:150,w:220,h:90,label:'目标模型',value:'8B',color:'#1F2430',fill:'#FBF6EE'},
+      {x:650,y:150,w:190,h:90,label:'参数量比',value:'约 1/30',color:'#DC2626',fill:'#FDF6EC'}
+    ],
+    flows: [
+      {v:'×30',x1:270,y1:195,x2:360,y2:195,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'÷30',x1:580,y1:195,x2:650,y2:195,delay:0.7,dur:0.6,color:'#DC2626'}
+    ],
+    end: 2.8
+  },
+  {
+    caption: '<b>Step 3 · DoReMi 的收益</b>：平均 few-shot 准确率 <b>+6.5</b> 个百分点，达到基线精度只需 <b>1/2.6</b> 的训练步数，且全程不使用下游任务。',
+    nodes: [
+      {x:50,y:150,w:230,h:90,label:'平均 few-shot 准确率',value:'+6.5 pp',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:320,y:150,w:230,h:90,label:'达到基线所需步数',value:'1/2.6',color:'#1F2430',fill:'#FBF6EE'},
+      {x:590,y:150,w:250,h:90,label:'是否用下游任务',value:'不使用',color:'#1F2430',fill:'#FBF6EE'}
+    ],
+    flows: [],
+    end: 3.0
+  },
+  {
+    caption: '<b>Step 4 · 换算省下的算力</b>：1/2.6 ≈ <b>0.385</b>，即只需基线 <b>38.5%</b> 的步数；省掉 1 - 0.385 ≈ <b>60%</b> 的预训练成本。',
+    nodes: [
+      {x:50,y:150,w:230,h:90,label:'步数比例',value:'1/2.6',color:'#1F2430',fill:'#FBF6EE'},
+      {x:330,y:150,w:230,h:90,label:'= 所需步数占比',value:'38.5%',color:'#2563EB',fill:'#FBF6EE'},
+      {x:610,y:150,w:230,h:90,label:'省掉的算力',value:'≈ 60%',color:'#DC2626',fill:'#FDF6EC'}
+    ],
+    flows: [
+      {v:'÷2.6',x1:280,y1:195,x2:330,y2:195,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'1-0.385',x1:560,y1:195,x2:610,y2:195,delay:0.7,dur:0.6,color:'#DC2626'}
+    ],
+    end: 2.8
+  }
+];
+
+  if(!ANIM_STEPS[9]) ANIM_STEPS[9] = [
+  {
+    caption: '<b>Step 1 · 显存三笔账</b>：405B 参数要装下权重、梯度、优化器——<b>810 + 810 + 4,860 = 6,480 GB</b>（尚未算激活值）。',
+    nodes: [
+      {x:50,y:60,w:230,h:84,label:'fp16/BF16 权重 · 2B/参数',value:'810 GB',color:'#1F2430',fill:'#FBF6EE'},
+      {x:325,y:60,w:230,h:84,label:'fp16/BF16 梯度 · 2B/参数',value:'810 GB',color:'#1F2430',fill:'#FBF6EE'},
+      {x:600,y:60,w:230,h:84,label:'Adam 优化器 · 12B/参数',value:'4,860 GB',color:'#B45309',fill:'#FDF6EC'},
+      {x:315,y:300,w:250,h:100,label:'训练状态合计（16B/参数）',value:'6,480 GB',color:'#DC2626',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'810',x1:165,y1:144,x2:380,y2:300,delay:0.2,dur:0.7,color:'#1F2430'},
+      {v:'810',x1:440,y1:144,x2:430,y2:300,delay:0.9,dur:0.7,color:'#1F2430'},
+      {v:'4,860',x1:715,y1:144,x2:480,y2:300,delay:1.6,dur:0.7,color:'#B45309'},
+    ],
+    end: 2.8
+  },
+  {
+    caption: '<b>Step 2 · 一张卡装多少</b>：单卡 H100 只有 80 GB，<b>6,480 ÷ 80 = 81 张</b>起——这还没算激活与缓冲。',
+    nodes: [
+      {x:50,y:180,w:250,h:100,label:'训练状态',value:'6,480 GB',color:'#1F2430',fill:'#FBF6EE'},
+      {x:390,y:180,w:200,h:100,label:'单卡 H100',value:'80 GB',color:'#2563EB',fill:'#F0FDF4'},
+      {x:660,y:180,w:170,h:100,label:'至少需要',value:'81 张',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'÷80',x1:300,y1:230,x2:390,y2:230,delay:0.2,dur:0.6,color:'#2563EB'},
+      {v:'=81',x1:590,y1:230,x2:660,y2:230,delay:0.9,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.1
+  },
+  {
+    caption: '<b>Step 3 · 再留激活余量</b>：经验上再留 50% 激活/缓冲，<b>6,480 × 1.5 ÷ 80 ≈ 122 张</b>起——上千张卡是"装下"的最低要求。',
+    nodes: [
+      {x:50,y:180,w:250,h:100,label:'训练状态 × 1.5',value:'9,720 GB',color:'#B45309',fill:'#FDF6EC'},
+      {x:390,y:180,w:200,h:100,label:'单卡 H100',value:'80 GB',color:'#2563EB',fill:'#F0FDF4'},
+      {x:660,y:180,w:170,h:100,label:'实际起步',value:'≈ 122 张',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'×1.5',x1:300,y1:230,x2:390,y2:230,delay:0.2,dur:0.6,color:'#B45309'},
+      {v:'=122',x1:590,y1:230,x2:660,y2:230,delay:0.9,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.1
+  },
+  {
+    caption: '<b>Step 4 · 并行度连乘</b>：参考配置 <b>TP 8 × PP 9 × CP 2 × DP 4 = 576</b>（官方另记 512，两处来源不一致）。',
+    nodes: [
+      {x:40,y:200,w:120,h:100,label:'张量并行 TP',value:'8',color:'#2563EB',fill:'#FBF6EE'},
+      {x:200,y:200,w:120,h:100,label:'流水线并行 PP',value:'9',color:'#4F46E5',fill:'#FBF6EE'},
+      {x:360,y:200,w:120,h:100,label:'上下文并行 CP',value:'2',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:520,y:200,w:120,h:100,label:'数据并行 DP',value:'4',color:'#B45309',fill:'#FDF6EC'},
+      {x:680,y:200,w:160,h:100,label:'并行度之积',value:'576',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'×',x1:160,y1:250,x2:200,y2:250,delay:0.2,dur:0.4,color:'#1F2430'},
+      {v:'×',x1:320,y1:250,x2:360,y2:250,delay:0.7,dur:0.4,color:'#1F2430'},
+      {v:'×',x1:480,y1:250,x2:520,y2:250,delay:1.2,dur:0.4,color:'#1F2430'},
+      {v:'=',x1:640,y1:250,x2:680,y2:250,delay:1.7,dur:0.4,color:'#DC2626'},
+    ],
+    end: 2.6
+  },
+];
+
+  if(!ANIM_STEPS[10]) ANIM_STEPS[10] = [
+  // ---------- 卡 10-3 · Loss masking 损失掩码账 ----------
+  {
+    caption: '<b>Step 1 · 一条样本的 token 构成</b>：系统提示 + 用户问题约 <b>80 token</b>，助手回答约 <b>20 token</b>，合计 <b>100 token</b>。',
+    nodes: [
+      {x:40,y:150,w:230,h:70,label:'系统提示 + 用户问题',value:'80 token',color:'#1F2430',fill:'#FBF6EE'},
+      {x:330,y:150,w:230,h:70,label:'助手回答',value:'20 token',color:'#2563EB',fill:'#FBF6EE'},
+      {x:640,y:150,w:200,h:70,label:'序列合计',value:'100 token',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'80',x1:270,y1:185,x2:640,y2:185,delay:0.0,dur:0.6,color:'#1F2430'},
+      {v:'20',x1:560,y1:185,x2:640,y2:185,delay:0.8,dur:0.6,color:'#2563EB'},
+    ],
+    end: 2.2,
+  },
+  {
+    caption: '<b>Step 2 · 不掩码的后果</b>：对全部 <b>100</b> 个 token 算损失，其中 <b>80%</b>（问题部分）的梯度浪费在「复述问题」上。',
+    nodes: [
+      {x:40,y:140,w:240,h:70,label:'损失覆盖',value:'100 token（含 80 问题）',color:'#1F2430',fill:'#FBF6EE'},
+      {x:400,y:140,w:260,h:70,label:'梯度去向',value:'80% 复述问题',color:'#DC2626',fill:'#FDF2F0'},
+      {x:720,y:140,w:130,h:70,label:'浪费比例',value:'80%',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'100 token',x1:280,y1:175,x2:400,y2:175,delay:0.0,dur:0.7,color:'#1F2430'},
+      {v:'80%',x1:660,y1:175,x2:720,y2:175,delay:0.9,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.4,
+  },
+  {
+    caption: '<b>Step 3 · 正确掩码</b>：只对 <b>20</b> 个回答 token 算损失，<b>100%</b> 梯度用于生成回答——<b>100 ÷ 20 = 5 倍</b>有效梯度。',
+    nodes: [
+      {x:40,y:130,w:230,h:70,label:'只算回答',value:'20 token',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:330,y:130,w:250,h:70,label:'梯度去向',value:'100% 生成回答',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:640,y:130,w:200,h:70,label:'100 ÷ 20',value:'5 倍',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'20 token',x1:270,y1:165,x2:330,y2:165,delay:0.0,dur:0.6,color:'#0E9F6E'},
+      {v:'5 倍',x1:580,y1:165,x2:640,y2:165,delay:0.8,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.2,
+  },
+  {
+    caption: '<b>Step 4 · 实现长什么样</b>：<code>input_ids</code> 不变，<code>labels</code> 前 <b>80</b> 个置 <b>-100</b>，损失按 <code>ignore_index=-100</code> 跳过问题部分。',
+    nodes: [
+      {x:40,y:100,w:260,h:80,label:'input_ids（不变）',value:'[问题…, 回答…]',color:'#1F2430',fill:'#FBF6EE'},
+      {x:360,y:100,w:260,h:80,label:'labels（屏蔽前 80）',value:'[-100 × 80, 回答…]',color:'#B45309',fill:'#FDF6EC'},
+      {x:680,y:100,w:160,h:80,label:'损失计算',value:'ignore_index=-100',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'前 80 个置 -100',x1:300,y1:140,x2:360,y2:140,delay:0.0,dur:0.7,color:'#B45309'},
+      {v:'只算回答',x1:620,y1:140,x2:680,y2:140,delay:0.9,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.4,
+  },
+];
+
+  if(!ANIM_STEPS[11]) ANIM_STEPS[11] = [
+  // ---------- 卡 11-6 · GRPO 组内归一化 ----------
+  {
+    caption: '<b>Step 1 · 组内奖励</b>：同一 prompt 采样 <b>4</b> 个回答，奖励 <b>2 对 2 错</b>（1 / 0 / 1 / 0）——组内基线只在这 4 个数里找参照。',
+    nodes: [
+      {x:60,y:70,w:150,h:80,label:'回答 1',value:'r₁ = 1',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:260,y:70,w:150,h:80,label:'回答 2',value:'r₂ = 0',color:'#B45309',fill:'#FDF6EC'},
+      {x:460,y:70,w:150,h:80,label:'回答 3',value:'r₃ = 1',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:660,y:70,w:150,h:80,label:'回答 4',value:'r₄ = 0',color:'#B45309',fill:'#FDF6EC'},
+    ],
+    flows: [],
+    end: 1.6,
+  },
+  {
+    caption: '<b>Step 2 · 均值 μ</b>：(1 + 0 + 1 + 0) ÷ 4 = <b>0.5</b>。这个 <b>0.5</b> 就是"组内平均分"，用来当基线。',
+    nodes: [
+      {x:60,y:70,w:150,h:80,label:'回答 1',value:'r₁ = 1',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:260,y:70,w:150,h:80,label:'回答 2',value:'r₂ = 0',color:'#B45309',fill:'#FDF6EC'},
+      {x:460,y:70,w:150,h:80,label:'回答 3',value:'r₃ = 1',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:660,y:70,w:150,h:80,label:'回答 4',value:'r₄ = 0',color:'#B45309',fill:'#FDF6EC'},
+      {x:365,y:360,w:150,h:70,label:'组内均值',value:'μ = 0.5',color:'#1F2430',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'1',x1:135,y1:150,x2:440,y2:360,delay:0.0,dur:0.6,color:'#0E9F6E'},
+      {v:'0',x1:335,y1:150,x2:440,y2:360,delay:0.6,dur:0.6,color:'#B45309'},
+      {v:'1',x1:535,y1:150,x2:440,y2:360,delay:1.2,dur:0.6,color:'#0E9F6E'},
+      {v:'0',x1:735,y1:150,x2:440,y2:360,delay:1.8,dur:0.6,color:'#B45309'},
+    ],
+    end: 2.9,
+  },
+  {
+    caption: '<b>Step 3 · 偏差 r − μ</b>：每个奖励减去均值 0.5，得 <b>+0.5 / −0.5 / +0.5 / −0.5</b>。',
+    nodes: [
+      {x:60,y:70,w:150,h:80,label:'回答 1',value:'r₁ = 1',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:260,y:70,w:150,h:80,label:'回答 2',value:'r₂ = 0',color:'#B45309',fill:'#FDF6EC'},
+      {x:460,y:70,w:150,h:80,label:'回答 3',value:'r₃ = 1',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:660,y:70,w:150,h:80,label:'回答 4',value:'r₄ = 0',color:'#B45309',fill:'#FDF6EC'},
+      {x:60,y:210,w:150,h:70,label:'r₁ − μ',value:'+0.5',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:260,y:210,w:150,h:70,label:'r₂ − μ',value:'−0.5',color:'#DC2626',fill:'#FDF6EC'},
+      {x:460,y:210,w:150,h:70,label:'r₃ − μ',value:'+0.5',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:660,y:210,w:150,h:70,label:'r₄ − μ',value:'−0.5',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'+0.5',x1:135,y1:150,x2:135,y2:210,delay:0.0,dur:0.5,color:'#0E9F6E'},
+      {v:'−0.5',x1:335,y1:150,x2:335,y2:210,delay:0.6,dur:0.5,color:'#DC2626'},
+      {v:'+0.5',x1:535,y1:150,x2:535,y2:210,delay:1.2,dur:0.5,color:'#0E9F6E'},
+      {v:'−0.5',x1:735,y1:150,x2:735,y2:210,delay:1.8,dur:0.5,color:'#DC2626'},
+    ],
+    end: 2.9,
+  },
+  {
+    caption: '<b>Step 4 · 标准差 σ</b>：偏差平方（各 <b>0.25</b>）再平均开方 = <b>0.5</b>。',
+    nodes: [
+      {x:60,y:70,w:150,h:80,label:'回答 1',value:'r₁ = 1',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:260,y:70,w:150,h:80,label:'回答 2',value:'r₂ = 0',color:'#B45309',fill:'#FDF6EC'},
+      {x:460,y:70,w:150,h:80,label:'回答 3',value:'r₃ = 1',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:660,y:70,w:150,h:80,label:'回答 4',value:'r₄ = 0',color:'#B45309',fill:'#FDF6EC'},
+      {x:60,y:210,w:150,h:70,label:'r₁ − μ',value:'+0.5',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:260,y:210,w:150,h:70,label:'r₂ − μ',value:'−0.5',color:'#DC2626',fill:'#FDF6EC'},
+      {x:460,y:210,w:150,h:70,label:'r₃ − μ',value:'+0.5',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:660,y:210,w:150,h:70,label:'r₄ − μ',value:'−0.5',color:'#DC2626',fill:'#FDF6EC'},
+      {x:365,y:360,w:150,h:70,label:'标准差',value:'σ = 0.5',color:'#1F2430',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'0.25',x1:135,y1:280,x2:440,y2:360,delay:0.0,dur:0.6,color:'#4F46E5'},
+      {v:'0.25',x1:335,y1:280,x2:440,y2:360,delay:0.6,dur:0.6,color:'#4F46E5'},
+      {v:'0.25',x1:535,y1:280,x2:440,y2:360,delay:1.2,dur:0.6,color:'#4F46E5'},
+      {v:'0.25',x1:735,y1:280,x2:440,y2:360,delay:1.8,dur:0.6,color:'#4F46E5'},
+    ],
+    end: 2.9,
+  },
+  {
+    caption: '<b>Step 5 · 优势 A = (r − μ) ÷ σ</b>：答对 <b>+1.0</b>、答错 <b>−1.0</b>——优势是"相对同组"的；若 4 个全对（σ = 0）优势全为 <b>0</b>，这条 prompt 白跑一次前向（零梯度）。',
+    nodes: [
+      {x:60,y:70,w:150,h:80,label:'回答 1',value:'r₁ = 1',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:260,y:70,w:150,h:80,label:'回答 2',value:'r₂ = 0',color:'#B45309',fill:'#FDF6EC'},
+      {x:460,y:70,w:150,h:80,label:'回答 3',value:'r₃ = 1',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:660,y:70,w:150,h:80,label:'回答 4',value:'r₄ = 0',color:'#B45309',fill:'#FDF6EC'},
+      {x:60,y:210,w:150,h:70,label:'优势 A₁',value:'+1.0',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:260,y:210,w:150,h:70,label:'优势 A₂',value:'−1.0',color:'#DC2626',fill:'#FDF6EC'},
+      {x:460,y:210,w:150,h:70,label:'优势 A₃',value:'+1.0',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:660,y:210,w:150,h:70,label:'优势 A₄',value:'−1.0',color:'#DC2626',fill:'#FDF6EC'},
+      {x:365,y:360,w:150,h:70,label:'标准差',value:'σ = 0.5',color:'#1F2430',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'+1',x1:135,y1:150,x2:135,y2:210,delay:0.0,dur:0.5,color:'#0E9F6E'},
+      {v:'−1',x1:335,y1:150,x2:335,y2:210,delay:0.6,dur:0.5,color:'#DC2626'},
+      {v:'+1',x1:535,y1:150,x2:535,y2:210,delay:1.2,dur:0.5,color:'#0E9F6E'},
+      {v:'−1',x1:735,y1:150,x2:735,y2:210,delay:1.8,dur:0.5,color:'#DC2626'},
+    ],
+    end: 2.9,
+  },
+];
+
+  // NOTE: 动画数字与 Card 4（data-card="12-4"）calc-block Step 1 严格一致：
+//   ① 对 · 100 token → 优势 +1 → 1 ÷ 100 = 0.010
+//   ② 错 · 300 token → 优势 −1 → −1 ÷ 300 = −0.0033
+//   ③ 对 · 300 token → 优势 +1 → 1 ÷ 300 = 0.0033
+//   复算：1/100=0.01，-1/300=-0.0033…，1/300=0.0033…，300/100=3.0（python3 独立复算一致）
+if(!ANIM_STEPS[12]) ANIM_STEPS[12] = [
+  {
+    caption: '<b>Step 1 · 一条答错的回答（100 token）</b>：GRPO 把组内优势按 token 数归一化。答错的回答组内优势 A = <b>−1</b>，逐 token 权重 = A ÷ |o| = <b>−1 ÷ 100 = −0.010</b>。',
+    nodes: [
+      {x:320,y:80,w:240,h:56,label:'答错的回答',value:'100 token',color:'#DC2626'},
+      {x:320,y:210,w:240,h:56,label:'组内优势 A',value:'−1',color:'#DC2626'},
+      {x:250,y:340,w:380,h:60,label:'逐 token 权重 = A ÷ |o|',value:'−1 ÷ 100 = −0.010',color:'#DC2626',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'100',x1:440,y1:136,x2:440,y2:210,delay:0.0,dur:0.6,color:'#1F2430'},
+      {v:'−1',x1:440,y1:266,x2:440,y2:340,delay:0.8,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.0,
+  },
+  {
+    caption: '<b>Step 2 · 优化器把它拉长到 300 token</b>：因为"越长越不吃亏"，同一个答错回答从 <b>100</b> 拉到 <b>300 token</b>（×3），但总惩罚不变。',
+    nodes: [
+      {x:150,y:170,w:200,h:60,label:'拉长前',value:'100 token',color:'#1F2430',fill:'#FBF6EE'},
+      {x:530,y:170,w:200,h:60,label:'拉长后',value:'300 token',color:'#DC2626'},
+    ],
+    flows: [
+      {v:'×3',x1:350,y1:200,x2:530,y2:200,delay:0.0,dur:0.6,color:'#B45309'},
+    ],
+    end: 1.5,
+  },
+  {
+    caption: '<b>Step 3 · 重新算：每 token 惩罚被摊薄</b>：token 数 ×3，每 token 分到的惩罚从 <b>−0.010</b> 摊薄到 <b>−0.0033</b>（−1 ÷ 300）——回答越长，每个 token 被罚得越轻。',
+    nodes: [
+      {x:140,y:170,w:240,h:60,label:'100 token 时',value:'−1 ÷ 100 = −0.010',color:'#DC2626'},
+      {x:520,y:170,w:240,h:60,label:'300 token 时',value:'−1 ÷ 300 = −0.0033',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'÷3',x1:380,y1:200,x2:520,y2:200,delay:0.0,dur:0.6,color:'#B45309'},
+    ],
+    end: 1.5,
+  },
+  {
+    caption: '<b>Step 4 · 三行完整对照</b>：同为答对，短回答每 token 权重更大（<b>0.010</b> ＞ <b>0.0033</b>）；答错时回答越长，每 token 罚得越轻（<b>−0.0033</b>）——于是"答错就写更长"成了摊薄逐 token 梯度的办法。',
+    nodes: [
+      {x:70,y:160,w:220,h:80,label:'① 对 · 100 token',value:'+1 ÷ 100 = 0.010',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:330,y:160,w:220,h:80,label:'② 错 · 300 token',value:'−1 ÷ 300 = −0.0033',color:'#DC2626'},
+      {x:590,y:160,w:220,h:80,label:'③ 对 · 300 token',value:'+1 ÷ 300 = 0.0033',color:'#1F2430',fill:'#FBF6EE'},
+    ],
+    flows: [],
+    end: 2.0,
+  },
+];
+
+  if(!ANIM_STEPS[13]) ANIM_STEPS[13] = [
+  // ---------- 卡 13-1 · 第一笔账：405B 训练显存账 ----------
+  {
+    caption: '<b>Step 1 · 每参数 16 字节拆开看</b>：混合精度训练里，一个参数同时占 5 份内存——权重 <b>2 B</b> + 梯度 <b>2 B</b> + fp32 master <b>4 B</b> + 两个 Adam 动量各 <b>4 B</b> = <b>16 B</b>。',
+    nodes: [
+      {x:15,y:60,w:150,h:64,label:'bf16 权重',value:'2 B',color:'#1F2430',fill:'#FBF6EE'},
+      {x:190,y:60,w:150,h:64,label:'bf16 梯度',value:'2 B',color:'#2563EB',fill:'#FBF6EE'},
+      {x:365,y:60,w:150,h:64,label:'fp32 master',value:'4 B',color:'#B45309',fill:'#FDF6EC'},
+      {x:540,y:60,w:150,h:64,label:'Adam 动量 m',value:'4 B',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:715,y:60,w:150,h:64,label:'Adam 动量 v',value:'4 B',color:'#4F46E5',fill:'#FBF6EE'},
+      {x:340,y:300,w:200,h:70,label:'每参数合计',value:'16 B / 参数',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'2',x1:90,y1:124,x2:420,y2:300,delay:0.0,dur:0.6,color:'#1F2430'},
+      {v:'2',x1:265,y1:124,x2:425,y2:300,delay:0.6,dur:0.6,color:'#2563EB'},
+      {v:'4',x1:440,y1:124,x2:430,y2:300,delay:1.2,dur:0.6,color:'#B45309'},
+      {v:'4',x1:615,y1:124,x2:435,y2:300,delay:1.8,dur:0.6,color:'#0E9F6E'},
+      {v:'4',x1:790,y1:124,x2:440,y2:300,delay:2.4,dur:0.6,color:'#4F46E5'},
+    ],
+    end: 3.6,
+  },
+  {
+    caption: '<b>Step 2 · 405B 总账</b>：16 B × <b>405×10⁹</b> = 6.48×10¹² B = <b>6.48 TB</b>——这就是 405B 模型训练时的完整状态总量。',
+    nodes: [
+      {x:40,y:180,w:240,h:70,label:'每参数',value:'16 B',color:'#DC2626',fill:'#FDF2F0'},
+      {x:340,y:180,w:200,h:70,label:'参数量',value:'405×10⁹',color:'#2563EB',fill:'#FBF6EE'},
+      {x:600,y:180,w:240,h:70,label:'总账 = 16 × 405×10⁹',value:'6.48 TB',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'16 B',x1:280,y1:215,x2:600,y2:215,delay:0.0,dur:0.7,color:'#DC2626'},
+      {v:'405×10⁹',x1:540,y1:215,x2:600,y2:215,delay:0.8,dur:0.7,color:'#2563EB'},
+    ],
+    end: 2.2,
+  },
+  {
+    caption: '<b>Step 3 · 换成卡数</b>：6.48 TB = 6480 GB，除以一张 <b>80 GB</b> → <b>81 张</b>，才刚刚"放得下"训练全状态（还没算激活）。',
+    nodes: [
+      {x:40,y:180,w:280,h:70,label:'训练全状态',value:'6.48 TB = 6480 GB',color:'#DC2626',fill:'#FDF2F0'},
+      {x:380,y:180,w:180,h:70,label:'单卡显存',value:'80 GB',color:'#2563EB',fill:'#FBF6EE'},
+      {x:620,y:180,w:220,h:70,label:'6480 ÷ 80',value:'81 张',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'6480 GB',x1:320,y1:215,x2:620,y2:215,delay:0.0,dur:0.7,color:'#DC2626'},
+      {v:'÷ 80',x1:560,y1:215,x2:620,y2:215,delay:0.8,dur:0.7,color:'#2563EB'},
+    ],
+    end: 2.2,
+  },
+  {
+    caption: '<b>Step 4 · 口径决定张数</b>：同样说"权重"，只放 bf16 是 <b>810 GB</b>（÷80 = <b>11 张</b>），只放 fp32 master 是 <b>1.62 TB</b>（÷80 = <b>21 张</b>）——差在精度与用途。',
+    nodes: [
+      {x:40,y:90,w:340,h:70,label:'只放 bf16 权重',value:'810 GB ÷ 80 = 11 张',color:'#2563EB',fill:'#FBF6EE'},
+      {x:40,y:260,w:340,h:70,label:'只放 fp32 master',value:'1620 GB ÷ 80 = 21 张',color:'#B45309',fill:'#FDF6EC'},
+      {x:560,y:170,w:280,h:80,label:'口径决定张数',value:'"权重"两义',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'11 张',x1:380,y1:125,x2:560,y2:190,delay:0.0,dur:0.7,color:'#2563EB'},
+      {v:'21 张',x1:380,y1:295,x2:560,y2:230,delay:0.8,dur:0.7,color:'#B45309'},
+    ],
+    end: 2.2,
+  },
+];
+
+  if(!ANIM_STEPS[14]) ANIM_STEPS[14] = [
+  {
+    caption: '<b>Step 1 · 模型状态逐级砍</b>：DDP 每参数 <b>16 B</b>，ZeRO 三把刀一路砍到 <b>0</b>——ZeRO-1 留 <b>4 B</b>、ZeRO-2 留 <b>2 B</b>、ZeRO-3 把权重也切开（16/N）。对应 70B 合计从 <b>1.12 TB</b> → <b>280 GB</b> → <b>140 GB</b> → <b>0</b>，前三个都装不进 80 GB 卡。',
+    nodes: [
+      {x:20,y:70,w:180,h:72,label:'DDP',value:'16 B/参数',color:'#1F2430',fill:'#FBF6EE'},
+      {x:240,y:70,w:180,h:72,label:'ZeRO-1',value:'4 B/参数',color:'#B45309',fill:'#FDF6EC'},
+      {x:460,y:70,w:180,h:72,label:'ZeRO-2',value:'2 B/参数',color:'#B45309',fill:'#FDF6EC'},
+      {x:680,y:70,w:180,h:72,label:'ZeRO-3',value:'16/N → 0',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:20,y:210,w:180,h:72,label:'70B 合计',value:'1.12 TB',color:'#DC2626',fill:'#FBF6EE'},
+      {x:240,y:210,w:180,h:72,label:'70B 合计',value:'280 GB',color:'#DC2626',fill:'#FDF6EC'},
+      {x:460,y:210,w:180,h:72,label:'70B 合计',value:'140 GB',color:'#DC2626',fill:'#FDF6EC'},
+      {x:680,y:210,w:180,h:72,label:'70B 合计',value:'→ 0',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'切优化器状态',x1:200,y1:106,x2:240,y2:106,delay:0.0,dur:0.6,color:'#B45309'},
+      {v:'切梯度',x1:420,y1:106,x2:460,y2:106,delay:0.7,dur:0.6,color:'#B45309'},
+      {v:'切参数',x1:640,y1:106,x2:680,y2:106,delay:1.4,dur:0.6,color:'#0E9F6E'},
+    ],
+    end: 2.6
+  },
+  {
+    caption: '<b>Step 2 · N=16 与 N=32</b>：ZeRO-3 每卡 = <b>16/N</b>。N=16 → <b>1 B/参数 = 70 GB</b>；N=32 → <b>0.5 B/参数 = 35 GB</b>（卡数翻倍，每卡权重减半）。',
+    nodes: [
+      {x:50,y:120,w:360,h:100,label:'ZeRO-3 · N=16',value:'16÷16 = 1 B → 70 GB',color:'#DC2626',fill:'#FBF6EE'},
+      {x:470,y:120,w:360,h:100,label:'ZeRO-3 · N=32',value:'16÷32 = 0.5 B → 35 GB',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'卡数 ×2，每卡 ÷2',x1:410,y1:170,x2:470,y2:170,delay:0.3,dur:0.7,color:'#2563EB'},
+    ],
+    end: 1.6
+  },
+  {
+    caption: '<b>Step 3 · 加上激活</b>：把全量重算的激活 <b>10.7 GB</b> 加进状态。N=16 → <b>70 + 10.7 = 80.7 GB</b>（差 <b>0.7 GB</b>，装不下）；N=32 → <b>35 + 10.7 = 45.7 GB</b>（可行）。',
+    nodes: [
+      {x:50,y:130,w:360,h:100,label:'N=16 + 全量重算',value:'70 + 10.7 = 80.7 GB',color:'#DC2626',fill:'#FBF6EE'},
+      {x:470,y:130,w:360,h:100,label:'N=32 + 全量重算',value:'35 + 10.7 = 45.7 GB',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:50,y:280,w:780,h:60,label:'80 GB 卡上限',value:'80.7 > 80 差 0.7 GB ✗ · 45.7 < 80 ✓',color:'#1F2430',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'+10.7 GB 激活',x1:170,y1:70,x2:170,y2:130,delay:0.0,dur:0.5,color:'#2563EB'},
+      {v:'+10.7 GB 激活',x1:590,y1:70,x2:590,y2:130,delay:0.7,dur:0.5,color:'#2563EB'},
+    ],
+    end: 1.9
+  },
+  {
+    caption: '<b>Step 4 · 结论</b>：N=16 差 <b>0.7 GB</b> 装不下，必须翻到 N=32 → <b>45.7 GB</b> ✓。答案：至少 <b>32 张 80 GB 卡</b>（ZeRO-3 + 全量激活重算）。',
+    nodes: [
+      {x:100,y:120,w:320,h:100,label:'N=16',value:'80.7 GB ✗',color:'#DC2626',fill:'#FBF6EE'},
+      {x:460,y:120,w:320,h:100,label:'N=32',value:'45.7 GB ✓',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:100,y:280,w:680,h:80,label:'结论',value:'至少 32 张 80 GB 卡',color:'#1F2430',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'差 0.7，翻到 32 张',x1:420,y1:170,x2:460,y2:170,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'→ 结论',x1:620,y1:220,x2:620,y2:280,delay:0.8,dur:0.5,color:'#0E9F6E'},
+    ],
+    end: 1.9
+  },
+];
+
+  if(!ANIM_STEPS[15]) ANIM_STEPS[15] = [
+  {
+    caption: '<b>Step 1 · 耗时下限</b>：每生成 1 个 token 都要重读 <b>70 GB</b> 权重，除以 H100 的 <b>3.35 TB/s</b> 带宽，得一步耗时 <b>20.9 ms</b>，单请求吞吐上限 <b>48 token/s</b>。',
+    nodes: [
+      {x:40,y:110,w:160,h:60,label:'每卡权重 (bf16)',value:'70 GB',color:'#1F2430'},
+      {x:40,y:280,w:170,h:60,label:'H100 HBM3 带宽',value:'3.35 TB/s',color:'#2563EB'},
+      {x:410,y:180,w:160,h:60,label:'一步耗时下限',value:'20.9 ms',color:'#DC2626',fill:'#FDF6EC'},
+      {x:640,y:180,w:190,h:60,label:'单请求吞吐上限',value:'48 token/s',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'70 GB',x1:120,y1:170,x2:410,y2:195,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'3.35 TB/s',x1:125,y1:340,x2:410,y2:225,delay:0.7,dur:0.6,color:'#2563EB'},
+      {v:'20.9 ms',x1:570,y1:210,x2:640,y2:210,delay:1.4,dur:0.5,color:'#DC2626'},
+    ],
+    end: 4.8
+  },
+  {
+    caption: '<b>Step 2 · 算术强度只有 1</b>：这一步算 <b>1.4e11 FLOPs</b>、搬 <b>1.4e11 B</b>，算术强度 = <b>1 FLOP/byte</b>；而 H100 的算力/带宽拐点是 <b>295</b>。',
+    nodes: [
+      {x:40,y:110,w:170,h:60,label:'这一步浮点运算',value:'1.4e11 FLOPs',color:'#1F2430'},
+      {x:40,y:280,w:170,h:60,label:'这一步搬运字节',value:'1.4e11 B',color:'#1F2430'},
+      {x:410,y:180,w:170,h:60,label:'算术强度',value:'1 FLOP/byte',color:'#DC2626',fill:'#FDF6EC'},
+      {x:640,y:180,w:190,h:60,label:'H100 拐点',value:'295 FLOP/byte',color:'#2563EB'},
+    ],
+    flows: [
+      {v:'1.4e11 FLOPs',x1:125,y1:170,x2:410,y2:195,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'1.4e11 B',x1:125,y1:340,x2:410,y2:225,delay:0.7,dur:0.6,color:'#2563EB'},
+      {v:'1 vs 295',x1:580,y1:210,x2:640,y2:210,delay:1.4,dur:0.5,color:'#DC2626'},
+    ],
+    end: 4.8
+  },
+  {
+    caption: '<b>Step 3 · 差距 295 倍</b>：989e12 ÷ 3.35e12 = <b>295</b>，除以单请求的 <b>1</b> → 差 <b>295 倍</b>，算力有 <b>99.7%</b> 时间在等数据。',
+    nodes: [
+      {x:70,y:110,w:200,h:60,label:'H100 算力/带宽拐点',value:'295 FLOP/byte',color:'#2563EB'},
+      {x:70,y:280,w:200,h:60,label:'decode 单请求',value:'1 FLOP/byte',color:'#1F2430'},
+      {x:470,y:180,w:170,h:60,label:'差距',value:'295 倍',color:'#DC2626',fill:'#FDF6EC'},
+      {x:690,y:180,w:150,h:60,label:'算力在等待',value:'99.7%',color:'#B45309'},
+    ],
+    flows: [
+      {v:'295',x1:170,y1:170,x2:470,y2:195,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'1',x1:170,y1:340,x2:470,y2:225,delay:0.7,dur:0.6,color:'#1F2430'},
+      {v:'99.7%',x1:640,y1:210,x2:690,y2:210,delay:1.4,dur:0.5,color:'#B45309'},
+    ],
+    end: 4.8
+  },
+  {
+    caption: '<b>Step 4 · 批量是唯一解药</b>：权重共用，批量 <b>b</b> 时算术强度 ≈ <b>b</b> FLOP/byte；b=32 时一次 <b>20.9 ms</b> 搬运服务 32 个 token，吞吐 ≈ <b>1,530 token/s</b>。',
+    nodes: [
+      {x:40,y:110,w:160,h:60,label:'批量 b=1',value:'1 FLOP/byte',color:'#1F2430'},
+      {x:40,y:280,w:160,h:60,label:'批量 b=32',value:'32 FLOP/byte',color:'#2563EB'},
+      {x:380,y:180,w:180,h:60,label:'一次搬运 20.9 ms',value:'服务 32 token',color:'#1F2430'},
+      {x:620,y:180,w:190,h:60,label:'理论吞吐',value:'1,530 token/s',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'b=1',x1:120,y1:170,x2:380,y2:195,delay:0.0,dur:0.6,color:'#1F2430'},
+      {v:'b=32',x1:120,y1:340,x2:380,y2:225,delay:0.7,dur:0.6,color:'#2563EB'},
+      {v:'32÷0.0209',x1:560,y1:210,x2:620,y2:210,delay:1.4,dur:0.5,color:'#0E9F6E'},
+    ],
+    end: 4.8
+  },
+];
+
+  if(!ANIM_STEPS[16]) ANIM_STEPS[16] = [
+  {
+    caption: '<b>Step 1 · 混进一个离群值</b>：通道里正常值都在 <b>0.1 ~ 2</b>，却混进一个 <b>50</b>；格距按最大值定，int8 对称范围 −127 ~ 127，s = 50 ÷ 127 = <b>0.394</b>。',
+    nodes: [
+      {x:40,y:150,w:110,h:56,label:'正常值',value:'0.1',color:'#1F2430',fill:'#F0FDF4'},
+      {x:175,y:150,w:110,h:56,label:'正常值',value:'0.3',color:'#1F2430',fill:'#F0FDF4'},
+      {x:310,y:150,w:110,h:56,label:'正常值',value:'0.5',color:'#1F2430',fill:'#F0FDF4'},
+      {x:445,y:150,w:110,h:56,label:'正常值',value:'1.0',color:'#1F2430',fill:'#F0FDF4'},
+      {x:580,y:150,w:110,h:56,label:'正常值',value:'2.0',color:'#1F2430',fill:'#F0FDF4'},
+      {x:700,y:110,w:140,h:86,label:'离群值',value:'50',color:'#DC2626',fill:'#FDF6EC'},
+      {x:560,y:300,w:240,h:72,label:'格距 s = 50 ÷ 127 (int8)',value:'0.394',color:'#2563EB',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'50 ÷ 127',x1:770,y1:153,x2:690,y2:300,delay:0.0,dur:0.8,color:'#DC2626'},
+    ],
+    end: 1.8
+  },
+  {
+    caption: '<b>Step 2 · 8 bit 还活着</b>：s = 0.394，正常值除以 s 取整后多数仍留在非零刻度：1.0 → <b>1.181</b>、2.0 → <b>1.969</b>，只有 0.1 被抹成 0。',
+    nodes: [
+      {x:60,y:110,w:120,h:50,label:'原值',value:'0.1',color:'#1F2430'},
+      {x:60,y:180,w:120,h:50,label:'原值',value:'1.0',color:'#1F2430'},
+      {x:60,y:250,w:120,h:50,label:'原值',value:'2.0',color:'#1F2430'},
+      {x:60,y:320,w:120,h:50,label:'原值',value:'50',color:'#DC2626'},
+      {x:400,y:110,w:120,h:50,label:'还原',value:'0',color:'#DC2626'},
+      {x:400,y:180,w:120,h:50,label:'还原',value:'1.181',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:400,y:250,w:120,h:50,label:'还原',value:'1.969',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:400,y:320,w:120,h:50,label:'还原',value:'50.0',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:620,y:180,w:210,h:70,label:'格距 s (int8)',value:'0.394',color:'#2563EB',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'÷0.394',x1:180,y1:135,x2:400,y2:135,delay:0.0,dur:0.7,color:'#DC2626'},
+      {v:'÷0.394',x1:180,y1:205,x2:400,y2:205,delay:0.7,dur:0.7,color:'#0E9F6E'},
+      {v:'÷0.394',x1:180,y1:275,x2:400,y2:275,delay:1.4,dur:0.7,color:'#0E9F6E'},
+      {v:'÷0.394',x1:180,y1:345,x2:400,y2:345,delay:2.1,dur:0.7,color:'#0E9F6E'},
+    ],
+    end: 3.6
+  },
+  {
+    caption: '<b>Step 3 · 4 bit 格距被撑爆</b>：int4 对称范围只有 −7 ~ 7，s = 50 ÷ 7 = <b>7.143</b>；能表示的最小非零值就是 <b>7.143</b>，比所有正常值都大。',
+    nodes: [
+      {x:60,y:150,w:140,h:70,label:'离群值',value:'50',color:'#DC2626',fill:'#FDF6EC'},
+      {x:360,y:150,w:230,h:70,label:'格距 s = 50 ÷ 7 (int4)',value:'7.143',color:'#B45309',fill:'#FDF6EC'},
+      {x:660,y:150,w:190,h:70,label:'最小非零值',value:'7.143',color:'#B45309',fill:'#FDF6EC'},
+      {x:60,y:290,w:110,h:50,label:'正常值',value:'0.1',color:'#1F2430'},
+      {x:200,y:290,w:110,h:50,label:'正常值',value:'0.5',color:'#1F2430'},
+      {x:340,y:290,w:110,h:50,label:'正常值',value:'1.0',color:'#1F2430'},
+      {x:480,y:290,w:110,h:50,label:'正常值',value:'2.0',color:'#1F2430'},
+    ],
+    flows: [
+      {v:'50 ÷ 7',x1:200,y1:185,x2:360,y2:185,delay:0.0,dur:0.8,color:'#DC2626'},
+      {v:'= 最小非零',x1:590,y1:185,x2:660,y2:185,delay:0.9,dur:0.8,color:'#B45309'},
+    ],
+    end: 2.6
+  },
+  {
+    caption: '<b>Step 4 · 正常值全部归零</b>：0.1、0.5、1.0、2.0 除以 7.143 都小于 <b>0.28</b>，四舍五入全是 <b>0</b> —— 丢失。',
+    nodes: [
+      {x:60,y:110,w:120,h:50,label:'原值',value:'0.1',color:'#1F2430'},
+      {x:60,y:180,w:120,h:50,label:'原值',value:'0.5',color:'#1F2430'},
+      {x:60,y:250,w:120,h:50,label:'原值',value:'1.0',color:'#1F2430'},
+      {x:60,y:320,w:120,h:50,label:'原值',value:'2.0',color:'#1F2430'},
+      {x:420,y:110,w:140,h:50,label:'结果',value:'0 丢失',color:'#DC2626',fill:'#FDF6EC'},
+      {x:420,y:180,w:140,h:50,label:'结果',value:'0 丢失',color:'#DC2626',fill:'#FDF6EC'},
+      {x:420,y:250,w:140,h:50,label:'结果',value:'0 丢失',color:'#DC2626',fill:'#FDF6EC'},
+      {x:420,y:320,w:140,h:50,label:'结果',value:'0 丢失',color:'#DC2626',fill:'#FDF6EC'},
+      {x:640,y:180,w:200,h:70,label:'格距 s (int4)',value:'7.143',color:'#B45309',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'÷7.143',x1:180,y1:135,x2:420,y2:135,delay:0.0,dur:0.7,color:'#DC2626'},
+      {v:'÷7.143',x1:180,y1:205,x2:420,y2:205,delay:0.7,dur:0.7,color:'#DC2626'},
+      {v:'÷7.143',x1:180,y1:275,x2:420,y2:275,delay:1.4,dur:0.7,color:'#DC2626'},
+      {v:'÷7.143',x1:180,y1:345,x2:420,y2:345,delay:2.1,dur:0.7,color:'#DC2626'},
+    ],
+    end: 3.6
+  },
+  {
+    caption: '<b>Step 5 · 这一层只剩离群值</b>：50 ÷ 7.143 ≈ <b>7</b>，还原 7 × 7.143 = <b>50.0</b> 保留；正常值全没了——8 位与 4 位差的不是分辨率，而是跨过了归零临界点。',
+    nodes: [
+      {x:60,y:150,w:130,h:70,label:'离群值',value:'50',color:'#DC2626',fill:'#FDF6EC'},
+      {x:340,y:150,w:160,h:70,label:'取整 q',value:'7',color:'#1F2430'},
+      {x:640,y:150,w:180,h:70,label:'还原',value:'50.0',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:340,y:300,w:220,h:70,label:'正常值 0.1 ~ 2.0',value:'全部丢失',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'÷7.143≈7',x1:190,y1:185,x2:340,y2:185,delay:0.0,dur:0.8,color:'#DC2626'},
+      {v:'×7.143',x1:500,y1:185,x2:640,y2:185,delay:0.9,dur:0.8,color:'#0E9F6E'},
+    ],
+    end: 2.6
+  },
+];
+
+  if(!ANIM_STEPS[17]) ANIM_STEPS[17] = [
+  // ---------- 卡 17-2 · ΔW = BA 低秩分解（256 倍压缩账） ----------
+  {
+    caption: '<b>Step 1 · 全量 ΔW 有多少个数</b>：一个投影矩阵 <b>4096 × 4096</b>，要学 <b>16,777,216</b> 个参数，7B 里有 128 个这样的矩阵（32 层 × 4 个投影）。',
+    nodes: [
+      {x:60,y:150,w:260,h:80,label:'全量更新 ΔW',value:'4096 × 4096',color:'#1F2430',fill:'#FBF6EE'},
+      {x:560,y:150,w:260,h:80,label:'参数量',value:'16,777,216',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'相乘',x1:320,y1:190,x2:560,y2:190,delay:0.0,dur:0.7,color:'#1F2430'},
+    ],
+    end: 1.7
+  },
+  {
+    caption: '<b>Step 2 · ΔW = BA 只要学多少</b>：A（<b>8 × 4096</b>）= <b>32,768</b>，B（<b>4096 × 8</b>）= <b>32,768</b>，合计 <b>65,536</b>——是全量的 <b>1/256</b>（<b>0.39%</b>）。',
+    nodes: [
+      {x:40,y:90,w:240,h:80,label:'A（降维）',value:'8 × 4096 = 32,768',color:'#2563EB',fill:'#FBF6EE'},
+      {x:40,y:220,w:240,h:80,label:'B（升维）',value:'4096 × 8 = 32,768',color:'#2563EB',fill:'#FBF6EE'},
+      {x:360,y:150,w:220,h:80,label:'合计 ΔW = BA',value:'65,536',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:640,y:150,w:200,h:80,label:'相对全量',value:'1/256 (0.39%)',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'32,768',x1:280,y1:130,x2:360,y2:170,delay:0.0,dur:0.7,color:'#2563EB'},
+      {v:'32,768',x1:280,y1:260,x2:360,y2:200,delay:0.7,dur:0.7,color:'#2563EB'},
+      {v:'65,536',x1:580,y1:190,x2:640,y2:190,delay:1.4,dur:0.6,color:'#0E9F6E'},
+    ],
+    end: 2.5
+  },
+  {
+    caption: '<b>Step 3 · rank 是「省多少 / 学多少」的旋钮</b>：r=1 → <b>8,192</b>（1/2048），r=8 → <b>65,536</b>（1/256），r=64 → <b>524,288</b>（1/32）。rank 越大，学得越多、省得越少。',
+    nodes: [
+      {x:40,y:120,w:240,h:90,label:'r = 1',value:'8,192 (1/2048)',color:'#1F2430',fill:'#FBF6EE'},
+      {x:320,y:120,w:240,h:90,label:'r = 8（常见起点）',value:'65,536 (1/256)',color:'#2563EB',fill:'#FBF6EE'},
+      {x:600,y:120,w:240,h:90,label:'r = 64',value:'524,288 (1/32)',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'rank ↑',x1:280,y1:165,x2:320,y2:165,delay:0.0,dur:0.6,color:'#B45309'},
+      {v:'rank ↑',x1:560,y1:165,x2:600,y2:165,delay:0.7,dur:0.6,color:'#B45309'},
+    ],
+    end: 1.9
+  },
+];
+
+  // 第 18 课 · Card 18-1「算术强度：prefill 与 decode 差 1000 倍」分步动画
+// 数字严格复现 calc-block，与正文保持一致（不复算不写）：
+//   decode FLOPs = 2×7e9 = 1.4e10；算术强度 = 1.4e10 ÷ 14 GB(=1.4e10 B) = 1
+//   prefill FLOPs = 2×7e9×1024 ≈ 1.4e13；算术强度 = 1.4e13 ÷ 1.4e10 ≈ 1000
+//   ratio = 1000 ÷ 1 = 1000 倍
+if(!ANIM_STEPS[18]) ANIM_STEPS[18] = [
+  {
+    caption: '<b>Step 1 · decode 每 token</b>：每次只算 <b>1 个 token</b>（FLOPs ≈ 2×7e9 = <b>1.4e10</b>），却要把整份 <b>14 GB</b> 权重读一遍 → 算术强度 = <b>1</b> FLOP/Byte，落在 <b>带宽受限</b> 区。',
+    nodes: [
+      {x:40,y:60,w:220,h:80,label:'7B fp16 权重',value:'14 GB',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:210,w:220,h:80,label:'decode 每 token 算',value:'1.4e10 FLOPs',color:'#2563EB'},
+      {x:350,y:130,w:250,h:80,label:'算术强度 = FLOPs ÷ 字节',value:'= 1',color:'#DC2626'},
+      {x:660,y:130,w:190,h:80,label:'瓶颈',value:'带宽受限',color:'#DC2626',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'1.4e10',x1:150,y1:260,x2:410,y2:170,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'14 GB',x1:150,y1:100,x2:410,y2:170,delay:0.7,dur:0.6,color:'#1F2430'},
+      {v:'=1',x1:475,y1:170,x2:690,y2:170,delay:1.5,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.6
+  },
+  {
+    caption: '<b>Step 2 · prefill 一次并行</b>：一次并行算完 <b>1024</b> 个 token（FLOPs ≈ 2×7e9×1024 = <b>1.4e13</b>），权重仍只读一遍 <b>14 GB</b> → 算术强度 ≈ <b>1000</b>，落在 <b>算力受限</b> 区。',
+    nodes: [
+      {x:40,y:60,w:220,h:80,label:'权重（仍只读一遍）',value:'14 GB',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:210,w:220,h:80,label:'prefill 1024 token 算',value:'1.4e13 FLOPs',color:'#2563EB'},
+      {x:350,y:130,w:250,h:80,label:'算术强度 = FLOPs ÷ 字节',value:'≈ 1000',color:'#DC2626'},
+      {x:660,y:130,w:190,h:80,label:'瓶颈',value:'算力受限',color:'#DC2626',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'1.4e13',x1:150,y1:260,x2:410,y2:170,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'14 GB',x1:150,y1:100,x2:410,y2:170,delay:0.7,dur:0.6,color:'#1F2430'},
+      {v:'≈1000',x1:475,y1:170,x2:690,y2:170,delay:1.5,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.6
+  },
+  {
+    caption: '<b>Step 3 · 同一张卡、两段对比</b>：算术强度 <b>1000 ÷ 1 = 1000 倍</b>——prefill 卡<b>算力</b>、decode 卡<b>带宽</b>，这是整课所有优化的出发点。',
+    nodes: [
+      {x:60,y:50,w:340,h:60,label:'prefill',value:'1024 token / 步',color:'#4F46E5'},
+      {x:60,y:130,w:340,h:80,label:'算术强度',value:'≈ 1000',color:'#4F46E5',fill:'#F0FDF4'},
+      {x:60,y:230,w:340,h:70,label:'瓶颈',value:'算力受限',color:'#4F46E5'},
+      {x:480,y:50,w:340,h:60,label:'decode',value:'1 token / 步',color:'#B45309'},
+      {x:480,y:130,w:340,h:80,label:'算术强度',value:'= 1',color:'#B45309',fill:'#FDF6EC'},
+      {x:480,y:230,w:340,h:70,label:'瓶颈',value:'带宽受限',color:'#B45309'},
+      {x:250,y:340,w:380,h:90,label:'差距',value:'1000 倍',color:'#DC2626',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'1000',x1:230,y1:195,x2:230,y2:255,delay:0.0,dur:0.5,color:'#4F46E5'},
+      {v:'1',x1:650,y1:195,x2:650,y2:255,delay:0.7,dur:0.5,color:'#B45309'},
+      {v:'1000÷1',x1:230,y1:285,x2:420,y2:375,delay:1.4,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.5
+  },
+];
+
+  // Lesson 19 · Card 19-4「评测方差：差几个点才算真实差异」分步动画
+// 数字经 python3 独立复算，与 calc-block 严格一致：
+//   SE(1000)=√(0.25/1000)=1.5811%≈1.58% ｜ 1.96×1.58%=3.099%≈3.1% ｜ 2×3.1=6.2
+//   SE(100)=√(0.25/100)=5.0% ｜ 1.96×5.0%=9.8% ｜ 2×9.8=19.6
+//   (1.96/0.05)²=1536.64≈1,537 ｜ (1.96/0.03)²=4268.44≈4,268
+if(!ANIM_STEPS[19]) ANIM_STEPS[19] = [
+  {
+    caption: '<b>Step 1 · 1000 道题的噪声</b>：标准误 SE = √(p(1−p)/n) = √(0.25/1000) = <b>1.58%</b>，95% 区间半宽 = 1.96 × 1.58% = <b>±3.1%</b>。',
+    nodes: [
+      {x:30,y:70,w:190,h:64,label:'题数 n',value:'1000',color:'#1F2430',fill:'#FBF6EE'},
+      {x:30,y:200,w:190,h:64,label:'正确率 p（最坏）',value:'0.5',color:'#1F2430',fill:'#FBF6EE'},
+      {x:330,y:110,w:230,h:64,label:'标准误 SE',value:'√(0.25/1000) = 1.58%',color:'#2563EB',fill:'#F0FDF4'},
+      {x:660,y:110,w:190,h:64,label:'95% 区间半宽',value:'1.96×1.58% = ±3.1%',color:'#B45309',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'p(1−p)/n',x1:220,y1:102,x2:330,y2:122,delay:0.0,dur:0.7,color:'#1F2430'},
+      {v:'0.25/1000',x1:220,y1:232,x2:330,y2:162,delay:0.7,dur:0.7,color:'#1F2430'},
+      {v:'×1.96',x1:560,y1:142,x2:660,y2:142,delay:1.4,dur:0.7,color:'#B45309'},
+    ],
+    end: 2.8
+  },
+  {
+    caption: '<b>Step 2 · 题数缩到 100</b>：SE = √(0.25/100) = <b>5.0%</b>，95% 区间半宽 <b>±9.8%</b>——题数 ÷10，噪声放大数倍。',
+    nodes: [
+      {x:30,y:70,w:190,h:64,label:'题数 n',value:'100',color:'#1F2430',fill:'#FBF6EE'},
+      {x:30,y:200,w:190,h:64,label:'正确率 p（最坏）',value:'0.5',color:'#1F2430',fill:'#FBF6EE'},
+      {x:330,y:110,w:230,h:64,label:'标准误 SE',value:'√(0.25/100) = 5.0%',color:'#2563EB',fill:'#F0FDF4'},
+      {x:660,y:110,w:190,h:64,label:'95% 区间半宽',value:'1.96×5.0% = ±9.8%',color:'#B45309',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'p(1−p)/n',x1:220,y1:102,x2:330,y2:122,delay:0.0,dur:0.7,color:'#1F2430'},
+      {v:'0.25/100',x1:220,y1:232,x2:330,y2:162,delay:0.7,dur:0.7,color:'#1F2430'},
+      {v:'×1.96',x1:560,y1:142,x2:660,y2:142,delay:1.4,dur:0.7,color:'#B45309'},
+    ],
+    end: 2.8
+  },
+  {
+    caption: '<b>Step 3 · 差多少才算真差异</b>：两模型区间不重叠 → 差 &lt; <b>6.2</b> 点（n=1000）或 &lt; <b>19.6</b> 点（n=100）都只是噪声。',
+    nodes: [
+      {x:40,y:60,w:160,h:60,label:'n = 1000',value:'1000 题',color:'#1F2430',fill:'#FBF6EE'},
+      {x:260,y:60,w:170,h:60,label:'半宽',value:'±3.1%',color:'#B45309',fill:'#FDF6EC'},
+      {x:490,y:60,w:170,h:60,label:'阈值',value:'< 6.2 点',color:'#DC2626',fill:'#FDF6EC'},
+      {x:40,y:210,w:160,h:60,label:'n = 100',value:'100 题',color:'#1F2430',fill:'#FBF6EE'},
+      {x:260,y:210,w:170,h:60,label:'半宽',value:'±9.8%',color:'#B45309',fill:'#FDF6EC'},
+      {x:490,y:210,w:170,h:60,label:'阈值',value:'< 19.6 点',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'√0.25/1000',x1:200,y1:90,x2:260,y2:90,delay:0.0,dur:0.7,color:'#2563EB'},
+      {v:'×2',x1:430,y1:90,x2:490,y2:90,delay:0.7,dur:0.7,color:'#DC2626'},
+      {v:'√0.25/100',x1:200,y1:240,x2:260,y2:240,delay:1.4,dur:0.7,color:'#2563EB'},
+      {v:'×2',x1:430,y1:240,x2:490,y2:240,delay:2.1,dur:0.7,color:'#DC2626'},
+    ],
+    end: 3.4
+  },
+  {
+    caption: '<b>Step 4 · 反推所需题数</b>：要分辨 <b>5</b> 个点需 (1.96/0.05)² ≈ <b>1,537</b> 题；分辨 <b>3</b> 个点需 (1.96/0.03)² ≈ <b>4,268</b> 题。',
+    nodes: [
+      {x:40,y:90,w:180,h:64,label:'要分辨的差异 Δ',value:'5 个点',color:'#1F2430',fill:'#FBF6EE'},
+      {x:360,y:90,w:220,h:64,label:'所需题数',value:'≈ 1,537 题',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:40,y:240,w:180,h:64,label:'要分辨的差异 Δ',value:'3 个点',color:'#1F2430',fill:'#FBF6EE'},
+      {x:360,y:240,w:220,h:64,label:'所需题数',value:'≈ 4,268 题',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'(1.96/0.05)²',x1:220,y1:122,x2:360,y2:122,delay:0.0,dur:0.7,color:'#0E9F6E'},
+      {v:'(1.96/0.03)²',x1:220,y1:272,x2:360,y2:272,delay:0.7,dur:0.7,color:'#0E9F6E'},
+    ],
+    end: 2.4
+  },
+];
+
+  // Lesson 20 · Card 20-1「换个问法：logits 只挪 0.2，Top-1 就翻转」分步动画
+// 数字经 python3 独立复算，与 calc-block 严格一致：
+//   e^2.1=8.1662 e^2.0=7.3891 和=15.5552 → softmax(2.1,2.0)=(0.5250,0.4750)
+//   e^1.9=6.6859 e^2.2=9.0250 和=15.7109 → softmax(1.9,2.2)=(0.4256,0.5744)
+//   70×1.1=77.0 70×0.9=63.0 跨度=14 ｜ 28/200=0.14
+if(!ANIM_STEPS[20]) ANIM_STEPS[20] = [
+  {
+    caption: '<b>Step 1 · 原始 logits</b>：直接问时，候选 <b>A = 2.1</b>、<b>B = 2.0</b>，A 只领先 <b>0.1</b> 分——差距很小，随时可能被改写。',
+    nodes: [
+      {x:140,y:170,w:200,h:90,label:'候选 A · logits',value:'2.1',color:'#2563EB',fill:'#FBF6EE'},
+      {x:540,y:170,w:200,h:90,label:'候选 B · logits',value:'2.0',color:'#1F2430',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'差 0.1',x1:340,y1:215,x2:540,y2:215,delay:0.3,dur:0.8,color:'#B45309'},
+    ],
+    end: 2.6
+  },
+  {
+    caption: '<b>Step 2 · softmax 归一化</b>：e^2.1 = <b>8.166</b>、e^2.0 = <b>7.389</b>，÷ 总和 <b>15.555</b> → A = <b>0.525</b>、B = <b>0.475</b>。Top-1 = <b>A</b>。',
+    nodes: [
+      {x:60,y:70,w:170,h:70,label:'候选 A · logits',value:'2.1',color:'#2563EB',fill:'#FBF6EE'},
+      {x:650,y:70,w:170,h:70,label:'候选 B · logits',value:'2.0',color:'#1F2430',fill:'#FBF6EE'},
+      {x:350,y:70,w:180,h:70,label:'e^2.1 + e^2.0',value:'15.555',color:'#4F46E5',fill:'#FDF6EC'},
+      {x:60,y:320,w:170,h:70,label:'A 概率（Top-1）',value:'0.525',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:650,y:320,w:170,h:70,label:'B 概率',value:'0.475',color:'#1F2430',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'e^2.1=8.166',x1:230,y1:105,x2:350,y2:105,delay:0.0,dur:0.7,color:'#2563EB'},
+      {v:'e^2.0=7.389',x1:650,y1:105,x2:530,y2:105,delay:0.0,dur:0.7,color:'#1F2430'},
+      {v:'÷15.555',x1:350,y1:140,x2:145,y2:320,delay:0.8,dur:0.8,color:'#4F46E5'},
+      {v:'÷15.555',x1:440,y1:140,x2:735,y2:320,delay:0.8,dur:0.8,color:'#4F46E5'},
+    ],
+    end: 2.8
+  },
+  {
+    caption: '<b>Step 3 · 换个问法 → Top-1 翻转</b>：加一句限定后 logits 各挪 <b>0.2</b>：A = <b>1.9</b>、B = <b>2.2</b>，softmax 后 A = <b>0.4256</b>、B = <b>0.5744</b>，Top-1 从 A 翻到 <b>B</b>。',
+    nodes: [
+      {x:60,y:70,w:170,h:70,label:'候选 A · logits（新）',value:'1.9',color:'#2563EB',fill:'#FBF6EE'},
+      {x:650,y:70,w:170,h:70,label:'候选 B · logits（新）',value:'2.2',color:'#B45309',fill:'#FDF6EC'},
+      {x:60,y:200,w:170,h:70,label:'A 概率',value:'0.4256',color:'#2563EB',fill:'#FBF6EE'},
+      {x:650,y:200,w:170,h:70,label:'B 概率',value:'0.5744',color:'#B45309',fill:'#FDF6EC'},
+      {x:60,y:340,w:170,h:70,label:'旧 Top-1',value:'A',color:'#1F2430',fill:'#FBF6EE'},
+      {x:650,y:340,w:170,h:70,label:'新 Top-1',value:'B ⚡ 翻转',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'softmax',x1:145,y1:140,x2:145,y2:200,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'softmax',x1:735,y1:140,x2:735,y2:200,delay:0.0,dur:0.6,color:'#B45309'},
+      {v:'0.4256',x1:145,y1:270,x2:145,y2:340,delay:0.8,dur:0.6,color:'#2563EB'},
+      {v:'0.5744',x1:735,y1:270,x2:735,y2:340,delay:0.8,dur:0.6,color:'#B45309'},
+      {v:'0.5744 > 0.4256',x1:230,y1:375,x2:650,y2:375,delay:1.5,dur:0.8,color:'#DC2626'},
+    ],
+    end: 3.3
+  },
+  {
+    caption: '<b>Step 4 · 整卷波动</b>：基准 <b>70%</b>，换措辞 ±<b>10%</b> → 最好 <b>77%</b>、最坏 <b>63%</b>，同一批题跨度 <b>14 分</b>。',
+    nodes: [
+      {x:340,y:60,w:200,h:90,label:'示意基准正确率',value:'70%',color:'#1F2430',fill:'#FBF6EE'},
+      {x:120,y:240,w:200,h:90,label:'换措辞上浮 +10%',value:'77%',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:560,y:240,w:200,h:90,label:'换措辞下探 −10%',value:'63%',color:'#DC2626',fill:'#FDF6EC'},
+      {x:340,y:380,w:200,h:80,label:'同一批题跨度',value:'14 分',color:'#4F46E5',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'×1.10',x1:440,y1:150,x2:220,y2:240,delay:0.0,dur:0.7,color:'#0E9F6E'},
+      {v:'×0.90',x1:440,y1:150,x2:660,y2:240,delay:0.3,dur:0.8,color:'#DC2626'},
+      {v:'77',x1:220,y1:330,x2:340,y2:380,delay:1.2,dur:0.7,color:'#0E9F6E'},
+      {v:'63',x1:660,y1:330,x2:440,y2:380,delay:1.2,dur:0.7,color:'#DC2626'},
+    ],
+    end: 3.3
+  },
+];
+
+  // Lesson 21 · Card 21-4「错误累积 p^N」分步动画
+// 数字经 python3 独立复算，与 calc-block 严格一致：
+//   0.95^10 = 0.599 ｜ 0.95^20 = 0.359 ｜ 0.95^50 = 0.077
+//   0.99^10 = 0.904 ｜ 0.99^20 = 0.818
+if(!ANIM_STEPS[21]) ANIM_STEPS[21] = [
+  {
+    caption: '<b>Step 1 · 单步 95%</b>：全对概率 = 0.95^N，每多一步乘一次 0.95——<b>10 步</b>只剩 <b>0.599</b>、<b>20 步</b>掉到 <b>0.359</b>、<b>50 步</b>仅 <b>0.077</b>。',
+    nodes: [
+      {x:40,y:40,w:340,h:56,label:'公式',value:'全对概率 = 0.95^N',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:150,w:170,h:90,label:'N = 1 步',value:'0.95',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:250,y:150,w:170,h:90,label:'N = 10 步',value:'0.599',color:'#B45309',fill:'#FDF6EC'},
+      {x:460,y:150,w:170,h:90,label:'N = 20 步',value:'0.359',color:'#B45309',fill:'#FDF6EC'},
+      {x:670,y:150,w:170,h:90,label:'N = 50 步',value:'0.077',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'×0.95',x1:210,y1:195,x2:250,y2:195,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'×0.95',x1:420,y1:195,x2:460,y2:195,delay:0.7,dur:0.6,color:'#2563EB'},
+      {v:'×0.95',x1:630,y1:195,x2:670,y2:195,delay:1.4,dur:0.6,color:'#2563EB'},
+    ],
+    end: 2.6
+  },
+  {
+    caption: '<b>Step 2 · 单步提到 0.99</b>：10 步全对从 <b>0.599</b> 升到 <b>0.904</b>，20 步从 <b>0.359</b> 升到 <b>0.818</b>——单步收益被步数放大。',
+    nodes: [
+      {x:40,y:60,w:150,h:60,label:'单步正确率',value:'0.95',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:180,w:170,h:70,label:'10 步全对',value:'0.599',color:'#B45309',fill:'#FDF6EC'},
+      {x:40,y:300,w:170,h:70,label:'20 步全对',value:'0.359',color:'#B45309',fill:'#FDF6EC'},
+      {x:640,y:60,w:150,h:60,label:'单步正确率',value:'0.99',color:'#1F2430',fill:'#FBF6EE'},
+      {x:640,y:180,w:170,h:70,label:'10 步全对',value:'0.904',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:640,y:300,w:170,h:70,label:'20 步全对',value:'0.818',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'0.95^10',x1:115,y1:120,x2:125,y2:180,delay:0.0,dur:0.7,color:'#B45309'},
+      {v:'0.95^20',x1:115,y1:120,x2:125,y2:300,delay:0.7,dur:0.7,color:'#B45309'},
+      {v:'0.99^10',x1:715,y1:120,x2:725,y2:180,delay:1.4,dur:0.7,color:'#0E9F6E'},
+      {v:'0.99^20',x1:715,y1:120,x2:725,y2:300,delay:2.1,dur:0.7,color:'#0E9F6E'},
+    ],
+    end: 3.4
+  },
+  {
+    caption: '<b>Step 3 · 错误写进上下文</b>：无纠错时，第 3 步的错误被后续每步继承、<b>全盘偏</b>；有外部校验则在错误写进上下文之前<b>立刻停下重来</b>。',
+    nodes: [
+      {x:40,y:100,w:170,h:64,label:'情形',value:'第 3 步出错',color:'#1F2430',fill:'#FBF6EE'},
+      {x:260,y:60,w:200,h:60,label:'无纠错',value:'错误写进上下文',color:'#DC2626',fill:'#FDF6EC'},
+      {x:500,y:60,w:200,h:60,label:'之后每一步',value:'全盘偏',color:'#DC2626',fill:'#FDF6EC'},
+      {x:260,y:240,w:200,h:60,label:'有外部校验',value:'外部结果与预期不符',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:500,y:240,w:200,h:60,label:'动作',value:'立刻停下重来',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'写进 context',x1:210,y1:132,x2:260,y2:90,delay:0.0,dur:0.7,color:'#DC2626'},
+      {v:'继承',x1:460,y1:90,x2:500,y2:90,delay:0.7,dur:0.7,color:'#DC2626'},
+      {v:'观察',x1:210,y1:132,x2:260,y2:270,delay:1.4,dur:0.7,color:'#0E9F6E'},
+      {v:'打断',x1:460,y1:270,x2:500,y2:270,delay:2.1,dur:0.7,color:'#0E9F6E'},
+    ],
+    end: 3.4
+  },
+];
+
+  // Lesson 22 · Card 22-3「重试把成功率抬多高」分步动画
+// 数字经 python3 独立复算，与 calc-block 严格一致（p=0.9，公式 1−(1−p)^(k+1)）：
+//   k=0 → 1−(0.1)^1 = 0.90 ｜ k=1 → 1−(0.1)^2 = 0.99
+//   k=2 → 1−(0.1)^3 = 0.999 ｜ k=3 → 1−(0.1)^4 = 0.9999
+if(!ANIM_STEPS[22]) ANIM_STEPS[22] = [
+  {
+    caption: '<b>Step 1 · 0 次重试</b>：单次成功率 p=0.9、失败率 1−p=0.1；只有 <b>1 次</b>尝试，至少成功一次 = <b>0.90</b>。',
+    nodes: [
+      {x:60,y:60,w:200,h:64,label:'允许重试次数 k',value:'0',color:'#2563EB',fill:'#FBF6EE'},
+      {x:60,y:170,w:200,h:64,label:'总尝试次数 k+1',value:'1',color:'#2563EB',fill:'#FBF6EE'},
+      {x:60,y:280,w:200,h:70,label:'全部失败 (1−p)^(k+1)',value:'0.1',color:'#B45309',fill:'#FDF6EC'},
+      {x:420,y:170,w:400,h:120,label:'至少成功一次',value:'0.90',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'k+1',x1:160,y1:124,x2:160,y2:170,delay:0.0,dur:0.5,color:'#2563EB'},
+      {v:'×0.1',x1:160,y1:234,x2:160,y2:280,delay:0.7,dur:0.5,color:'#B45309'},
+      {v:'1−0.1',x1:260,y1:315,x2:420,y2:230,delay:1.4,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.5,
+  },
+  {
+    caption: '<b>Step 2 · 1 次重试</b>：共 <b>2 次</b>尝试，全部失败 = 0.1² = <b>0.01</b>，至少成功一次 = 1 − 0.01 = <b>0.99</b>。',
+    nodes: [
+      {x:60,y:60,w:200,h:64,label:'允许重试次数 k',value:'1',color:'#2563EB',fill:'#FBF6EE'},
+      {x:60,y:170,w:200,h:64,label:'总尝试次数 k+1',value:'2',color:'#2563EB',fill:'#FBF6EE'},
+      {x:60,y:280,w:200,h:70,label:'全部失败 (1−p)^(k+1)',value:'0.01',color:'#B45309',fill:'#FDF6EC'},
+      {x:420,y:170,w:400,h:120,label:'至少成功一次',value:'0.99',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'k+1',x1:160,y1:124,x2:160,y2:170,delay:0.0,dur:0.5,color:'#2563EB'},
+      {v:'×0.1',x1:160,y1:234,x2:160,y2:280,delay:0.7,dur:0.5,color:'#B45309'},
+      {v:'1−0.01',x1:260,y1:315,x2:420,y2:230,delay:1.4,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.5,
+  },
+  {
+    caption: '<b>Step 3 · 2 次重试</b>：共 <b>3 次</b>尝试，全部失败 = 0.1³ = <b>0.001</b>，至少成功一次 = <b>0.999</b>。',
+    nodes: [
+      {x:60,y:60,w:200,h:64,label:'允许重试次数 k',value:'2',color:'#2563EB',fill:'#FBF6EE'},
+      {x:60,y:170,w:200,h:64,label:'总尝试次数 k+1',value:'3',color:'#2563EB',fill:'#FBF6EE'},
+      {x:60,y:280,w:200,h:70,label:'全部失败 (1−p)^(k+1)',value:'0.001',color:'#B45309',fill:'#FDF6EC'},
+      {x:420,y:170,w:400,h:120,label:'至少成功一次',value:'0.999',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'k+1',x1:160,y1:124,x2:160,y2:170,delay:0.0,dur:0.5,color:'#2563EB'},
+      {v:'×0.1',x1:160,y1:234,x2:160,y2:280,delay:0.7,dur:0.5,color:'#B45309'},
+      {v:'1−0.001',x1:260,y1:315,x2:420,y2:230,delay:1.4,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.5,
+  },
+  {
+    caption: '<b>Step 4 · 3 次重试</b>：共 <b>4 次</b>尝试，全部失败 = 0.1⁴ = <b>0.0001</b>，至少成功一次 = <b>0.9999</b>。',
+    nodes: [
+      {x:60,y:60,w:200,h:64,label:'允许重试次数 k',value:'3',color:'#2563EB',fill:'#FBF6EE'},
+      {x:60,y:170,w:200,h:64,label:'总尝试次数 k+1',value:'4',color:'#2563EB',fill:'#FBF6EE'},
+      {x:60,y:280,w:200,h:70,label:'全部失败 (1−p)^(k+1)',value:'0.0001',color:'#B45309',fill:'#FDF6EC'},
+      {x:420,y:170,w:400,h:120,label:'至少成功一次',value:'0.9999',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'k+1',x1:160,y1:124,x2:160,y2:170,delay:0.0,dur:0.5,color:'#2563EB'},
+      {v:'×0.1',x1:160,y1:234,x2:160,y2:280,delay:0.7,dur:0.5,color:'#B45309'},
+      {v:'1−0.0001',x1:260,y1:315,x2:420,y2:230,delay:1.4,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.5,
+  },
+];
+
+  if(!ANIM_STEPS[23]) ANIM_STEPS[23] = [
+  // ---------- 卡 23-1 · M×N → M+N 接入成本账 ----------
+  {
+    caption: '<b>Step 1 · 先定义 M 与 N</b>：<b>M = 5</b> 个宿主、<b>N = 20</b> 个工具；没有统一约定时，每个宿主 × 每个工具各写一份适配。',
+    nodes: [
+      {x:120,y:130,w:250,h:60,label:'M · 宿主',value:'5 个',color:'#2563EB',fill:'#FBF6EE'},
+      {x:510,y:130,w:250,h:60,label:'N · 工具',value:'20 个',color:'#0E9F6E',fill:'#FBF6EE'},
+      {x:150,y:280,w:580,h:70,label:'接入关系',value:'宿主 × 工具 = 一份两两适配',color:'#1F2430',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'两两对接',x1:370,y1:160,x2:510,y2:160,delay:0.0,dur:0.7,color:'#1F2430'},
+    ],
+    end: 1.8,
+  },
+  {
+    caption: '<b>Step 2 · 各自对接 = 乘法</b>：M×N = 5 × 20 = <b>100 份</b>适配，成本随规模平方涨。',
+    nodes: [
+      {x:120,y:150,w:280,h:64,label:'各自对接',value:'M×N = 5 × 20',color:'#1F2430',fill:'#FBF6EE'},
+      {x:500,y:150,w:250,h:64,label:'要写',value:'100 份',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'100',x1:400,y1:182,x2:500,y2:182,delay:0.0,dur:0.6,color:'#DC2626'},
+    ],
+    end: 1.6,
+  },
+  {
+    caption: '<b>Step 3 · 统一协议 = 加法</b>：M+N = 5 + 20 = <b>25 份</b>，省掉 100 − 25 = <b>75 份</b>——把乘法变成加法。',
+    nodes: [
+      {x:120,y:110,w:280,h:64,label:'统一协议',value:'M+N = 5 + 20',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:500,y:110,w:250,h:64,label:'只要',value:'25 份',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:120,y:260,w:280,h:64,label:'对比',value:'100 − 25',color:'#1F2430',fill:'#FBF6EE'},
+      {x:500,y:260,w:250,h:64,label:'省下',value:'75 份',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'25',x1:400,y1:142,x2:500,y2:142,delay:0.0,dur:0.6,color:'#0E9F6E'},
+      {v:'75',x1:400,y1:292,x2:500,y2:292,delay:0.8,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.0,
+  },
+  {
+    caption: '<b>Step 4 · 规模越大差距越夸张</b>：M、N 同步放大，倍数从 <b>4.0×</b> 拉到 <b>≈16.7×</b>——乘法按规模平方涨、加法只线性涨。',
+    nodes: [
+      {x:60,y:80,w:200,h:56,label:'5 × 20',value:'100 vs 25',color:'#1F2430',fill:'#FBF6EE'},
+      {x:320,y:80,w:190,h:56,label:'倍数',value:'4.0×',color:'#2563EB'},
+      {x:60,y:180,w:200,h:56,label:'10 × 50',value:'500 vs 60',color:'#1F2430',fill:'#FBF6EE'},
+      {x:320,y:180,w:190,h:56,label:'倍数',value:'≈ 8.3×',color:'#B45309'},
+      {x:60,y:280,w:200,h:56,label:'20 × 100',value:'2000 vs 120',color:'#1F2430',fill:'#FBF6EE'},
+      {x:320,y:280,w:190,h:56,label:'倍数',value:'≈ 16.7×',color:'#DC2626'},
+      {x:580,y:150,w:240,h:130,label:'差距',value:'4.0× → 16.7×',color:'#DC2626',fill:'#FDF2F0'},
+    ],
+    flows: [
+      {v:'4.0×',x1:260,y1:108,x2:320,y2:108,delay:0.0,dur:0.5,color:'#2563EB'},
+      {v:'8.3×',x1:260,y1:208,x2:320,y2:208,delay:0.7,dur:0.5,color:'#B45309'},
+      {v:'16.7×',x1:260,y1:308,x2:320,y2:308,delay:1.4,dur:0.5,color:'#DC2626'},
+      {v:'越拉越大',x1:510,y1:215,x2:580,y2:215,delay:2.0,dur:0.6,color:'#DC2626'},
+    ],
+    end: 3.2,
+  },
+];
+
+  if(!ANIM_STEPS[24]) ANIM_STEPS[24] = [
+  // ---------- 卡 24-1 · 全量塞入 vs 按需检索 ----------
+  {
+    caption: '<b>Step 1 · 一次请求的 token 差</b>：全量塞入 <b>1,000,000</b>，检索 top-5 只要 <b>2,560</b>（5 块 × 512），相差约 <b>391 倍</b>。',
+    nodes: [
+      {x:60,y:90,w:340,h:90,label:'全量塞入（每次请求）',value:'1,000,000',color:'#DC2626',fill:'#FDF6EC'},
+      {x:480,y:90,w:340,h:90,label:'检索 top-5（每次请求）',value:'2,560',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:290,y:300,w:300,h:80,label:'比值',value:'≈ 391 倍',color:'#DC2626',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'÷ 391',x1:400,y1:135,x2:480,y2:135,delay:0.0,dur:0.7,color:'#2563EB'},
+    ],
+    end: 1.8,
+  },
+  {
+    caption: '<b>Step 2 · 换算成每天 10,000 次的钱</b>：全量约 <b>$1,500/天</b>、检索约 <b>$3.84/天</b>，省掉 <b>99.74%</b>，差距同样是 <b>391 倍</b>。',
+    nodes: [
+      {x:60,y:90,w:340,h:90,label:'全量 · 1×10¹⁰ token/天',value:'$1,500/天',color:'#DC2626',fill:'#FDF6EC'},
+      {x:480,y:90,w:340,h:90,label:'检索 · 2.56×10⁷ token/天',value:'$3.84/天',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:290,y:300,w:300,h:80,label:'差距同样',value:'391 倍',color:'#DC2626',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'省 99.74%',x1:400,y1:135,x2:480,y2:135,delay:0.0,dur:0.7,color:'#2563EB'},
+    ],
+    end: 1.8,
+  },
+  {
+    caption: '<b>Step 3 · 标称窗口 ≠ 有效窗口</b>：标称 <b>500,000</b> token，有效利用区间约 <b>125,000</b>，利用率只有 <b>25%</b>（示意）。',
+    nodes: [
+      {x:60,y:90,w:340,h:90,label:'标称窗口',value:'500,000',color:'#1F2430',fill:'#FBF6EE'},
+      {x:480,y:90,w:340,h:90,label:'有效区间（示意）',value:'125,000',color:'#B45309',fill:'#FDF6EC'},
+      {x:290,y:300,w:300,h:80,label:'有效利用率',value:'25%',color:'#B45309',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'÷ 4',x1:400,y1:135,x2:480,y2:135,delay:0.0,dur:0.7,color:'#B45309'},
+    ],
+    end: 1.8,
+  },
+];
+
+  // NOTE: 卡片正文 Card 25-1 Step1 写「0.95²⁰ ≈ 0.359」，python3 复算 0.95**20 = 0.3584859...，
+//       四舍五入到三位应为 0.358。本动画按复算值 0.358 呈现，正文未改。
+//       其余关键数字复算一致：0.95**5≈0.774、0.95**10≈0.599、0.99**10≈0.904、0.904-0.599≈0.306、10-3=7。
+if(!ANIM_STEPS[25]) ANIM_STEPS[25] = [
+  {
+    caption: '<b>Step 1 · 单步 95% 看着很高</b>：长任务要求「每步都对」，成功率是单步正确率的 <b>N 次方连乘</b>。',
+    nodes: [
+      {x:120,y:150,w:200,h:64,label:'单步正确率',value:'p = 0.95',color:'#2563EB',fill:'#F0FDF4'},
+      {x:560,y:150,w:220,h:64,label:'长任务要求',value:'每步都对 = p^N',color:'#1F2430',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'连乘',x1:320,y1:182,x2:560,y2:182,delay:0.2,dur:0.7,color:'#2563EB'},
+    ],
+    end: 1.6
+  },
+  {
+    caption: '<b>Step 2 · 步数一多成功率就掉</b>：5 步 <b>0.774</b> → 10 步 <b>0.599</b> → 20 步 <b>0.358</b>，错误乘性累积。',
+    nodes: [
+      {x:60,y:80,w:180,h:60,label:'任务步数',value:'N = 5',color:'#1F2430',fill:'#FBF6EE'},
+      {x:350,y:80,w:180,h:60,label:'任务步数',value:'N = 10',color:'#1F2430',fill:'#FBF6EE'},
+      {x:640,y:80,w:180,h:60,label:'任务步数',value:'N = 20',color:'#1F2430',fill:'#FBF6EE'},
+      {x:60,y:300,w:180,h:70,label:'全对成功率',value:'0.774',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:350,y:300,w:180,h:70,label:'全对成功率',value:'0.599',color:'#B45309',fill:'#FDF6EC'},
+      {x:640,y:300,w:180,h:70,label:'全对成功率',value:'0.358',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'×0.95',x1:150,y1:140,x2:150,y2:300,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'×0.95',x1:440,y1:140,x2:440,y2:300,delay:0.7,dur:0.6,color:'#2563EB'},
+      {v:'×0.95',x1:730,y1:140,x2:730,y2:300,delay:1.4,dur:0.6,color:'#2563EB'},
+    ],
+    end: 2.7
+  },
+  {
+    caption: '<b>Step 3 · 先规划把曲线抬回来</b>：每步 0.95 → 0.99，10 步全对 <b>0.599 → 0.904</b>（+<b>0.306</b>）。',
+    nodes: [
+      {x:80,y:80,w:220,h:60,label:'做法',value:'不规划 p=0.95',color:'#1F2430',fill:'#FBF6EE'},
+      {x:560,y:80,w:220,h:60,label:'做法',value:'先规划 p=0.99',color:'#1F2430',fill:'#FBF6EE'},
+      {x:80,y:300,w:220,h:70,label:'10 步全对',value:'0.599',color:'#B45309',fill:'#FDF6EC'},
+      {x:560,y:300,w:220,h:70,label:'10 步全对',value:'0.904',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'0.95¹⁰',x1:190,y1:140,x2:190,y2:300,delay:0.0,dur:0.6,color:'#B45309'},
+      {v:'0.99¹⁰',x1:670,y1:140,x2:670,y2:300,delay:0.0,dur:0.6,color:'#0E9F6E'},
+      {v:'+0.306',x1:300,y1:335,x2:560,y2:335,delay:1.0,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.4
+  },
+  {
+    caption: '<b>Step 4 · 错误被后续继承</b>：第 3 步出错，后面 <b>10 − 3 = 7 步</b>都带着它推理。',
+    nodes: [
+      {x:60,y:120,w:220,h:64,label:'前 2 步',value:'✓ 对',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:330,y:120,w:220,h:64,label:'第 3 步',value:'✗ 错',color:'#DC2626',fill:'#FDF6EC'},
+      {x:600,y:120,w:220,h:64,label:'后续步数',value:'10 − 3 = 7 步',color:'#B45309',fill:'#FDF6EC'},
+      {x:200,y:300,w:480,h:70,label:'结论',value:'7 步都带着错误推理',color:'#1F2430',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'错误',x1:440,y1:152,x2:600,y2:152,delay:0.4,dur:0.6,color:'#DC2626'},
+      {v:'7 步',x1:710,y1:184,x2:440,y2:300,delay:1.2,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.6
+  },
+];
+
+  // NOTE: 动画只复现 Card 26-1 calc-block 的 token 账，python3 复算一致：
+//       4×20000=80000、15×20000=300000、300000÷80000=3.75、300000−80000=220000。
+if(!ANIM_STEPS[26]) ANIM_STEPS[26] = [
+  {
+    caption: '<b>Step 1 · 定锚</b>：一次任务按普通对话 <b>20,000 token</b> 记账（示意锚点，×4 / ×15 是 Anthropic 口径）。',
+    nodes: [
+      {x:310,y:160,w:260,h:120,label:'普通对话（示意锚点）',value:'20,000',color:'#1F2430',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'1×',x1:60,y1:220,x2:305,y2:220,delay:0.2,dur:1.0,color:'#2563EB'},
+    ],
+    end: 2.8
+  },
+  {
+    caption: '<b>Step 2 · 单 Agent ≈ 4×</b>：4 × 20,000 = <b>80,000 token</b>（单 Agent 约用普通对话的 4 倍）。',
+    nodes: [
+      {x:40,y:160,w:240,h:110,label:'普通对话',value:'20,000',color:'#1F2430',fill:'#FBF6EE'},
+      {x:560,y:160,w:260,h:110,label:'单 Agent（×4）',value:'80,000',color:'#2563EB',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'×4',x1:280,y1:215,x2:555,y2:215,delay:0.2,dur:1.0,color:'#2563EB'},
+    ],
+    end: 2.6
+  },
+  {
+    caption: '<b>Step 3 · 多智能体 ≈ 15×</b>：15 × 20,000 = <b>300,000 token</b>；是单 Agent 的 300,000 ÷ 80,000 = <b>3.75 倍</b>。',
+    nodes: [
+      {x:40,y:100,w:240,h:100,label:'普通对话',value:'20,000',color:'#1F2430',fill:'#FBF6EE'},
+      {x:340,y:100,w:240,h:100,label:'单 Agent ×4',value:'80,000',color:'#2563EB',fill:'#FDF6EC'},
+      {x:620,y:100,w:240,h:100,label:'多智能体 ×15',value:'300,000',color:'#B45309',fill:'#FDF6EC'},
+      {x:340,y:300,w:240,h:100,label:'倍率 300,000 ÷ 80,000',value:'3.75 倍',color:'#4F46E5',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'×4',x1:280,y1:150,x2:335,y2:150,delay:0.0,dur:0.7,color:'#2563EB'},
+      {v:'×15',x1:580,y1:150,x2:615,y2:150,delay:0.7,dur:0.7,color:'#B45309'},
+      {v:'÷',x1:740,y1:200,x2:460,y2:295,delay:1.6,dur:0.9,color:'#4F46E5'},
+    ],
+    end: 3.2
+  },
+  {
+    caption: '<b>Step 4 · 多花与收益</b>：多智能体比单 Agent 多花 300,000 − 80,000 = <b>220,000 token</b>，换来约 <b>90.2%</b> 的相对提升（relative lift，≠ 提高 90.2 个百分点）。',
+    nodes: [
+      {x:40,y:80,w:230,h:90,label:'普通对话',value:'20,000',color:'#1F2430',fill:'#FBF6EE'},
+      {x:320,y:80,w:230,h:90,label:'单 Agent ×4',value:'80,000',color:'#2563EB',fill:'#FDF6EC'},
+      {x:600,y:80,w:230,h:90,label:'多智能体 ×15',value:'300,000',color:'#B45309',fill:'#FDF6EC'},
+      {x:320,y:270,w:230,h:90,label:'相对提升（relative lift）',value:'90.2%',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:600,y:270,w:230,h:90,label:'多花 300,000 − 80,000',value:'220,000',color:'#DC2626',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'−',x1:715,y1:170,x2:715,y2:265,delay:0.2,dur:0.9,color:'#DC2626'},
+    ],
+    end: 2.4
+  },
+];
+
+  if(!ANIM_STEPS[27]) ANIM_STEPS[27] = [
+  // ---------- STEP 1：结果奖励（ORM） ----------
+  {
+    caption: '<b>Step 1 · 结果奖励（ORM）</b>：只看最终答案对不对，MATH 上解出 <b>72.4%</b>——但分不清哪一步立功、哪一步闯祸。',
+    nodes: [
+      {x:60,y:70,w:250,h:86,label:'结果奖励 ORM',value:'只看最终结果',color:'#1F2430',fill:'#FBF6EE'},
+      {x:430,y:70,w:250,h:86,label:'MATH best-of-N',value:'72.4%',color:'#2563EB',fill:'#FDF6EC'},
+      {x:60,y:230,w:620,h:70,label:'问题',value:'分不清哪一步立功/闯祸',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'结果分',x1:310,y1:105,x2:430,y2:105,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'分不清',x1:490,y1:120,x2:200,y2:235,delay:1.1,dur:0.7,color:'#DC2626'},
+    ],
+    end: 2.4,
+  },
+  // ---------- STEP 2：过程奖励（PRM） ----------
+  {
+    caption: '<b>Step 2 · 过程奖励（PRM）</b>：给每一步单独打分，能指出错在第几步，MATH 上解出 <b>78.2%</b>。',
+    nodes: [
+      {x:60,y:70,w:250,h:86,label:'过程奖励 PRM',value:'逐步打分',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:430,y:70,w:250,h:86,label:'MATH best-of-N',value:'78.2%',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:60,y:230,w:150,h:64,label:'第 1 步',value:'✓',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:250,y:230,w:150,h:64,label:'第 2 步',value:'✓',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:440,y:230,w:150,h:64,label:'第 3 步',value:'✗',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'逐步分',x1:310,y1:105,x2:430,y2:105,delay:0.0,dur:0.6,color:'#0E9F6E'},
+      {v:'✓',x1:120,y1:190,x2:120,y2:230,delay:1.0,dur:0.4,color:'#0E9F6E',w:28,h:22},
+      {v:'✓',x1:310,y1:190,x2:310,y2:230,delay:1.3,dur:0.4,color:'#0E9F6E',w:28,h:22},
+      {v:'✗',x1:500,y1:190,x2:500,y2:230,delay:1.6,dur:0.4,color:'#DC2626',w:28,h:22},
+    ],
+    end: 2.6,
+  },
+  // ---------- STEP 3：差值 78.2 − 72.4 ----------
+  {
+    caption: '<b>Step 3 · 差值</b>：78.2 − 72.4 = <b>5.8 个百分点</b>——过程监督比结果监督高的那一截。',
+    nodes: [
+      {x:40,y:120,w:220,h:86,label:'PRM',value:'78.2%',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:330,y:120,w:220,h:86,label:'ORM',value:'72.4%',color:'#1F2430',fill:'#FBF6EE'},
+      {x:620,y:120,w:220,h:86,label:'差值',value:'+5.8 点',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'78.2',x1:260,y1:150,x2:620,y2:150,delay:0.0,dur:0.7,color:'#0E9F6E'},
+      {v:'−72.4',x1:550,y1:170,x2:620,y2:170,delay:1.0,dur:0.7,color:'#1F2430'},
+    ],
+    end: 2.5,
+  },
+  // ---------- STEP 4：代价 PRM800K ----------
+  {
+    caption: '<b>Step 4 · 代价</b>：5.8 个点的代价是约 <b>80 万条</b>步级标注（PRM800K），标数据更贵、更难自动化。',
+    nodes: [
+      {x:40,y:120,w:220,h:86,label:'过程标注量',value:'80 万条',color:'#B45309',fill:'#FDF6EC'},
+      {x:330,y:120,w:220,h:86,label:'标注粒度',value:'逐步标注',color:'#1F2430',fill:'#FBF6EE'},
+      {x:620,y:120,w:220,h:86,label:'代价',value:'更贵·难自动化',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'80万',x1:260,y1:150,x2:330,y2:150,delay:0.0,dur:0.5,color:'#B45309'},
+      {v:'标注',x1:440,y1:170,x2:620,y2:170,delay:0.8,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.2,
+  },
+];
+
+  if(!ANIM_STEPS[28]) ANIM_STEPS[28] = [
+  // ---------- STEP 1：三个单次成功率起点 ----------
+  {
+    caption: '<b>Step 1 · 三个起点</b>：单次成功率 p 取 <b>0.90</b> / <b>0.70</b> / <b>0.50</b>——看着都"及格"，但可靠性要连续 8 次全对，得连乘。',
+    nodes: [
+      {x:60,y:150,w:210,h:90,label:'单次成功率 p',value:'0.90',color:'#2563EB',fill:'#FBF6EE'},
+      {x:335,y:150,w:210,h:90,label:'单次成功率 p',value:'0.70',color:'#B45309',fill:'#FDF6EC'},
+      {x:610,y:150,w:210,h:90,label:'单次成功率 p',value:'0.50',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [],
+    end: 2.0,
+  },
+  // ---------- STEP 2：pass^8 连乘 8 次 ----------
+  {
+    caption: '<b>Step 2 · 连乘 8 次</b>：pass^8 = p 连续 <b>8 次</b>全对；以 p=<b>0.90</b> 为例，8 个 "×0.90" 一路乘过去，乘一次就掉一截。',
+    nodes: [
+      {x:50,y:140,w:200,h:80,label:'单次 p',value:'0.90',color:'#2563EB',fill:'#FBF6EE'},
+      {x:620,y:140,w:210,h:80,label:'连续 8 次全对',value:'p⁸',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'×0.90',x1:250,y1:180,x2:620,y2:180,delay:0.0,dur:0.45,color:'#2563EB'},
+      {v:'×0.90',x1:250,y1:180,x2:620,y2:180,delay:0.55,dur:0.45,color:'#2563EB'},
+      {v:'×0.90',x1:250,y1:180,x2:620,y2:180,delay:1.1,dur:0.45,color:'#2563EB'},
+      {v:'×0.90',x1:250,y1:180,x2:620,y2:180,delay:1.65,dur:0.45,color:'#2563EB'},
+      {v:'×0.90',x1:250,y1:180,x2:620,y2:180,delay:2.2,dur:0.45,color:'#2563EB'},
+      {v:'×0.90',x1:250,y1:180,x2:620,y2:180,delay:2.75,dur:0.45,color:'#2563EB'},
+      {v:'×0.90',x1:250,y1:180,x2:620,y2:180,delay:3.3,dur:0.45,color:'#2563EB'},
+      {v:'×0.90',x1:250,y1:180,x2:620,y2:180,delay:3.85,dur:0.45,color:'#2563EB'},
+    ],
+    end: 4.8,
+  },
+  // ---------- STEP 3：三档结果对比 ----------
+  {
+    caption: '<b>Step 3 · 三档结果</b>：连乘 8 次后 0.90⁸≈<b>0.430</b>、0.70⁸≈<b>0.058</b>、0.50⁸≈<b>0.0039</b>——单次越高，跌得越少，但仍拦腰往下掉。',
+    nodes: [
+      {x:60,y:70,w:210,h:70,label:'单次 p',value:'0.90',color:'#2563EB'},
+      {x:335,y:70,w:210,h:70,label:'单次 p',value:'0.70',color:'#B45309'},
+      {x:610,y:70,w:210,h:70,label:'单次 p',value:'0.50',color:'#0E9F6E'},
+      {x:60,y:280,w:210,h:90,label:'连续 8 次全对',value:'≈ 0.430',color:'#DC2626',fill:'#FDF6EC'},
+      {x:335,y:280,w:210,h:90,label:'连续 8 次全对',value:'≈ 0.058',color:'#DC2626',fill:'#FDF6EC'},
+      {x:610,y:280,w:210,h:90,label:'连续 8 次全对',value:'≈ 0.0039',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'×8次',x1:165,y1:140,x2:165,y2:280,delay:0.0,dur:0.5,color:'#B45309'},
+      {v:'×8次',x1:440,y1:140,x2:440,y2:280,delay:0.7,dur:0.5,color:'#B45309'},
+      {v:'×8次',x1:715,y1:140,x2:715,y2:280,delay:1.4,dur:0.5,color:'#B45309'},
+    ],
+    end: 2.4,
+  },
+  // ---------- STEP 4：反推充分条件 0.9987 ----------
+  {
+    caption: '<b>Step 4 · 反推充分条件</b>：要 p⁸ ≥ <b>0.99</b>，单次需 p ≈ <b>0.9987</b>（0.9987⁸ ≈ 0.99）——现实中很难，故必须加重试、幂等与人审兜底。',
+    nodes: [
+      {x:70,y:130,w:250,h:86,label:'要求',value:'p⁸ ≥ 0.99',color:'#DC2626',fill:'#FDF6EC'},
+      {x:560,y:130,w:250,h:86,label:'需要单次 p',value:'≈ 0.9987',color:'#4F46E5',fill:'#FBF6EE'},
+      {x:560,y:280,w:250,h:86,label:'验证',value:'0.9987⁸ ≈ 0.99',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'反推',x1:320,y1:170,x2:560,y2:170,delay:0.3,dur:0.7,color:'#2563EB'},
+      {v:'连乘8次',x1:685,y1:216,x2:685,y2:280,delay:1.3,dur:0.6,color:'#0E9F6E'},
+    ],
+    end: 2.4,
+  },
+];
+
+  // NOTE: 动画只复现 Card 29-4 calc-block 的领域打分账，python3 复算一致：
+//       (1.0+0.9+0.9)/3=0.93、(0.4+0.3+0.4)/3=0.37、0.93÷0.37≈2.5、30×24×60=43200、43200÷60=720。
+if(!ANIM_STEPS[29]) ANIM_STEPS[29] = [
+  // ---------- STEP 1：四个决定可信度的条件 ----------
+  {
+    caption: '<b>Step 1 · 四个条件</b>：域条件性（domain-conditioned autonomy ceiling）是四项的<b>合取</b>——任一条差，闭环就断；其中「伦理约束小」是<b>否决项</b>，不参与均值打分。',
+    nodes: [
+      {x:40,y:80,w:800,h:56,label:'域条件性 = 四项合取',value:'可执行 · 反馈快 · 可复现 · 伦理约束小',color:'#2563EB',fill:'#F0FDF4'},
+      {x:40,y:210,w:180,h:80,label:'条件①',value:'可执行',color:'#1F2430',fill:'#FBF6EE'},
+      {x:245,y:210,w:180,h:80,label:'条件②',value:'反馈快',color:'#1F2430',fill:'#FBF6EE'},
+      {x:450,y:210,w:180,h:80,label:'条件③',value:'可复现',color:'#1F2430',fill:'#FBF6EE'},
+      {x:655,y:210,w:185,h:80,label:'条件④ · 否决项',value:'伦理约束小',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [],
+    end: 2.5,
+  },
+  // ---------- STEP 2：ML 研究打分 → 均值 0.93 ----------
+  {
+    caption: '<b>Step 2 · ML 研究打分</b>：可执行 <b>1.0</b>、反馈快 <b>0.9</b>、可复现 <b>0.9</b>，(1.0 + 0.9 + 0.9) ÷ 3 ≈ <b>0.93</b>。',
+    nodes: [
+      {x:40,y:80,w:800,h:50,label:'ML 研究 · 均值只取三项',value:'可执行 / 反馈快 / 可复现',color:'#2563EB',fill:'#F0FDF4'},
+      {x:60,y:180,w:200,h:80,label:'可执行',value:'1.0',color:'#1F2430',fill:'#FBF6EE'},
+      {x:340,y:180,w:200,h:80,label:'反馈快',value:'0.9',color:'#1F2430',fill:'#FBF6EE'},
+      {x:620,y:180,w:200,h:80,label:'可复现',value:'0.9',color:'#1F2430',fill:'#FBF6EE'},
+      {x:300,y:350,w:280,h:80,label:'ML 均值',value:'(1.0+0.9+0.9)÷3 ≈ 0.93',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'1.0',x1:160,y1:260,x2:380,y2:345,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'0.9',x1:440,y1:260,x2:430,y2:345,delay:0.7,dur:0.6,color:'#2563EB'},
+      {v:'0.9',x1:720,y1:260,x2:480,y2:345,delay:1.4,dur:0.6,color:'#2563EB'},
+    ],
+    end: 2.6,
+  },
+  // ---------- STEP 3：生物研究打分 → 均值 0.37 ----------
+  {
+    caption: '<b>Step 3 · 生物研究打分</b>：可执行 <b>0.4</b>、反馈快 <b>0.3</b>、可复现 <b>0.4</b>，(0.4 + 0.3 + 0.4) ÷ 3 ≈ <b>0.37</b>。',
+    nodes: [
+      {x:40,y:80,w:800,h:50,label:'生物研究 · 均值只取三项',value:'可执行 / 反馈快 / 可复现',color:'#B45309',fill:'#FDF6EC'},
+      {x:60,y:180,w:200,h:80,label:'可执行',value:'0.4',color:'#1F2430',fill:'#FBF6EE'},
+      {x:340,y:180,w:200,h:80,label:'反馈快',value:'0.3',color:'#1F2430',fill:'#FBF6EE'},
+      {x:620,y:180,w:200,h:80,label:'可复现',value:'0.4',color:'#1F2430',fill:'#FBF6EE'},
+      {x:300,y:350,w:280,h:80,label:'生物均值',value:'(0.4+0.3+0.4)÷3 ≈ 0.37',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'0.4',x1:160,y1:260,x2:380,y2:345,delay:0.0,dur:0.6,color:'#B45309'},
+      {v:'0.3',x1:440,y1:260,x2:430,y2:345,delay:0.7,dur:0.6,color:'#B45309'},
+      {v:'0.4',x1:720,y1:260,x2:480,y2:345,delay:1.4,dur:0.6,color:'#B45309'},
+    ],
+    end: 2.6,
+  },
+  // ---------- STEP 4：天花板之比 2.5× ----------
+  {
+    caption: '<b>Step 4 · 天花板之比</b>：ML 均值 <b>0.93</b> ÷ 生物均值 <b>0.37</b> ≈ <b>2.5×</b>——同一自主级别，ML 能走到的深度约是生物的 2.5 倍。',
+    nodes: [
+      {x:60,y:150,w:320,h:100,label:'ML 均值',value:'0.93',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:500,y:150,w:320,h:100,label:'生物均值',value:'0.37',color:'#DC2626',fill:'#FDF6EC'},
+      {x:240,y:330,w:400,h:90,label:'域条件天花板之比',value:'0.93 ÷ 0.37 ≈ 2.5×',color:'#4F46E5',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'0.93',x1:220,y1:250,x2:360,y2:325,delay:0.0,dur:0.6,color:'#0E9F6E'},
+      {v:'0.37',x1:660,y1:250,x2:500,y2:325,delay:0.7,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.3,
+  },
+  // ---------- STEP 5：闭环断在哪（720×） ----------
+  {
+    caption: '<b>Step 5 · 闭环断在哪</b>：生物一轮约 <b>30 天</b> = 30 × 24 × 60 = <b>43,200 分钟</b>；ML 单轮约 60 分钟，同样 30 天里 ML 能跑的轮数约为生物的 43,200 ÷ 60 = <b>720×</b>。',
+    nodes: [
+      {x:60,y:150,w:340,h:90,label:'生物一轮（约 30 天）',value:'30×24×60 = 43,200 分钟',color:'#DC2626',fill:'#FDF6EC'},
+      {x:480,y:150,w:340,h:90,label:'ML 单轮（约 60 分钟）',value:'60 分钟',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:200,y:330,w:480,h:90,label:'同样 30 天里 ML 能跑的轮数',value:'43,200 ÷ 60 = 720×',color:'#4F46E5',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'43,200',x1:230,y1:240,x2:330,y2:325,delay:0.0,dur:0.6,color:'#DC2626'},
+      {v:'÷60',x1:650,y1:240,x2:540,y2:325,delay:0.7,dur:0.6,color:'#0E9F6E'},
+    ],
+    end: 2.3,
+  },
+];
+
+  if(!ANIM_STEPS[30]) ANIM_STEPS[30] = [
+  // ---------- STEP 1：三问门禁 ----------
+  {
+    caption: '<b>Step 1 · 三问门禁</b>：可测吗、可做吗、真新吗——三道闸串联，任一问不合格就否掉，每问通过率都是 <b>0.8</b>。',
+    nodes: [
+      {x:40,y:60,w:240,h:96,label:'第 1 问 · 通过率 0.8',value:'可测吗',color:'#1F2430',fill:'#FBF6EE'},
+      {x:320,y:60,w:240,h:96,label:'第 2 问 · 通过率 0.8',value:'可做吗',color:'#1F2430',fill:'#FBF6EE'},
+      {x:600,y:60,w:240,h:96,label:'第 3 问 · 通过率 0.8',value:'真新吗',color:'#1F2430',fill:'#FBF6EE'},
+      {x:40,y:250,w:240,h:110,label:'候选方向',value:'100%',color:'#2563EB',fill:'#FDF6EC'},
+      {x:320,y:250,w:520,h:110,label:'串联规则',value:'任一问不合格 → 否掉',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'100%',x1:160,y1:250,x2:160,y2:156,delay:0.0,dur:0.7,color:'#2563EB'},
+    ],
+    end: 1.8,
+  },
+  // ---------- STEP 2：过第 1 问 ----------
+  {
+    caption: '<b>Step 2 · 过第 1 问</b>：100% 的候选方向过第 1 问，剩 <b>0.8 = 80%</b>。',
+    nodes: [
+      {x:40,y:60,w:240,h:96,label:'第 1 问 · 通过率 0.8',value:'可测吗',color:'#1F2430',fill:'#FBF6EE'},
+      {x:320,y:60,w:240,h:96,label:'第 2 问 · 通过率 0.8',value:'可做吗',color:'#1F2430',fill:'#FBF6EE'},
+      {x:600,y:60,w:240,h:96,label:'第 3 问 · 通过率 0.8',value:'真新吗',color:'#1F2430',fill:'#FBF6EE'},
+      {x:300,y:250,w:280,h:110,label:'过第 1 问后',value:'0.8 = 80%',color:'#2563EB',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'0.8',x1:160,y1:156,x2:440,y2:250,delay:0.0,dur:0.7,color:'#2563EB'},
+      {v:'×0.8',x1:280,y1:108,x2:320,y2:108,delay:1.0,dur:0.5,color:'#2563EB',w:50},
+    ],
+    end: 2.2,
+  },
+  // ---------- STEP 3：过第 2 问 ----------
+  {
+    caption: '<b>Step 3 · 过第 2 问</b>：再乘一次 0.8：0.8² = <b>0.64 = 64%</b>。',
+    nodes: [
+      {x:40,y:60,w:240,h:96,label:'第 1 问 · 通过率 0.8',value:'可测吗',color:'#1F2430',fill:'#FBF6EE'},
+      {x:320,y:60,w:240,h:96,label:'第 2 问 · 通过率 0.8',value:'可做吗',color:'#1F2430',fill:'#FBF6EE'},
+      {x:600,y:60,w:240,h:96,label:'第 3 问 · 通过率 0.8',value:'真新吗',color:'#1F2430',fill:'#FBF6EE'},
+      {x:300,y:250,w:280,h:110,label:'过第 2 问后',value:'0.64 = 64%',color:'#2563EB',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'0.8²',x1:440,y1:156,x2:440,y2:250,delay:0.0,dur:0.7,color:'#2563EB',w:56},
+      {v:'×0.8',x1:560,y1:108,x2:600,y2:108,delay:1.0,dur:0.5,color:'#2563EB',w:50},
+    ],
+    end: 2.2,
+  },
+  // ---------- STEP 4：三问全过 ----------
+  {
+    caption: '<b>Step 4 · 三问全过</b>：0.8³ = <b>0.512 ≈ 51.2%</b>，只有一半多一点的方向能通过。',
+    nodes: [
+      {x:40,y:60,w:240,h:96,label:'第 1 问 · 通过率 0.8',value:'可测吗',color:'#1F2430',fill:'#FBF6EE'},
+      {x:320,y:60,w:240,h:96,label:'第 2 问 · 通过率 0.8',value:'可做吗',color:'#1F2430',fill:'#FBF6EE'},
+      {x:600,y:60,w:240,h:96,label:'第 3 问 · 通过率 0.8',value:'真新吗',color:'#1F2430',fill:'#FBF6EE'},
+      {x:300,y:250,w:280,h:110,label:'三问全过',value:'0.512 ≈ 51.2%',color:'#0E9F6E',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'0.8³',x1:720,y1:156,x2:440,y2:250,delay:0.0,dur:0.7,color:'#0E9F6E',w:56},
+    ],
+    end: 1.8,
+  },
+  // ---------- STEP 5：被拦下 ----------
+  {
+    caption: '<b>Step 5 · 被拦下</b>：1 − 0.512 = <b>0.488 ≈ 48.8%</b>——近一半方向在开工前被拦下，比投了 50 人时后止损便宜得多。',
+    nodes: [
+      {x:60,y:110,w:340,h:120,label:'三问全过 · 开工',value:'0.512 = 51.2%',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:480,y:110,w:340,h:120,label:'被拦下 · 1 − 0.512',value:'0.488 = 48.8%',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'51.2%',x1:230,y1:30,x2:230,y2:110,delay:0.0,dur:0.6,color:'#0E9F6E',w:70},
+      {v:'48.8%',x1:650,y1:30,x2:650,y2:110,delay:0.9,dur:0.6,color:'#DC2626',w:70},
+    ],
+    end: 2.2,
+  },
+];
+
+  if(!ANIM_STEPS[31]) ANIM_STEPS[31] = [
+  // ---------- STEP 1：把空间写成 b^d ----------
+  {
+    caption: '<b>Step 1 · 把空间写成 b^d</b>：每层 <b>b=5</b> 个分支、走 <b>d=4</b> 层，完整路径数 = <b>5⁴ = 625</b> 条。',
+    nodes: [
+      {x:60,y:150,w:210,h:90,label:'每层分支数 b',value:'5',color:'#1F2430',fill:'#FBF6EE'},
+      {x:335,y:150,w:210,h:90,label:'决策深度 d',value:'4',color:'#1F2430',fill:'#FBF6EE'},
+      {x:620,y:150,w:220,h:90,label:'完整路径数 b^d',value:'625',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'5',x1:270,y1:195,x2:620,y2:180,delay:0.5,dur:0.8,color:'#2563EB'},
+      {v:'4',x1:545,y1:195,x2:620,y2:220,delay:1.5,dur:0.8,color:'#B45309'},
+    ],
+    end: 4.8,
+  },
+  // ---------- STEP 2：深度 1 → 5 条 ----------
+  {
+    caption: '<b>Step 2 · 深度 1</b>：从起点 <b>1</b> 条路出发，走 1 层就变成 <b>5</b> 条（5¹ = 5）。',
+    nodes: [
+      {x:60,y:170,w:210,h:90,label:'起点',value:'1 条',color:'#1F2430',fill:'#FBF6EE'},
+      {x:620,y:170,w:220,h:90,label:'深度 d=1',value:'5 条',color:'#2563EB',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'×5',x1:270,y1:215,x2:620,y2:215,delay:0.4,dur:0.8,color:'#2563EB'},
+    ],
+    end: 3.5,
+  },
+  // ---------- STEP 3：每层 ×5（25 → 125） ----------
+  {
+    caption: '<b>Step 3 · 每层 ×5</b>：<b>5² = 25</b>、<b>5³ = 125</b>——每多一层，路径数再乘一个 <b>5</b>，指数增长。',
+    nodes: [
+      {x:60,y:150,w:220,h:90,label:'深度 d=2',value:'25 条',color:'#1F2430',fill:'#FBF6EE'},
+      {x:610,y:150,w:220,h:90,label:'深度 d=3',value:'125 条',color:'#1F2430',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'×5',x1:280,y1:195,x2:610,y2:195,delay:0.5,dur:0.8,color:'#0E9F6E'},
+    ],
+    end: 4.0,
+  },
+  // ---------- STEP 4：深度 4 → 625 条 ----------
+  {
+    caption: '<b>Step 4 · 深度 4</b>：<b>5⁴ = 625</b> 条——4 层就 625 条，穷举不动，只能靠搜索而非穷举。',
+    nodes: [
+      {x:60,y:150,w:220,h:90,label:'深度 d=3',value:'125 条',color:'#1F2430',fill:'#FBF6EE'},
+      {x:620,y:140,w:230,h:100,label:'深度 d=4（最终）',value:'625 条',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'×5',x1:280,y1:195,x2:620,y2:190,delay:0.5,dur:0.8,color:'#DC2626'},
+    ],
+    end: 4.5,
+  },
+];
+
+  if(!ANIM_STEPS[32]) ANIM_STEPS[32] = [
+  // ---------- STEP 1：1× 口径（74 轮 × 20,000） ----------
+  {
+    caption: '<b>Step 1 · 1× 口径</b>：74 轮 × 20,000 token/轮 = <b>1,480,000</b> token（普通对话量锚点，承第 26 课的 20,000）。',
+    nodes: [
+      {x:40,y:190,w:170,h:76,label:'轮数',value:'74',color:'#1F2430',fill:'#FBF6EE'},
+      {x:340,y:190,w:200,h:76,label:'单轮 token（1×）',value:'20,000',color:'#1F2430',fill:'#FBF6EE'},
+      {x:660,y:190,w:200,h:76,label:'总 token（1×）',value:'1,480,000',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'×',x1:210,y1:228,x2:340,y2:228,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'=',x1:540,y1:228,x2:660,y2:228,delay:0.9,dur:0.6,color:'#2563EB'},
+    ],
+    end: 2.4,
+  },
+  // ---------- STEP 2：单 Agent 4× ----------
+  {
+    caption: '<b>Step 2 · 单 Agent 4×</b>：单轮 20,000 ×4 = <b>80,000</b>，74 轮合计 <b>5,920,000</b> token。',
+    nodes: [
+      {x:40,y:190,w:170,h:76,label:'单轮（1×）',value:'20,000',color:'#1F2430',fill:'#FBF6EE'},
+      {x:340,y:190,w:200,h:76,label:'单轮（4×）',value:'80,000',color:'#2563EB',fill:'#FBF6EE'},
+      {x:660,y:190,w:200,h:76,label:'74 轮合计',value:'5,920,000',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'×4',x1:210,y1:228,x2:340,y2:228,delay:0.0,dur:0.6,color:'#2563EB'},
+      {v:'×74',x1:540,y1:228,x2:660,y2:228,delay:0.9,dur:0.6,color:'#2563EB'},
+    ],
+    end: 2.4,
+  },
+  // ---------- STEP 3：多智能体 15× ----------
+  {
+    caption: '<b>Step 3 · 多智能体 15×</b>：单轮 20,000 ×15 = <b>300,000</b>，74 轮合计 <b>22,200,000</b> token（= 单 Agent 的 <b>3.75</b> 倍）。',
+    nodes: [
+      {x:40,y:190,w:170,h:76,label:'单轮（1×）',value:'20,000',color:'#1F2430',fill:'#FBF6EE'},
+      {x:340,y:190,w:200,h:76,label:'单轮（15×）',value:'300,000',color:'#B45309',fill:'#FDF6EC'},
+      {x:660,y:190,w:200,h:76,label:'74 轮合计',value:'22,200,000',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'×15',x1:210,y1:228,x2:340,y2:228,delay:0.0,dur:0.6,color:'#B45309'},
+      {v:'×74',x1:540,y1:228,x2:660,y2:228,delay:0.9,dur:0.6,color:'#B45309'},
+    ],
+    end: 2.4,
+  },
+  // ---------- STEP 4：时间账（23 小时 → 82,800 秒 → 1,119 秒/轮） ----------
+  {
+    caption: '<b>Step 4 · 时间账</b>：23 小时 ×3,600 = <b>82,800</b> 秒，÷74 ≈ <b>1,119</b> 秒/轮（约 18.6 分钟）。',
+    nodes: [
+      {x:40,y:190,w:170,h:76,label:'总时长',value:'23 小时',color:'#1F2430',fill:'#FBF6EE'},
+      {x:340,y:190,w:200,h:76,label:'总秒数',value:'82,800 秒',color:'#2563EB',fill:'#FBF6EE'},
+      {x:660,y:190,w:200,h:76,label:'轮均',value:'1,119 秒/轮',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'×3,600',x1:210,y1:228,x2:340,y2:228,delay:0.0,dur:0.6,color:'#2563EB',w:60},
+      {v:'÷74',x1:540,y1:228,x2:660,y2:228,delay:0.9,dur:0.6,color:'#2563EB'},
+    ],
+    end: 2.4,
+  },
+];
+
+  // NOTE: 动画只复现 Card 33-3 calc-block 的"多评审一致性"账，python3 复算一致：
+//       0.7²=0.49、0.3²=0.09、0.49+0.09=0.58、3×0.7²×0.3=0.441、0.7³=0.343、0.441+0.343=0.784。
+if(!ANIM_STEPS[33]) ANIM_STEPS[33] = [
+  // ---------- STEP 1：单评审准确率 70% ----------
+  {
+    caption: '<b>Step 1 · 单评审</b>：一个独立评审者，判断准确率 <b>70%</b>（p = 0.70）——听起来不错，但一个人有 <b>0.30</b> 的概率看走眼。',
+    nodes: [
+      {x:240,y:150,w:400,h:110,label:'单个评审者',value:'准确率 p = 0.70',color:'#2563EB',fill:'#F0FDF4'},
+    ],
+    flows: [],
+    end: 2.0,
+  },
+  // ---------- STEP 2：两名评审一致率 0.58 ----------
+  {
+    caption: '<b>Step 2 · 两名评审一致率</b>：恰好一致 = 两人都对 <b>0.7²=0.49</b> ＋ 两人都错 <b>0.3²=0.09</b> → <b>0.49+0.09=0.58</b>。<b>一致率</b>不是正确率：都错也算"一致"。',
+    nodes: [
+      {x:240,y:60,w:400,h:64,label:'两名评审恰好一致',value:'一致率 = 都对 + 都错',color:'#1F2430',fill:'#FBF6EE'},
+      {x:80,y:180,w:320,h:90,label:'两人都对',value:'0.7² = 0.49',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:480,y:180,w:320,h:90,label:'两人都错',value:'0.3² = 0.09',color:'#DC2626',fill:'#FDF6EC'},
+      {x:240,y:340,w:400,h:90,label:'一致率',value:'0.49 + 0.09 = 0.58',color:'#4F46E5',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'0.49',x1:240,y1:270,x2:360,y2:335,delay:0.0,dur:0.6,color:'#0E9F6E'},
+      {v:'0.09',x1:640,y1:270,x2:520,y2:335,delay:0.7,dur:0.6,color:'#DC2626'},
+    ],
+    end: 2.0,
+  },
+  // ---------- STEP 3：三人多数表决 0.784 ----------
+  {
+    caption: '<b>Step 3 · 三人多数表决</b>：多数正确 = 恰好两人对 <b>3×0.7²×0.3=0.441</b> ＋ 三人都对 <b>0.7³=0.343</b> → <b>0.441+0.343=0.784</b> ≈ 78.4%。',
+    nodes: [
+      {x:220,y:60,w:440,h:64,label:'三人多数表决正确',value:'= 恰好两人对 + 三人都对',color:'#1F2430',fill:'#FBF6EE'},
+      {x:60,y:180,w:360,h:90,label:'恰好两人对',value:'3×0.7²×0.3 = 0.441',color:'#B45309',fill:'#FDF6EC'},
+      {x:460,y:180,w:360,h:90,label:'三人都对',value:'0.7³ = 0.343',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:220,y:340,w:440,h:90,label:'多数表决准确率',value:'0.441 + 0.343 = 0.784',color:'#4F46E5',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'0.441',x1:240,y1:270,x2:360,y2:335,delay:0.0,dur:0.6,color:'#B45309'},
+      {v:'0.343',x1:640,y1:270,x2:520,y2:335,delay:0.7,dur:0.6,color:'#0E9F6E'},
+    ],
+    end: 2.0,
+  },
+  // ---------- STEP 4：对比汇总 ----------
+  {
+    caption: '<b>Step 4 · 对比</b>：1 人 <b>70%</b> → 2 人一致率 <b>58%</b>（反而更低，因为"都错"也算一致）→ 3 人多数表决 <b>78.4%</b>。<b>多数表决</b>才是把方差压下去、真正提高正确率的关键。',
+    nodes: [
+      {x:60,y:150,w:220,h:100,label:'1 人',value:'70%',color:'#2563EB',fill:'#F0FDF4'},
+      {x:330,y:150,w:220,h:100,label:'2 人一致',value:'58%',color:'#B45309',fill:'#FDF6EC'},
+      {x:600,y:150,w:220,h:100,label:'3 人多数',value:'78.4%',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:180,y:330,w:520,h:90,label:'结论',value:'单评审 70% → 三人多数 ≈ 78.4%',color:'#4F46E5',fill:'#FBF6EE'},
+    ],
+    flows: [],
+    end: 2.0,
+  },
+];
+
+  // NOTE: 动画只复现 Card 34-3 calc-block 的 token 账，python3 复算一致：
+//       648000÷108=6000、6000÷15=400、6000÷4=1500、648000/1e6=0.648、0.648×3=1.94、0.648×15=9.72。
+if(!ANIM_STEPS[34]) ANIM_STEPS[34] = [
+  // ---------- STEP 1：总量拆到单轮 ----------
+  {
+    caption: '<b>Step 1 · 总量拆到单轮</b>：总 <b>648000</b> tokens ÷ 总 <b>108</b> 轮 = <b>6000 token/轮</b>，每轮都要重发一遍 context。',
+    nodes: [
+      {x:60,y:170,w:230,h:90,label:'总 tokens',value:'648000',color:'#1F2430',fill:'#FBF6EE'},
+      {x:340,y:170,w:200,h:90,label:'总轮数',value:'108 轮',color:'#1F2430',fill:'#FBF6EE'},
+      {x:620,y:150,w:240,h:110,label:'单轮 = 总量 ÷ 轮数',value:'6000 token/轮',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'648000',x1:175,y1:215,x2:620,y2:180,delay:0.0,dur:0.7,color:'#2563EB'},
+      {v:'108',x1:440,y1:215,x2:620,y2:235,delay:0.7,dur:0.7,color:'#B45309'},
+    ],
+    end: 2.6,
+  },
+  // ---------- STEP 2：多智能体口径 → 普通对话 ----------
+  {
+    caption: '<b>Step 2 · 多智能体口径（普通对话）</b>：把 6000 token/轮 当作多智能体（约 15×），等效普通对话 = 6000 ÷ 15 = <b>400 token/轮</b>。',
+    nodes: [
+      {x:60,y:170,w:230,h:90,label:'多智能体（锚点）',value:'6000',color:'#4F46E5',fill:'#F0FDF4'},
+      {x:340,y:170,w:200,h:90,label:'倍数',value:'÷ 15',color:'#B45309',fill:'#FDF6EC'},
+      {x:620,y:170,w:230,h:90,label:'等效普通对话',value:'400 token/轮',color:'#2563EB',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'6000',x1:175,y1:215,x2:620,y2:190,delay:0.0,dur:0.7,color:'#4F46E5'},
+      {v:'÷15',x1:440,y1:215,x2:620,y2:235,delay:0.7,dur:0.7,color:'#B45309'},
+    ],
+    end: 2.6,
+  },
+  // ---------- STEP 3：多智能体口径 → 单 Agent ----------
+  {
+    caption: '<b>Step 3 · 多智能体口径（单 Agent）</b>：单 Agent 约 4×，等效 = 6000 ÷ 4 = <b>1500 token/轮</b>。',
+    nodes: [
+      {x:60,y:170,w:230,h:90,label:'多智能体（锚点）',value:'6000',color:'#4F46E5',fill:'#F0FDF4'},
+      {x:340,y:170,w:200,h:90,label:'倍数',value:'÷ 4',color:'#B45309',fill:'#FDF6EC'},
+      {x:620,y:170,w:230,h:90,label:'等效单 Agent',value:'1500 token/轮',color:'#0E9F6E',fill:'#FBF6EE'},
+    ],
+    flows: [
+      {v:'6000',x1:175,y1:215,x2:620,y2:190,delay:0.0,dur:0.7,color:'#4F46E5'},
+      {v:'÷4',x1:440,y1:215,x2:620,y2:235,delay:0.7,dur:0.7,color:'#B45309'},
+    ],
+    end: 2.6,
+  },
+  // ---------- STEP 4：换算成钱（示意） ----------
+  {
+    caption: '<b>Step 4 · 换算成钱（示意）</b>：64.8 万 = <b>0.648</b> 百万 tokens；0.648 × $3 = <b>$1.94</b>、0.648 × $15 = <b>$9.72</b>。',
+    nodes: [
+      {x:40,y:80,w:240,h:80,label:'总量',value:'0.648 百万',color:'#1F2430',fill:'#FBF6EE'},
+      {x:340,y:80,w:180,h:80,label:'单价',value:'$3 / 百万',color:'#2563EB',fill:'#FBF6EE'},
+      {x:600,y:80,w:220,h:80,label:'费用',value:'$1.94',color:'#2563EB',fill:'#F0FDF4'},
+      {x:40,y:300,w:240,h:80,label:'总量',value:'0.648 百万',color:'#1F2430',fill:'#FBF6EE'},
+      {x:340,y:300,w:180,h:80,label:'单价',value:'$15 / 百万',color:'#DC2626',fill:'#FBF6EE'},
+      {x:600,y:300,w:220,h:80,label:'费用',value:'$9.72',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'0.648',x1:160,y1:120,x2:340,y2:120,delay:0.0,dur:0.6,color:'#1F2430'},
+      {v:'$3',x1:430,y1:120,x2:600,y2:120,delay:0.6,dur:0.6,color:'#2563EB'},
+      {v:'0.648',x1:160,y1:340,x2:340,y2:340,delay:1.4,dur:0.6,color:'#1F2430'},
+      {v:'$15',x1:430,y1:340,x2:600,y2:340,delay:2.0,dur:0.6,color:'#DC2626'},
+    ],
+    end: 3.4,
+  },
+];
+
+  if(!ANIM_STEPS[35]) ANIM_STEPS[35] = [
+  // ---------- STEP 1：四个选项的概率分布 ----------
+  {
+    caption: '<b>Step 1 · 四个选项的概率</b>：决策模型一次前向，直接给出四个选项各自的概率 <b>0.05 / 0.72 / 0.15 / 0.08</b>。',
+    nodes: [
+      {x:60,y:170,w:150,h:100,label:'选项 A',value:'0.05',color:'#1F2430',fill:'#FBF6EE'},
+      {x:250,y:170,w:150,h:100,label:'选项 B',value:'0.72',color:'#1F2430',fill:'#FBF6EE'},
+      {x:440,y:170,w:150,h:100,label:'选项 C',value:'0.15',color:'#1F2430',fill:'#FBF6EE'},
+      {x:630,y:170,w:150,h:100,label:'选项 D',value:'0.08',color:'#1F2430',fill:'#FBF6EE'},
+    ],
+    flows: [],
+    end: 3.0,
+  },
+  // ---------- STEP 2：概率和 = 1 ----------
+  {
+    caption: '<b>Step 2 · 概率和 = 1</b>：<b>0.05 + 0.72 + 0.15 + 0.08 = 1.00</b>——"和为 1"是概率的硬约束，也正是它适合当决策格式的原因。',
+    nodes: [
+      {x:60,y:150,w:150,h:90,label:'选项 A',value:'0.05',color:'#1F2430',fill:'#FBF6EE'},
+      {x:250,y:150,w:150,h:90,label:'选项 B',value:'0.72',color:'#1F2430',fill:'#FBF6EE'},
+      {x:440,y:150,w:150,h:90,label:'选项 C',value:'0.15',color:'#1F2430',fill:'#FBF6EE'},
+      {x:630,y:150,w:150,h:90,label:'选项 D',value:'0.08',color:'#1F2430',fill:'#FBF6EE'},
+      {x:330,y:360,w:220,h:80,label:'合计（和 = 1）',value:'1.00',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'0.05',x1:135,y1:240,x2:370,y2:360,delay:0.4,dur:0.8,color:'#2563EB'},
+      {v:'0.72',x1:325,y1:240,x2:420,y2:360,delay:1.2,dur:0.8,color:'#2563EB'},
+      {v:'0.15',x1:515,y1:240,x2:470,y2:360,delay:2.0,dur:0.8,color:'#2563EB'},
+      {v:'0.08',x1:705,y1:240,x2:520,y2:360,delay:2.8,dur:0.8,color:'#2563EB'},
+    ],
+    end: 4.4,
+  },
+  // ---------- STEP 3：argmax 取最大项 ----------
+  {
+    caption: '<b>Step 3 · argmax 取最大项</b>：<b>0.72</b> 是四项里最大的，直接取最大项（argmax）就是答案 <b>B</b>，无需任何解析。',
+    nodes: [
+      {x:60,y:160,w:230,h:120,label:'最大概率（选项 B）',value:'0.72',color:'#DC2626',fill:'#FDF6EC'},
+      {x:560,y:160,w:240,h:120,label:'argmax → 答案',value:'B',color:'#DC2626',fill:'#F0FDF4'},
+    ],
+    flows: [
+      {v:'argmax',x1:290,y1:220,x2:560,y2:220,delay:0.5,dur:0.9,color:'#DC2626'},
+    ],
+    end: 3.0,
+  },
+  // ---------- STEP 4：两种输出契约 ----------
+  {
+    caption: '<b>Step 4 · 两种输出契约</b>：自回归要<b>写一段话</b>再解析出答案；决策模型<b>直接输出概率 P(B)=0.72</b>，argmax 一步到位。',
+    nodes: [
+      {x:60,y:150,w:300,h:110,label:'自回归 LLM',value:'写一段话',color:'#B45309',fill:'#FBF6EE'},
+      {x:60,y:300,w:300,h:110,label:'决策模型',value:'P(B)=0.72',color:'#0E9F6E',fill:'#F0FDF4'},
+      {x:520,y:180,w:300,h:100,label:'答案',value:'B',color:'#DC2626',fill:'#FDF6EC'},
+    ],
+    flows: [
+      {v:'解析',x1:360,y1:205,x2:520,y2:205,delay:0.4,dur:0.8,color:'#B45309'},
+      {v:'argmax',x1:360,y1:355,x2:520,y2:250,delay:1.4,dur:0.8,color:'#0E9F6E'},
+    ],
+    end: 3.2,
+  },
+];
+
+  var STEPS = ANIM_STEPS[activeLesson];
+  if(!STEPS || !STEPS.length) return;
+
   // 高亮：正在流动的 flow 的源节点与目标节点
   function activeNodes(){
     const s = STEPS[cur];
@@ -3853,9 +6060,13 @@ if (document.getElementById('animCanvas')) {
     setStep(cur - 1);
   });
 
+  _animStop = stop;
   setStep(0);
-})();
 }
+
+// ── Auto-load：单文件版默认第 1 课；多页站点版加载本页对应的那一课 ──
+switchLesson(window.__SITE__ ? window.__SITE__.lesson : 1);
+Stats.boot();
 </script>
 <script>
 // ── 课程搜索与「继续上次阅读」（搜索引擎 v2，2026-11-05）──

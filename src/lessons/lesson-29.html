@@ -135,6 +135,20 @@
           <div class="step-desc" style="margin-top:4px;">算术：把两者换算到同一单位——生物一轮约 <strong>30</strong> 天 = 30 × 24 × 60 = <strong>43,200</strong> 分钟；若 ML 单轮按小时级（约 60 分钟）计，同样 30 天里 ML 能跑的轮数约为生物的 43,200 ÷ 60 = <strong>720×</strong>（示意）。反馈越慢，同一窗口里能迭代的轮数越少，闭环就断在"验证"这一环。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：领域条件决定天花板（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 领域条件决定天花板</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>"AI 能做研究"这句话必须加定语：<strong>在结构清晰、可执行、能快速验证的领域（如 ML 研究）它才靠得住</strong>；越往具身、延迟反馈、涉伦理的方向走，闭环越难合上。所以先问"这是哪个领域"，再谈能不能自动。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','29-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','29-4')">🤔 你可能还想问</button></div>
       <div id="tab-ai-29-4" class="llm-section"><button class="llm-btn" onclick="startChat('29-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="29-4"><div class="chat-toolbar"><button onclick="copyChat('29-4')">📋 复制对话</button><button onclick="clearChat('29-4')">🗑 清空</button><button onclick="stopLLM('29-4')" id="stop-btn-29-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('29-4')" id="regenerate-btn-29-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="29-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"域条件性"有疑问？比如「我的领域属于哪一类」「怎么判断可不可信」？<br><br>说清你的实验流程，我帮你判断闭环能不能合上。</div></div><div class="chat-input-row"><textarea data-input="29-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('29-4')}" rows="1" placeholder="例如：为什么生物研究更难自动化？"></textarea><button onclick="sendLLM('29-4')">发送</button></div></div></div>

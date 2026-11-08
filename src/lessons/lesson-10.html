@@ -107,6 +107,20 @@
           <div class="step-desc" style="margin-top:4px;">注意 <code>input_ids</code> <strong>没有变</strong>——问题 token 仍在输入里，只是不算损失。所以回答仍然能"看到"问题，这正是我们要的：<strong>条件于问题，但不模仿问题</strong>。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：Loss masking 损失掩码（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · Loss masking 损失掩码</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>Loss masking 的判据是"<strong>你要模型做什么</strong>"：SFT 要它<strong>生成回答</strong>，就只对回答算损失。不掩码时，被浪费的梯度比例 = 问题 token 占比（示例中约 <strong>80%</strong>）。<strong>关键区别在于掩码只作用于损失、不作用于注意力</strong>——模型依然能看到问题，只是不被训练去复述它。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','10-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','10-3')">🤔 你可能还想问</button></div>
       <div id="tab-ai-10-3" class="llm-section"><button class="llm-btn" onclick="startChat('10-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="10-3"><div class="chat-toolbar"><button onclick="copyChat('10-3')">📋 复制对话</button><button onclick="clearChat('10-3')">🗑 清空</button><button onclick="stopLLM('10-3')" id="stop-btn-10-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('10-3')" id="regen-btn-10-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="10-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 loss masking 有疑问？比如"多轮对话里 system 提示也要屏蔽吗？""屏蔽后为什么还能看到问题？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="10-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('10-3')}" rows="1" placeholder="例如：如果回答特别长，掩码还重要吗？"></textarea><button onclick="sendLLM('10-3')">发送</button></div></div></div>

@@ -135,6 +135,20 @@
           <div class="step-desc" style="margin-top:4px;">读表要注意两点：<strong>① 前三行同为 32B 量级（30 → 47 → 50），可以横向比；第 4 行是 7B 规模，不能与前三行直接比</strong>。② 第 2 行的 47 分来自社区用 Qwen-32B 复现的 R1-Zero 配方，<strong>与 Card 3 里官方 R1-Zero 的 71.0% 不是同一个模型</strong>。另一侧的成本证据是：推理模型在 AIME 上的输出长度可达同规模 instruct 模型的 <strong>5~10 倍</strong>（arXiv:2505.22017 v1 引言）——这正是下一张卡片要算的账。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：GRPO 长度归一化的"分母效应"（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · GRPO 长度归一化：分母效应</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>长度膨胀不是"模型变啰嗦"的性格问题，而是<strong>目标函数里的结构性偏差</strong>：只要长度以分母或求和的形式进入损失，优化器就有动机去操纵它。处置方式有两条——<strong>把长度从归一化里拿掉</strong>（Dr. GRPO），或<strong>给它一个显式价格</strong>（DAPO 的超长惩罚）。两条路指向同一件事：<strong>凡是能被优化的量，都必须先想清楚给它定的价对不对。</strong></p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','12-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','12-4')">🤔 你可能还想问</button></div>
       <div id="tab-ai-12-4" class="llm-section"><button class="llm-btn" onclick="startChat('12-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="12-4"><div class="chat-toolbar"><button onclick="copyChat('12-4')">📋 复制对话</button><button onclick="clearChat('12-4')">🗑 清空</button><button onclick="stopLLM('12-4')" id="stop-btn-12-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('12-4')" id="regen-btn-12-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="12-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对长度膨胀有疑问？比如"长度惩罚会不会把它压得太短？""为什么简单题也写很长？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="12-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('12-4')}" rows="1" placeholder="例如：如果不做任何长度控制，训练到后期会怎样？"></textarea><button onclick="sendLLM('12-4')">发送</button></div></div></div>

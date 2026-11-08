@@ -110,6 +110,20 @@
           <div class="step-desc" style="color:var(--success);font-weight:600;margin-top:4px;">GQA 省了 75% KV Cache 显存，质量损失却很小（GQA 论文称接近 MHA）——几乎白捡。这就是为什么 Llama 选了它。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：GQA 的 KV Cache 参数账（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · GQA 的 KV Cache 参数账</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 为什么不全部共享（MQA）？</div><p>不同注意力头会关注不同语义（示意：有的头偏向语法、有的偏向指代、有的偏向情感——具体分工因模型而异，来自事后探针分析，非固定编号）。全共享把所有头的视野压缩到一个 K/V 里，就像让所有医生共看同一张 X 光片——省胶片但丢诊断精度。GQA 给每组留下了独立的 K/V，保留了注意力多样性。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','3-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','3-3')">🤔 你可能还想问</button></div>
       <div id="tab-ai-3-3" class="llm-section"><button class="llm-btn" onclick="startChat('3-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="3-3"><div class="chat-toolbar"><button onclick="copyChat('3-3')">📋 复制对话</button><button onclick="clearChat('3-3')">🗑 清空</button><button onclick="stopLLM('3-3')" id="stop-btn-3-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('3-3')" id="regen-btn-3-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="3-3"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 GQA 和 KV Cache 有疑问？比如"为什么不分 16 组？""不用 KV Cache 有什么替代方案？"<br><br>我会用具体数字帮你算。</div></div></div><div class="chat-input-row"><textarea data-input="3-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('3-3')}" rows="1" placeholder="例如：KV Cache 和上下文窗口长度是什么关系？"></textarea><button onclick="sendLLM('3-3')">发送</button></div></div></div>

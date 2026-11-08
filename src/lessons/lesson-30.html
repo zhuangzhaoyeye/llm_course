@@ -191,6 +191,20 @@
           <div class="step-desc" style="margin-top:4px;">算术（示意）：三问大约会拦下 <strong>48.8%</strong> 的候选方向——拦在开工前，比拦在投了 50 人时之后便宜得多。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：三问门禁的通过率（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 三问门禁的通过率</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>门禁的价值在于"否决条件可复核"：<strong>可测吗、可做吗、真新吗，任一不合格就否</strong>。它是本课推理链的落点——在代价发生之前，把"新想法"先拦一遍。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','30-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','30-6')">🤔 你可能还想问</button></div>
       <div id="tab-ai-30-6" class="llm-section"><button class="llm-btn" onclick="startChat('30-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="30-6"><div class="chat-toolbar"><button onclick="copyChat('30-6')">📋 复制对话</button><button onclick="clearChat('30-6')">🗑 清空</button><button onclick="stopLLM('30-6')" id="stop-btn-30-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('30-6')" id="regenerate-btn-30-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="30-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对选题门禁有疑问？比如「三问里哪问最容易挂」「会不会误杀好方向」？<br><br>说清你的方向与条件，我帮你逐问过一遍门禁。</div></div><div class="chat-input-row"><textarea data-input="30-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('30-6')}" rows="1" placeholder="例如：三问里哪一问最重要？"></textarea><button onclick="sendLLM('30-6')">发送</button></div></div></div>

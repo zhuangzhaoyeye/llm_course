@@ -85,6 +85,20 @@
           <div class="step-desc" style="color:var(--success);font-weight:600;margin-top:6px;">现在训练完成。新词 "lowest" 怎么切？按学到的合并规则依次作用（lowest 先合并出 lowe，剩下 st）→ lowe · st = 2 个 token。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：BPE 合并走查（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · BPE 合并走查</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 为什么 BPE 优于固定词表？</div><p>本卡语料只有 low / lower / lowest，但测试时遇到 "lowers" 也能切：BPE 会把它切成 lower + s（lower 和 s 都在最终词表里）。<strong>只要能拼出没见过的新词，就永远不会输出 [UNK]。</strong></p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','4-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','4-2')">🤔 你可能还想问</button></div>
       <div id="tab-ai-4-2" class="llm-section"><button class="llm-btn" onclick="startChat('4-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="4-2"><div class="chat-toolbar"><button onclick="copyChat('4-2')">📋 复制对话</button><button onclick="clearChat('4-2')">🗑 清空</button><button onclick="stopLLM('4-2')" id="stop-btn-4-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('4-2')" id="regen-btn-4-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="4-2"><div class="chat-msg assistant"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 BPE 算法细节有疑问？比如"为什么用频率而不是互信息？""BPE 和 WordPiece、Unigram 有什么区别？"<br><br>我会用具体例子帮你推演。</div></div></div><div class="chat-input-row"><textarea data-input="4-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('4-2')}" rows="1" placeholder="例如：如果两对频率相同，BPE 怎么选？"></textarea><button onclick="sendLLM('4-2')">发送</button></div></div></div>

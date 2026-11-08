@@ -199,6 +199,20 @@
           <div class="step-desc" style="margin-top:4px;">长度归一化把比率的波动幅度按 |y| 压缩：<strong>序列越长，单点噪声被平均得越狠</strong>。Qwen 的报告还给出一个反直觉观察——GSPO 的裁剪比例比 GRPO 高<strong>两个数量级</strong>，但训练效率反而更高，说明 GRPO 的 token 级目标本身噪声过大。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：GRPO 组内归一化（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · GRPO 组内归一化：奖励 → 均值 → 标准差 → 优势</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>去掉 critic 的代价不是"精度变差"，而是<strong>基线的可靠性变成了一个统计问题</strong>：组内方差为 0 时，组相对优势完全失效（同组全对/全错 → 零梯度）。所以这条线的演进都在回答两个问题——<strong>怎么让基线更稳</strong>（GSPO 的序列级比率、SAPO 的平滑门控）、<strong>怎么不浪费批次</strong>（DAPO 的动态采样）。<strong>选型判据可以浓缩成三问：奖励可验证吗？需要在线探索吗？显存够装几个模型？</strong></p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','11-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','11-6')">🤔 你可能还想问</button></div>
       <div id="tab-ai-11-6" class="llm-section"><button class="llm-btn" onclick="startChat('11-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="11-6"><div class="chat-toolbar"><button onclick="copyChat('11-6')">📋 复制对话</button><button onclick="clearChat('11-6')">🗑 清空</button><button onclick="stopLLM('11-6')" id="stop-btn-11-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('11-6')" id="regen-btn-11-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="11-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 GRPO 与选型有疑问？比如"组大小 G 设多少？""什么时候还该用 PPO？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="11-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('11-6')}" rows="1" placeholder="例如：如果奖励只有对错两种取值，组内归一化会不会不稳定？"></textarea><button onclick="sendLLM('11-6')">发送</button></div></div></div>

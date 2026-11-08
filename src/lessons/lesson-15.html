@@ -135,6 +135,20 @@
           <div class="step-desc" style="margin-top:4px;">算术：批量 b 时，FLOPs 变成 2·N·b，而搬运的字节<strong>几乎不变</strong>（还是那一份权重），所以算术强度 ≈ b FLOP/byte。<strong>关键洞察：批量把"同一份权重的搬运"摊给了更多 token</strong>——b = 32 时，一次 20.9 ms 的搬运服务 32 个 token，理论吞吐约 32 ÷ 0.0209 ≈ <strong>1,530 token/s</strong>，而每个 token 的延迟几乎不变（批量 1 → 32 时每 token 延迟增幅有限，本卡按经验取 &lt; 30%——<strong>经验值，需按机型实测</strong>）。要到 b ≈ 295 才转成算力受限——<strong>在此之前，"加并发"几乎是免费的</strong>。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：decode 一步：带宽 → 算术强度 → 批量解药（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · decode 一步：带宽 → 算术强度 → 批量解药</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>decode 每一步的耗时由<strong>"搬运多少权重"</strong>决定，而不是由"上下文多长"决定——这解释了两件事：① 为什么对话变长时，每 token 的耗时基本平稳（只有 KV 那一小部分在涨），总时间大致<strong>线性</strong>；② <strong>为什么批量几乎免费</strong>——因为所有请求共用同一份权重，搬运一次就能服务一批。所以推理引擎的核心工作只有一句话：<strong>让每一步都在"有足够多 token 可用"的状态下跑</strong>——这正是下一张卡（把 KV 做小）与第 6 张卡（把调度做好）的分工。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','15-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','15-4')">🤔 你可能还想问</button></div>
       <div id="tab-ai-15-4" class="llm-section"><button class="llm-btn" onclick="startChat('15-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="15-4"><div class="chat-toolbar"><button onclick="copyChat('15-4')">📋 复制对话</button><button onclick="clearChat('15-4')">🗑 清空</button><button onclick="stopLLM('15-4')" id="stop-btn-15-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('15-4')" id="regen-btn-15-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="15-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"带宽受限"有疑问？比如「为什么量化能加速 decode」「MoE（即把大模型拆成多个小专家、每次只激活其中几个）为什么天生适合 decode」？<br><br>我会带你算每一步搬了多少字节。</div></div><div class="chat-input-row"><textarea data-input="15-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('15-4')}" rows="1" placeholder="例如：把权重换成 int4，decode 吞吐会变多少？"></textarea><button onclick="sendLLM('15-4')">发送</button></div></div></div>

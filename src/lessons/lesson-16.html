@@ -79,6 +79,20 @@
           <div class="step-desc" style="margin-top:4px;">判断依据很清楚：<strong>离群值出现在激活里，而不是权重里</strong>，所以"只动权重"（W4A16）天然绕开了最难的一环，这也是它成为工业默认的原因——下一张卡片把三种对象的差异列成一张表。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：一个离群值如何吃掉全部刻度（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 一个离群值如何吃掉全部刻度</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>"int8 近无损、int4 开始掉"不是玄学，而是<strong>离群值撑开格距</strong>的必然结果：格距由最大值定，离群值把格距放大到约 18 倍（本卡离群值是正常最大值的 25 倍），正常值就被挤到不足一格。8 bit 靠格子多，勉强还能分出 4 档；4 bit 直接归零。所以真正的分界线不是"几个 bit"，而是<strong>这一层有没有离群值、它比正常值大多少倍</strong>。反向证据同样重要：后续研究（arXiv:2405.20835）发现新模型（Llama-2/3、Mistral）的离群值已明显变温和，Mistral 7B 近乎免疫——<strong>别把 OPT 时代的老结论当定律</strong>。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','16-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','16-2')">🤔 你可能还想问</button></div>
       <div id="tab-ai-16-2" class="llm-section"><button class="llm-btn" onclick="startChat('16-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="16-2"><div class="chat-toolbar"><button onclick="copyChat('16-2')">📋 复制对话</button><button onclick="clearChat('16-2')">🗑 清空</button><button onclick="stopLLM('16-2')" id="stop-btn-16-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('16-2')" id="regen-btn-16-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="16-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对离群值有疑问？比如「为什么只有激活有动态离群值」「SmoothQuant 那个变换凭什么等价」？<br><br>给我一组数值分布，我帮你算格距与归零阈值。</div></div><div class="chat-input-row"><textarea data-input="16-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('16-2')}" rows="1" placeholder="例如：正常值最大 2、离群值 100，8-bit 和 4-bit 的格距各是多少？"></textarea><button onclick="sendLLM('16-2')">发送</button></div></div></div>

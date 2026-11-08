@@ -188,6 +188,20 @@
           <div class="step-desc" style="margin-top:4px;">Stanford 团队在 Lost in the Middle（即「迷失在中间」，Liu et al., 2023, arXiv:2307.03172）里做了受控实验：把答案所在的文档从开头挪到中间，准确率随之变化，画出一条两头高、中间低的 U 形曲线——开头与结尾附近最高，中间显著下降。原文图 1 给出的具体百分点随模型与文档数而变，此处只作定性描述，精确数值需核对原论文（人工核实）。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：多步推理的复利衰减（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 多步推理的复利衰减</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>这五条的共同点是：<strong>没有一条能靠「换个更好的提示词」解决</strong>。字符级问题要把计算外包给代码执行，知识截止要靠检索、记忆要靠外部存储，多步误差要靠推理模型与外部校验，动手能力要靠工具调用。<strong>所以这张卡既是「能力边界清单」，也是这一部分的学习地图</strong>——每条边界的正下方，都压着后面某一课。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','6-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','6-6')">🤔 你可能还想问</button></div>
       <div id="tab-ai-6-6" class="llm-section"><button class="llm-btn" onclick="startChat('6-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="6-6"><div class="chat-toolbar"><button onclick="copyChat('6-6')">📋 复制对话</button><button onclick="clearChat('6-6')">🗑 清空</button><button onclick="stopLLM('6-6')" id="stop-btn-6-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('6-6')" id="regen-btn-6-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="6-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对模型的能力边界有疑问？比如「为什么数不清 strawberry 里的 r？」「中间遗忘能不能靠提示词缓解？」<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="6-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('6-6')}" rows="1" placeholder="例如：为什么单步 95% 正确，十步后就只剩 60%？"></textarea><button onclick="sendLLM('6-6')">发送</button></div></div></div>

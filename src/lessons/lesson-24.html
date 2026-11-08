@@ -51,6 +51,20 @@
           <div class="step-desc" style="margin-top:4px;">先说可核验的结论：<strong>标称窗口 ≠ 有效窗口</strong>——Lost in the Middle（Liu 等，arXiv:2307.03172）证明即便显式支持长上下文的模型，对中段信息的利用也会下降，所以"能装下"不等于"能用好"。但<strong>具体阈值没有统一答案</strong>：不同模型、不同任务差异很大，没有可照搬的统一数字。这里把 125K / 500K 只当<strong>示意</strong>，工程上必须按你自己场景的<strong>实测有效范围</strong>设计。</div>
         </div>
       </div>
+      <!-- 交互式分步动画：全量塞入 vs 按需检索（可播放） -->
+      <div class="anim-panel" id="animPanel">
+        <div class="anim-head">
+          <div class="anim-title">🎬 分步动画 · 全量塞入 vs 按需检索</div>
+          <div class="anim-controls">
+            <button class="anim-btn" id="animPrev" title="回退到上一步">⏮ 上一步</button>
+            <button class="anim-btn primary" id="animPlay" title="播放/暂停">▶ 播放</button>
+            <button class="anim-btn" id="animNext" title="推进到下一步">下一步 ⏭</button>
+          </div>
+        </div>
+        <div class="anim-stepbar" id="animStepbar"></div>
+        <div class="anim-stage"><canvas id="animCanvas"></canvas></div>
+        <div class="anim-caption" id="animCaption"></div>
+      </div>
       <div class="highlight-box"><div class="label">🎯 关键认知</div><p>RAG 的第一个理由不是"窗口不够大"，而是<strong>成本与效果都不支持全塞</strong>：输入 token 线性计费，而模型对超长上下文的利用在远低于标称上限时就已退化。RAG 把"把整个库读一遍"换成"只读相关的那几页"——这是在<strong>成本</strong>与<strong>效果</strong>上同时更优的选择。</p></div>
       <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','24-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','24-1')">🤔 你可能还想问</button></div>
       <div id="tab-ai-24-1" class="llm-section"><button class="llm-btn" onclick="startChat('24-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="24-1"><div class="chat-toolbar"><button onclick="copyChat('24-1')">📋 复制对话</button><button onclick="clearChat('24-1')">🗑 清空</button><button onclick="stopLLM('24-1')" id="stop-btn-24-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('24-1')" id="regenerate-btn-24-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="24-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"窗口够大为什么还要 RAG"有疑问？比如「窗口够大是不是就不用检索了」「成本到底差多少」？<br><br>说一下你的知识库规模与日请求量，我帮你估算全塞与检索的成本差。</div></div><div class="chat-input-row"><textarea data-input="24-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('24-1')}" rows="1" placeholder="例如：100 万 token 的知识库全塞要多少钱？"></textarea><button onclick="sendLLM('24-1')">发送</button></div></div></div>
