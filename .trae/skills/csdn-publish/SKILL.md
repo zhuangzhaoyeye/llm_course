@@ -16,7 +16,7 @@ CSDN 没有找到官方的发文章 MCP 或开放发文 API(检索未命中,不�
 
 ## 铁律
 
-1. **只存草稿,不点"发布文章"(`.btn-publish`)。** 脚本只点 `button.btn-save`。CSDN 每天有发文额度(实测"今日还有 2 篇"),误点发布会消耗额度且文章公开。
+1. **只存草稿,不点"发布文章"(`.btn-publish`)。** 新版编辑器靠标题自动保存（不点任何保存按钮）；旧版才点 `button.btn-save`。CSDN 每天有发文额度(实测"今日还有 2 篇"),误点发布会消耗额度且文章公开。
 2. **不碰用户的日常浏览器 cookie。** 登录态保存在独立目录 `~/.llm_course_publish_profile`(可用环境变量 `PUBLISH_PROFILE` 覆盖),仓库之外,不会被提交。凭证不写进任何文件,日志里不打印 cookie 值。
 3. **以回读为准。** 脚本存完会新开页面读服务器上的草稿,校验标题和行数,不凭"点了保存"就报成功。
 4. **每次批准只做一次明确的操作。** 稿子要先给用户看过,再存。
@@ -51,7 +51,7 @@ node .trae/skills/csdn-publish/scripts/csdn.js draft docs/文章.md <articleId> 
 | 标题 | DOM 里有一个 **0×0 的隐藏 `input`**,直接选它会点击超时。真正可见的是 `.article-bar__title-display`,**先点它**,才会出现可输入的 `input.article-bar__title--input` |
 | 正文 | `.editor__inner` 是 contenteditable 的 `PRE`。**`keyboard.insertText` 会吞换行**,整篇挤成一段、`##` 和表格全坏。必须派发 `paste` 事件(`DataTransfer` 带 `text/plain`) |
 | 保存 | **2026-11 起为新版编辑器：自动保存**，标题一填即开始存，页面右下只剩「发布文章」(`button.btn-publish`)，**绝不能点**。旧版才有 `button.btn-save` → 弹出菜单 →「保存草稿」，脚本已做兼容判断 |
-| 草稿 ID | 首次保存后 URL 变成 `?articleId=<ID>`。之后覆盖要带这个 ID,否则会新建重复草稿 |
+| 草稿 ID | 新版编辑器自动保存后 URL **不带** `?articleId`（旧版才带）。脚本自动转草稿列表页 `mp.csdn.net/mp_blog/manage/article` 按标题匹配取最新 articleId（三级回退：URL 参数 → URL → 草稿列表）。之后覆盖要带这个 ID,否则会新建重复草稿 |
 
 ## 同一个登录目录不能并发
 
