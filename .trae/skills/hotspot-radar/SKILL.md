@@ -1,3 +1,8 @@
+---
+name: hotspot-radar
+description: 从 arXiv 与 HuggingFace Daily Papers 发现近期 AI 热点，并按成课适配度筛选候选供用户确认。当用户说扫热点、跑雷达、最近 AI 有什么新东西或找值得做成课程的新概念时使用；不自动开课，不替代内容创作与质量门禁。
+---
+
 # 热点雷达（课程自我拓展的候选发现）
 
 ## 描述
