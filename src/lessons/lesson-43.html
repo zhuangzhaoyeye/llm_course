@@ -1,0 +1,174 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 43 课：前沿收口与选型判据</h2>
+    <p class="subtitle">前 7 课把后训练的地图铺开了：奖励模型、RLHF（人类反馈强化学习）、DPO（直接偏好优化）、变体族、在线优化、推理强化。但学完这些，最怕的是"每个方法都听过、真到自己上手却不知道选哪个"。这一课做两件事：先看 2024~2025 的前沿把对齐往哪四个方向推（多轮、自举、AI 裁判、免训练），再把所有手段收口成三个判据和一张选型表——让你拿到任务后三问一答就能定方法。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 把前 7 课 8 种方法压成"信号 / 探索 / 资源"三个变量<br>② 说清前沿的四个方向各"省掉了什么"（多轮误差、人工裁判、人工标注、训练本身）<br>③ 用三判据（奖励可验证？/ 要不要探索？/ 显存够不够？）+ 一张选型表，为真实任务选方法</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：从"8 课地图"到"四个前沿方向"到"一张选型表"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">选型这件事<strong>必须先有一个统一视角</strong>——因为前 7 课的 8 种方法（奖励模型/RLHF/PPO 即近端策略优化/DPO/变体族/在线/无参考/推理强化），本质上都在把「人觉得好、算得对」翻译成可训练信号，并在「资源」与「探索」之间取舍。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">前沿第一推：把偏好优化从单轮推到多轮（DMPO）——因为单轮 DPO 用在多轮智能体上会逐轮误差复合，<strong>因此</strong> 5 轮完成率从 0.77 掉到 0.59。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">前沿第二推：把「谁当裁判」从人换成模型自己（SPPO / self-rewarding）——因为人工偏好标注贵、慢、不可扩展，<strong>因此</strong>自对弈才能无限生成偏好数据。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">前沿第三推：把监督从「人工反馈」降到「AI 反馈 + 一套原则」（RLAIF / Constitutional AI）——因为当裁判的人可以被「另一个 AI + 宪法条文」替代，<strong>因此</strong>监督成本降到只剩一套原则。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">前沿第四推：连训练都省掉，推理时采样挑选（best-of-N）——因为对齐不一定要改权重，<strong>因此</strong>采样 N 条挑最好的一条也能把策略推向「奖励倾斜分布」。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">收口：四类手段（DPO / best-of-N 等）+ 训练/不训练，最终收敛成三判据（奖励可验证 / 要不要探索 / 显存）——<strong>因此</strong>拿到任务三问一答，就能落进一张选型表。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">Post-training</span><span class="meta-tag">DMPO</span><span class="meta-tag">SPPO</span><span class="meta-tag">Self-play</span><span class="meta-tag">RLAIF</span><span class="meta-tag">Constitutional AI</span><span class="meta-tag">Best-of-N</span><span class="meta-tag">Selection</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="43-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">前 7 课讲了 8 种方法，它们到底在回答同一个什么问题？</div><div class="card-q-hint">提示：把每个方法往前退一步——它在「用什么信号、要不要在线探索、占多少显存」上各自怎么选；这三问是不是所有方法都要回答的？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>后训练（post-training）</strong>在本部分 8 课里展开成一条链：奖励模型（第 37 课）→ RLHF/PPO（第 38 课）→ DPO（第 39 课）→ DPO 变体族（第 40 课）→ 在线与无参考优化（第 41 课）→ 推理强化（第 42 课）。它们表面是不同算法，底层都在回答同一个问题：把"人觉得好 / 算得对"翻译成可训练的信号，再在"资源（驻留几个模型）"和"探索（要不要在线采样）"之间权衡。</div>
+      <div class="content-section"><p>上一课（第 42 课）我们看了推理强化——用 0/1 可验证对错训练"算得对"。但整条后训练线里，偏好对齐、在线探索、监督来源这些变量还没收口。<strong>把 8 种方法摆在一起看，它们其实是同一个问题的 8 种答案。</strong></p><p>可以把这<strong>类比</strong>成选交通方式：飞机、高铁、自驾都在解决"从 A 到 B"，但速度、成本、灵活度各不同——<strong>只有先想清楚"你关心哪个维度"，才选得出交通工具</strong>。对齐方法也一样：没有一个"最好"的方法，只有"匹配你的约束"的方法。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 8 课地图 × 三个变量</div>
+        <div class="step"><div class="step-title">Step 1：前 7 课各回答了哪个变量</div>
+          <table><tr><th>课</th><th>主题</th><th>它动了哪个变量</th></tr><tr><td>37</td><td>奖励模型</td><td>信号（把"更好"变数字）</td></tr><tr><td>38</td><td>RLHF / PPO</td><td>信号 + 资源（驻留 4 模型）</td></tr><tr><td>39</td><td>DPO</td><td>资源（4 → 2 模型）</td></tr><tr><td>40</td><td>DPO 变体族</td><td>修 DPO 的缺陷</td></tr><tr><td>41</td><td>在线与无参考优化</td><td>探索（回到在线）+ 资源（再删参考模型）</td></tr><tr><td>42</td><td>推理强化</td><td>信号（换 0/1 对错）</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：一条主线——驻留模型 4 → 2 → 1</div>
+          <table><tr><th>方法</th><th>驻留模型数</th><th>差值</th></tr><tr><td>RLHF / PPO</td><td>4</td><td>—</td></tr><tr><td>DPO</td><td>2</td><td>4 − 2 = 2</td></tr><tr><td>GRPO（分组相对策略优化）</td><td>1</td><td>2 − 1 = 1</td></tr></table>
+          <div class="step-desc">这条 4→2→1 的曲线说明：<strong>方法没有"新不新"，只有"砍掉了哪个瓶颈"</strong>——这就是收口课要给的统一视角。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>有统一视角 → 一张表就能选型；没有 → 只能靠"名字新不新"瞎选。<strong>下一个问题：前沿（2024~2025）又把这几个变量各往前推了一步，第一推是什么？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','43-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','43-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-43-1" class="llm-section"><button class="llm-btn" onclick="startChat('43-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="43-1"><div class="chat-toolbar"><button onclick="copyChat('43-1')">📋 复制对话</button><button onclick="clearChat('43-1')">🗑 清空</button><button onclick="stopLLM('43-1')" id="stop-btn-43-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('43-1')" id="regen-btn-43-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="43-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对收口课的定位有疑问？比如"这 8 种方法真的能用一个视角串起来吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="43-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('43-1')}" rows="1" placeholder="例如：三个变量具体是哪三个？"></textarea><button onclick="sendLLM('43-1')">发送</button></div></div></div>
+      <div id="tab-qna-43-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('43-1')">🔄 换一批</button></div><div class="qna-list" data-qna="43-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="43-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">单轮偏好优化（DPO）直接用到多轮智能体对话上，会出什么问题？</div><div class="card-q-hint">提示：先算一笔账——一个多轮任务，每轮都有小概率出错，连续 5 轮全对的概率还剩多少？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>前沿（2024~2025）把偏好优化从"单轮回答"推进到"多轮智能体"。<strong>DMPO（Direct Multi-Turn Preference Optimization，直接多轮偏好优化）</strong>由 Shi et al. 提出（arXiv:2406.14868，EMNLP 2024）：它把 RL 目标里的策略约束换成"状态-动作占用度约束"，并在 Bradley-Terry 模型里加长度归一，直接优化多轮序列，抑制逐轮误差复合。2025 年的前沿代表 <strong>DeepSeek-V3.2</strong>（DeepSeek-AI, arXiv:2512.02556）把规模化 RL 框架（scaled GRPO：无偏 KL 估计、off-policy 序列掩码、Keep Routing、Keep Sampling Mask）用于智能体后训练，后训练算力超过预训练的 10%。</div>
+      <div class="content-section"><p>上一张卡片把 8 课压成了三个变量。现在看前沿怎么把"信号"这个变量往前推——<strong>从单轮推到多轮</strong>。</p><p>可以把多轮对话<strong>类比</strong>成接力赛：每一棒都有小概率掉棒，5 棒之后"全接住"的概率会急剧下降。<strong>DMPO</strong> 的白话定义：直接优化"一整段多轮交互"的偏好损失，而不是把每一轮拆开单独优化——就像训练整支接力队的配合，而不是只练每一棒的个人成绩。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 多轮误差复合：单轮 DPO 的隐藏代价</div>
+        <div class="step"><div class="step-title">Step 1：单轮成功率 0.90，5 轮全对的概率</div>
+          <table><tr><th>项</th><th>数值</th><th>算式</th></tr><tr><td>单轮成功率 s</td><td>0.90</td><td>示意</td></tr><tr><td>轮数 T</td><td>5</td><td>—</td></tr><tr><td>5 轮全对</td><td>0.59</td><td>0.90⁵ = 0.59049</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：DMPO 把单轮提到 0.95 之后</div>
+          <table><tr><th>方案</th><th>单轮成功率（示意）</th><th>5 轮全对</th></tr><tr><td>单轮 DPO</td><td>0.90</td><td>0.59</td></tr><tr><td>DMPO（多轮直接优化）</td><td>0.95</td><td>0.77</td></tr><tr><td>差值</td><td>+0.05</td><td>0.77 − 0.59 = +0.18</td></tr></table>
+          <div class="step-desc">单轮只差 0.05，多轮 5 步后放大成 0.18（0.95⁵=0.77378，0.90⁵=0.59049）。<strong>这就是 DMPO 的动机：误差在轮数上复合，必须直接优化整条轨迹。</strong>2025 年 DeepSeek-V3.2 把这一思路规模化：后训练算力 &gt; 预训练的 10%，合成 1800+ 环境、85000+ 复杂提示来训智能体。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>有 DMPO 直接优化多轮 → 误差不复合；只用单轮 DPO → 5 轮完成率从 0.77 掉到 0.59。<strong>下一个问题：多轮也好、单轮也好，裁判还是"人"——能不能连人也省掉？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','43-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','43-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-43-2" class="llm-section"><button class="llm-btn" onclick="startChat('43-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="43-2"><div class="chat-toolbar"><button onclick="copyChat('43-2')">📋 复制对话</button><button onclick="clearChat('43-2')">🗑 清空</button><button onclick="stopLLM('43-2')" id="stop-btn-43-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('43-2')" id="regen-btn-43-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="43-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对多轮偏好优化有疑问？比如"为什么不能把每轮拆开单独优化？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="43-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('43-2')}" rows="1" placeholder="例如：5 轮误差复合是怎么算出来的？"></textarea><button onclick="sendLLM('43-2')">发送</button></div></div></div>
+      <div id="tab-qna-43-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('43-2')">🔄 换一批</button></div><div class="qna-list" data-qna="43-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="43-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">人工标注偏好又贵又慢，能不能让模型自己当裁判、自己跟自己练？</div><div class="card-q-hint">提示：想两个词——自己跟自己下棋（self-play）、自己给自己打分（self-rewarding）；它们共同点是什么，裁判又是谁？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>自举（self-play / self-rewarding）是 2024 年的前沿方向。<strong>SPPO（Self-Play Preference Optimization，自我对弈偏好优化）</strong>由 Wu et al. 提出（arXiv:2405.00675，2024）：把对齐看成"常和两人博弈"，用迭代策略更新逼近纳什均衡，只用 60k 提示、不需要成对人工偏好。<strong>Self-Rewarding Language Models</strong>（Yuan et al., Meta, arXiv:2401.10020，2024）让模型用 LLM-as-a-Judge 给自己生成的回答打分，再迭代训练自己。</div>
+      <div class="content-section"><p>上一张卡片把偏好优化推到了多轮，但多轮和单轮都还依赖"人给出偏好"。现在问：<strong>裁判能不能也省掉？</strong></p><p>可以把这<strong>类比</strong>成棋手自己复盘：没人监督，靠"自己跟自己下棋 + 自己评这步走得好不好"就能变强。<strong>self-play</strong> 的白话定义：模型同时扮演博弈双方，用对局结果当偏好信号；<strong>self-rewarding</strong> 的白话定义：模型既当考生（生成回答）又当考官（给自己的回答打分），用打分当训练信号。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 三种"谁当裁判"的对比</div>
+        <div class="step"><div class="step-title">Step 1：裁判与数据需求对照</div>
+          <table><tr><th>方法</th><th>谁当裁判</th><th>需要什么数据</th></tr><tr><td>RLHF</td><td>人</td><td>人工成对偏好（贵）</td></tr><tr><td>SPPO</td><td>自对弈（模型自己）</td><td>60k 提示，无人工偏好</td></tr><tr><td>self-rewarding</td><td>LLM-as-a-Judge（模型自己）</td><td>自生成 + 自打分</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：数据规模账（示意）</div>
+          <table><tr><th>项</th><th>数值</th><th>算式</th></tr><tr><td>SPPO 提示数</td><td>60,000</td><td>论文口径</td></tr><tr><td>每提示采 2 候选（一赢一输）</td><td>120,000 条</td><td>60,000 × 2 = 120,000</td></tr></table>
+          <div class="step-desc">关键不是"更多数据"，而是"<strong>偏好对不用人来标</strong>"——自对弈让偏好数据可以无限生成，监督成本从"人力"降成"算力"。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>有自举 → 不用人当裁判、偏好数据可无限生成；没有 → 每轮都要人工标，成本随数据量线性涨。<strong>下一个问题：模型自己当裁判也可能有偏，还有更稳的替代吗？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','43-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','43-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-43-3" class="llm-section"><button class="llm-btn" onclick="startChat('43-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="43-3"><div class="chat-toolbar"><button onclick="copyChat('43-3')">📋 复制对话</button><button onclick="clearChat('43-3')">🗑 清空</button><button onclick="stopLLM('43-3')" id="stop-btn-43-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('43-3')" id="regen-btn-43-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="43-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对自举有疑问？比如"self-play 和 self-rewarding 到底差在哪？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="43-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('43-3')}" rows="1" placeholder="例如：SPPO 的 60k 提示是什么意思？"></textarea><button onclick="sendLLM('43-3')">发送</button></div></div></div>
+      <div id="tab-qna-43-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('43-3')">🔄 换一批</button></div><div class="qna-list" data-qna="43-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="43-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">如果连"模型自己打分"都不放心，还能靠什么给反馈？</div><div class="card-q-hint">提示：想两个更早的方案——用另一个 AI 当裁判（RLAIF）、给模型一套不能违反的原则（宪法）；它们的监督成本各降到哪？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>RLAIF（Reinforcement Learning from AI Feedback，基于 AI 反馈的强化学习）</strong>由 Lee et al. 提出（arXiv:2309.00267，Google，2023）：用现成 LLM 生成偏好来训奖励模型，效果与 RLHF 相当；无害对话上 RLAIF 无害率 88%，超过 RLHF 的 76% 和 SFT（监督微调）的 64%。<strong>Constitutional AI（宪法式 AI）</strong>由 Bai et al. 提出（Anthropic, arXiv:2212.08073，2022）更进一步：人类监督只剩一套原则（宪法），模型先自我批判修订（监督阶段），再用 AI 反馈做 RL（强化阶段）。</div>
+      <div class="content-section"><p>上一张卡片让模型自己当裁判，但它自己打分也可能有偏。于是有两个更稳的答案：<strong>让"另一个 AI"当裁判，或者干脆只给"一套原则"。</strong></p><p>可以把这<strong>类比</strong>成法律：不靠每个人现场判断对错，靠一套宪法条文 + 裁判按条文判。<strong>RLAIF</strong> 的白话定义：用另一个 LLM 代替人来写偏好，喂给奖励模型；<strong>Constitutional AI</strong> 的白话定义：给模型一份"行为准则"，让它照着原则自己批判、自己改，再据此训练。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 无害率：监督方式换来的收益</div>
+        <div class="step"><div class="step-title">Step 1：三种监督的无害率</div>
+          <table><tr><th>方法</th><th>无害率</th><th>监督来源</th></tr><tr><td>SFT（监督微调）</td><td>64%</td><td>示范</td></tr><tr><td>RLHF</td><td>76%</td><td>人工反馈</td></tr><tr><td>RLAIF</td><td>88%</td><td>AI 反馈</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：每一步省掉了什么、换来了什么</div>
+          <table><tr><th>对比</th><th>无害率差</th><th>算式</th></tr><tr><td>RLHF vs SFT</td><td>+12</td><td>76 − 64 = 12</td></tr><tr><td>RLAIF vs RLHF</td><td>+12</td><td>88 − 76 = 12</td></tr><tr><td>RLAIF vs SFT</td><td>+24</td><td>88 − 64 = 24</td></tr></table>
+          <div class="step-desc">RLAIF 用 AI 反馈替代人工，无害率不降反升 12 个百分点；Constitutional AI 再进一步，把监督压到"一套原则"——<strong>人类只写原则，标注工作全交给 AI。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>有 AI 反馈 + 原则 → 监督从"海量人工标注"降到"一套原则"，无害率还涨到 88%；没有 → 无害率卡在 SFT 的 64%。<strong>下一个问题：这些方法都要训练，能不能连训练都省掉？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','43-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','43-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-43-4" class="llm-section"><button class="llm-btn" onclick="startChat('43-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="43-4"><div class="chat-toolbar"><button onclick="copyChat('43-4')">📋 复制对话</button><button onclick="clearChat('43-4')">🗑 清空</button><button onclick="stopLLM('43-4')" id="stop-btn-43-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('43-4')" id="regen-btn-43-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="43-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 AI 反馈有疑问？比如"RLAIF 和 Constitutional AI 差在哪？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="43-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('43-4')}" rows="1" placeholder="例如：88% 的无害率是怎么测的？"></textarea><button onclick="sendLLM('43-4')">发送</button></div></div></div>
+      <div id="tab-qna-43-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('43-4')">🔄 换一批</button></div><div class="qna-list" data-qna="43-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="43-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">一定要训练才能对齐吗？有没有只靠"采样 + 挑选"的办法？</div><div class="card-q-hint">提示：想一个最简单的办法——同一个问题让模型答 N 遍，用奖励模型挑分最高的那一条；它改权重了吗？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Rejection sampling（拒绝采样）</strong>也叫 <strong>best-of-N</strong>：从策略采样 N 条回答，用奖励模型打分、挑最高分的一条（Stiennon et al. 2020 摘要；Nakano et al. 2021 WebGPT；Ouyang et al. 2022 InstructGPT）。它不改权重，把策略推向"奖励倾斜分布" π(y|x) ∝ π_ref(y|x)·exp(r(x,y)/β)。其 KL 上界约为 log N − (N−1)/N（Beirami et al., arXiv:2401.01879 指出这是上界而非等式）。但奖励模型会过优化：代理奖励虚高、真实质量到顶回落（Gao et al., arXiv:2210.10760）。</div>
+      <div class="content-section"><p>上一张卡片把监督降到了 AI + 原则。现在更进一步问：<strong>训练本身能不能也省掉？</strong></p><p>可以把这<strong>类比</strong>成海选：不训练选手，只是让同一个人多报几次名、评委挑表现最好的一次。<strong>best-of-N</strong> 的白话定义：同一个问题让模型采样 N 条回答，用奖励模型挑分最高的那一条——权重一次都不改，纯靠"多采样 + 挑选"就完成对齐。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 best-of-N 的 KL 账：挑得越狠，离得越远</div>
+        <div class="step"><div class="step-title">Step 1：N 越大，挑出的越好（示意）</div>
+          <table><tr><th>采样数 N</th><th>做法</th><th>是否训练</th></tr><tr><td>4</td><td>采 4 挑 1</td><td>否</td></tr><tr><td>16</td><td>采 16 挑 1</td><td>否</td></tr><tr><td>64</td><td>采 64 挑 1</td><td>否</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：KL 上界 log N − (N−1)/N</div>
+          <table><tr><th>N</th><th>算式</th><th>KL 上界</th></tr><tr><td>4</td><td>ln 4 − 3/4</td><td>0.64</td></tr><tr><td>16</td><td>ln 16 − 15/16</td><td>1.84</td></tr><tr><td>64</td><td>ln 64 − 63/64</td><td>3.17</td></tr></table>
+          <div class="step-desc">N 每翻 4 倍，KL 上界约涨 1.2~1.3（ln 4 ≈ 1.386）。<strong>代价是：N 越大，被挑中的分布离原策略越远，且奖励模型会过优化</strong>——代理分数虚高、真实质量到顶回落。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>有 best-of-N → 不训练也能对齐，但代价是 KL 随 N 上升、且奖励会过优化；没有 → 只能靠训练。<strong>最后一个问题：训练/不训练、人/自举/AI 裁判，这么多手段到底按什么选？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','43-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','43-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-43-5" class="llm-section"><button class="llm-btn" onclick="startChat('43-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="43-5"><div class="chat-toolbar"><button onclick="copyChat('43-5')">📋 复制对话</button><button onclick="clearChat('43-5')">🗑 清空</button><button onclick="stopLLM('43-5')" id="stop-btn-43-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('43-5')" id="regen-btn-43-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="43-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 best-of-N 有疑问？比如"它和 DPO 到底哪个更好？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="43-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('43-5')}" rows="1" placeholder="例如：N 取多大比较划算？"></textarea><button onclick="sendLLM('43-5')">发送</button></div></div></div>
+      <div id="tab-qna-43-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('43-5')">🔄 换一批</button></div><div class="qna-list" data-qna="43-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="43-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">训练/不训练、人/自举/AI 裁判，这么多手段到底按什么选？</div><div class="card-q-hint">提示：回到第 36 课埋下的三问——奖励可验证吗？要不要在线探索？显存够不够？先答这三问。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>选型收口成三个判据（第 36 课预告、本课落地）：<strong>①奖励可验证吗</strong>（有对错→推理强化 RLVR（可验证奖励强化学习）/GRPO；只有偏好→偏好对齐 DPO/GRPO）；<strong>②要不要在线探索</strong>（要→GRPO 等在线 RL；不要→DPO 等离线）；<strong>③显存够不够</strong>（决定驻留几个模型）。再加一个补充维度"<strong>要不要训练</strong>"：能接受训练成本→训练对齐；只想推理时用、模型不能改→best-of-N。</div>
+      <div class="content-section"><p>上一张卡片看到 best-of-N 能免训练。但它和训练类方法是互补而非替代——<strong>现在把全部手段收口成一张表。</strong></p><p>可以把这<strong>类比</strong>成买车：不是越贵越好，看"你跑什么路、要不要越野、预算多少"——三个问题答完，车型自然确定。选型也一样：<strong>三问一答，方法就定</strong>。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 三判据 + 最终选型表</div>
+        <div class="step"><div class="step-title">Step 1：三个判据</div>
+          <table><tr><th>判据</th><th>回答"是" →</th><th>回答"否" →</th></tr><tr><td>奖励可验证？</td><td>推理强化（RLVR，即可验证奖励强化学习 / GRPO）</td><td>偏好对齐（DPO 等）</td></tr><tr><td>要在线探索？</td><td>GRPO 等在线 RL</td><td>DPO 等离线</td></tr><tr><td>显存够？</td><td>可驻留更多模型</td><td>尽量少驻留模型</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：最终选型表</div>
+          <table><tr><th>场景</th><th>推荐方法</th><th>驻留模型</th></tr><tr><td>只有偏好、要省资源、可离线</td><td>DPO</td><td>2</td></tr><tr><td>只有偏好、要探索、在线</td><td>GRPO</td><td>1</td></tr><tr><td>有 0/1 对错、要算对</td><td>RLVR / GRPO</td><td>1</td></tr><tr><td>只推理时用、不能改权重</td><td>best-of-N</td><td>0（不训练）</td></tr></table>
+          <div class="step-desc">三判据把 8 课压成一张表：<strong>先问"奖励可验证"，再问"要不要探索"，最后问"显存够不够"</strong>——顺序不能乱，因为前两问决定方法大类，第三问只在同大类里做取舍。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>整张地图压成三句话：<strong>SFT 教格式、后训练教判断</strong>；<strong>信号必须匹配任务</strong>（偏好→比较、对错→0/1）；<strong>选范式看"奖励可验证、要不要探索、显存够不够"</strong>。前沿（DMPO / 自举 / AI 裁判 / best-of-N）都只是在这三个变量上把"某个成本"往前推了一步。<strong>拿到任务，三问一答，方法就定。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','43-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','43-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-43-6" class="llm-section"><button class="llm-btn" onclick="startChat('43-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="43-6"><div class="chat-toolbar"><button onclick="copyChat('43-6')">📋 复制对话</button><button onclick="clearChat('43-6')">🗑 清空</button><button onclick="stopLLM('43-6')" id="stop-btn-43-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('43-6')" id="regen-btn-43-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="43-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对选型有疑问？比如"我的任务没有标准答案，该选哪个？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="43-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('43-6')}" rows="1" placeholder="例如：三判据先问哪一个？"></textarea><button onclick="sendLLM('43-6')">发送</button></div></div></div>
+      <div id="tab-qna-43-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('43-6')">🔄 换一批</button></div><div class="qna-list" data-qna="43-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 43 课完成 · 本部分（第七部分 · 后训练范式）到此收口</p>
+    <a href="#" onclick="switchLesson(42);return false;">← 上一课：推理强化</a>
+  </div></div>

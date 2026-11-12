@@ -1,0 +1,174 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 41 课：在线与无参考优化</h2>
+    <p class="subtitle">上一课我们看到 DPO（直接偏好优化）变体族越改越省，但它们共享一个前提：数据是"别人写好的"，模型从不自己采样。这一课回到"在线"训练——让模型边采样边学，再沿着"删 critic → 删参考模型 → 换优化单元"的路线，把 RLOO / REINFORCE++ / GRPO（组相对策略优化）/ GSPO 串起来，最后回答：在线和离线到底怎么选。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清离线 DPO 为什么缺探索、要回在线<br>② 用 leave-one-out / 组内基线解释"删 critic"的原理，并复算组内优势<br>③ 分清 REINFORCE++（全局归一化）与 GRPO（组内基线）的口径差异<br>④ 讲清 GSPO 为什么把重要性比从 token 级换成序列级<br>⑤ 用三判据（奖励可验证 / 要不要探索 / 显存）选在线还是离线</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：从"离线缺探索"到"在线与离线怎么选"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">DPO 离线只在固定数据上优化，<strong>因为</strong>训练时策略从不自己采样，<strong>所以</strong>数据覆盖之外的分布没有梯度信号——探索为 0。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">回到在线先撞 PPO（近端策略优化）的 critic 太贵，<strong>于是</strong>用"同一题多采几个、互相当基线"的 leave-one-out 删掉 critic——这就是 RLOO。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">纯 REINFORCE 方差大、策略会跑飞，<strong>因此</strong>补 token 级 KL 惩罚 + 全局优势归一化——这就是 REINFORCE++。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">把归一化口径从"全 batch"换成"同一题一组"，<strong>于是</strong>组内基线更贴题、还能删掉参考模型——这就是 GRPO（组大小 G 常见 8~64）。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">奖励挂在整条序列上，token 级重要性比是错配，<strong>因此</strong>把优化单元换成整条序列（序列级重要性比）——这就是 GSPO。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">在线（GRPO 等，探索但贵）vs 离线（DPO，省但无探索）不是新旧关系，<strong>因此</strong>按"奖励可验证吗、要不要探索、显存够不够"三判据选型。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">Online RL</span><span class="meta-tag">RLOO</span><span class="meta-tag">REINFORCE++</span><span class="meta-tag">GRPO</span><span class="meta-tag">GSPO</span><span class="meta-tag">Preference Alignment</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="41-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">DPO 又稳又省，为什么还要回到"在线"训练这条路？</div><div class="card-q-hint">提示：先想 DPO 训练时模型自己会"开口"生成吗？再想它学的数据是谁写的、覆盖了多少可能。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>DPO</strong>（Rafailov et al., arXiv:2305.18290, 2023）把 RLHF（基于人类反馈的强化学习）换成一次分类，只用固定偏好对，训练时<strong>策略从不采样</strong>，所以它是<strong>离线（offline）</strong>的。离线的好处是稳定、便宜，代价是失去<strong>探索（exploration）</strong>——模型永远看不到自己"没生成过的回答"会得到什么奖励。</div>
+      <div class="content-section"><p>上一课我们看 DPO 变体族砍参考模型、加正则，但它们共享一个前提：<strong>数据是"别人写好的"，训练时模型自己不生成。</strong><strong>因为模型从不采样，所以数据之外的回答它永远看不到、更学不到</strong>——这就是"离线"和"在线"的分界线，也是要回到在线的原因。</p><p>可以把这<strong>类比</strong>成两种备考方式：离线是"刷题库"（只练题库里有的题），在线是"边考边改"（每次自己写、当场判对错）——<strong>题库覆盖不到的题，刷再多也练不到；而边考边改能遇到新题。</strong>在 RL 里，这个"题库覆盖不到"就对应分布外（OOD）区域，模型在那里没有梯度信号。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 离线 vs 在线：训练时到底差在哪</div>
+        <div class="step"><div class="step-title">Step 1：数据是谁生成的</div>
+          <table><tr><th>维度</th><th>离线（DPO 族）</th><th>在线（RLOO/GRPO 等）</th></tr><tr><td>训练样本来源</td><td>固定数据集（别人写好的）</td><td>当前策略当场采样</td></tr><tr><td>策略是否"开口"</td><td>否（0 次采样）</td><td>是（每步采 K/G 个回答）</td></tr><tr><td>能不能探索数据之外</td><td>不能</td><td>能</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：探索为 0 的代价</div>
+          <table><tr><th>情形</th><th>离线 DPO</th><th>在线</th></tr><tr><td>回答在数据集覆盖内</td><td>有梯度信号，能学</td><td>能学</td></tr><tr><td>回答在数据集覆盖外</td><td>无梯度信号，只能靠隐式奖励 r=β·log(π/π_ref) 外推</td><td>采到就能学</td></tr></table>
+          <div class="step-desc">DPO 的隐式奖励 r = β·log(π/π_ref) 只在"数据里出现的那些回答"上有监督；数据之外，模型只能靠外推——这就是 DPO 长度坍缩、β 敏感这些毛病的深层原因。<strong>要补探索，就得让模型自己采样、拿采样结果去算奖励，也就是回到在线。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>只做离线 → 便宜稳定，但探索为 0、分布外漂移；回到在线 → 能探索，但要重新面对采样成本和方差。<strong>下一个问题：回到在线后，PPO（近端策略优化）最贵的 critic 能不能不训？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','41-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','41-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-41-1" class="llm-section"><button class="llm-btn" onclick="startChat('41-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="41-1"><div class="chat-toolbar"><button onclick="copyChat('41-1')">📋 复制对话</button><button onclick="clearChat('41-1')">🗑 清空</button><button onclick="stopLLM('41-1')" id="stop-btn-41-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('41-1')" id="regen-btn-41-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="41-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对离线与在线的区别有疑问？比如"DPO 真的完全不能探索吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="41-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('41-1')}" rows="1" placeholder="例如：离线就一定会分布外漂移吗？"></textarea><button onclick="sendLLM('41-1')">发送</button></div></div></div>
+      <div id="tab-qna-41-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('41-1')">🔄 换一批</button></div><div class="qna-list" data-qna="41-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="41-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">回到在线训练，PPO（近端策略优化）最贵的是 critic，能不能干脆不训它？</div><div class="card-q-hint">提示：先想 critic 是干嘛用的——估个"基线"降低梯度方差。同一道题多生成几个答案，能不能让它们互相当基线？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>RLOO（REINFORCE Leave-One-Out）</strong>出自 Ahmadian, Cremer, Gallé 等人的论文《Back to Basics: Revisiting REINFORCE Style Optimization for Learning from Human Feedback in LLMs》（arXiv:2402.14740, 2024）。它回到最基础的 REINFORCE 策略梯度，用 leave-one-out 技巧构造<strong>无偏基线</strong>，从而<strong>删掉 critic（价值模型）</strong>。</div>
+      <div class="content-section"><p>上一张卡片看到回在线要重新面对 RL 的方差问题——PPO 靠 critic 估基线来降方差。RLOO 问：<strong>同一个 prompt 采 K 个回答，每个回答拿"其他 K−1 个的平均奖励"当基线，不就行了吗？</strong></p><p>可以把这<strong>类比</strong>成全班考试：一个学生的"相对水平" = 他的分数 − "其他同学的平均分"，不需要专门雇一个"估分员"（critic）去猜他的分数。<strong>这个"去掉自己、用别人平均"的基线就叫 leave-one-out（留一法）。</strong></p></div>
+      <div class="calc-block">
+        <div class="label">🧮 RLOO：leave-one-out 基线怎么算（K=4）</div>
+        <div class="step"><div class="step-title">Step 1：四个回答的奖励</div>
+          <table><tr><th>样本</th><th>奖励 r</th><th>leave-one-out 基线（其余 3 个的平均）</th></tr><tr><td>1</td><td>1</td><td>(0+1+0)÷3 ≈ 0.333</td></tr><tr><td>2</td><td>0</td><td>(1+1+0)÷3 ≈ 0.667</td></tr><tr><td>3</td><td>1</td><td>(1+0+0)÷3 ≈ 0.333</td></tr><tr><td>4</td><td>0</td><td>(1+0+1)÷3 ≈ 0.667</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：优势 = 奖励 − 基线</div>
+          <table><tr><th>样本</th><th>优势 A = r − baseline</th><th>方向</th></tr><tr><td>1</td><td>1 − 0.333 ≈ +0.667</td><td>抬升</td></tr><tr><td>2</td><td>0 − 0.667 ≈ −0.667</td><td>压低</td></tr><tr><td>3</td><td>1 − 0.333 ≈ +0.667</td><td>抬升</td></tr><tr><td>4</td><td>0 − 0.667 ≈ −0.667</td><td>压低</td></tr></table>
+          <div class="step-desc">梯度方向就由这些优势决定：奖励高于组平均 → 抬升该回答的生成概率；低于组平均 → 压低。因为基线里<strong>不含样本自己</strong>，它在期望上无偏——这就是"无参数价值函数"：不用训 critic，每个训练步现算一个基线。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>有 critic → 多训一个同尺寸模型、还有估计偏差；删 critic 用 leave-one-out → 基线无偏、省一份显存，但方差比学出来的基线略高。<strong>下一个问题：删了 critic 的纯 REINFORCE 方差大、不稳定，怎么稳住它？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','41-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','41-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-41-2" class="llm-section"><button class="llm-btn" onclick="startChat('41-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="41-2"><div class="chat-toolbar"><button onclick="copyChat('41-2')">📋 复制对话</button><button onclick="clearChat('41-2')">🗑 清空</button><button onclick="stopLLM('41-2')" id="stop-btn-41-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('41-2')" id="regen-btn-41-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="41-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 leave-one-out 有疑问？比如"它真的无偏吗、为什么比 critic 简单？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="41-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('41-2')}" rows="1" placeholder="例如：K 取多少合适？"></textarea><button onclick="sendLLM('41-2')">发送</button></div></div></div>
+      <div id="tab-qna-41-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('41-2')">🔄 换一批</button></div><div class="qna-list" data-qna="41-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="41-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">删了 critic 的 REINFORCE 方差大，怎么让它稳定下来？</div><div class="card-q-hint">提示：两件事——优势数值随 batch 乱飘怎么办？策略学得太激进"跑飞"怎么办？各对应什么技巧。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>REINFORCE++</strong>（Jian Hu, arXiv:2501.03262, 2025，最新版标题《Stabilizing Critic-Free Policy Optimization》）补两块让 critic-free 的训练稳定：<strong>token 级 KL 惩罚</strong>（防策略跑飞）与<strong>全局优势归一化</strong>（全 batch 减均值除标准差）。</div>
+      <div class="content-section"><p>上一张卡片 RLOO 给了无 critic 的梯度，但优势数值会随 batch 漂移、策略会跑飞。REINFORCE++ 用两招稳住：<strong>①优势归一化</strong>——把整个 batch 的优势减均值、除标准差；<strong>②token 级 KL 惩罚</strong>——每个 token 的奖励都扣掉它和 SFT（监督微调）模型之间的 KL 散度。</p><p>可以把这<strong>类比</strong>成标准化考试：归一化像"把全班原始分换成标准分（Z 分数）"，让不同难度的卷子也能横向比；KL 惩罚像"扣分项，防止你离课本（SFT 模型）太远、开始胡编"。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 REINFORCE++ 的两招各怎么算</div>
+        <div class="step"><div class="step-title">Step 1：token 级 KL 惩罚扣多少</div>
+          <table><tr><th>量</th><th>取值</th></tr><tr><td>KL 系数 β</td><td>0.04</td></tr><tr><td>单 token 的 KL 散度</td><td>0.5（示意）</td></tr><tr><td>回答长度</td><td>50 token</td></tr><tr><td>总 KL 惩罚</td><td>0.04 × 0.5 × 50 = 1.0</td></tr><tr><td>原始奖励 − 惩罚后的有效奖励</td><td>1.0 − 1.0 = 0.0</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：优势归一化（Z 分数）</div>
+          <table><tr><th>原始优势</th><th>均值</th><th>标准差</th><th>归一化后</th></tr><tr><td>[0.5, 1.5]</td><td>1.0</td><td>0.5</td><td>[−1.0, +1.0]</td></tr></table>
+          <div class="step-desc">归一化公式 A' = (A − mean) / std：0.5 → (0.5−1.0)/0.5 = −1.0；1.5 → (1.5−1.0)/0.5 = +1.0。<strong>归一化让优势的尺度稳定，学习率不再跟着 batch 的绝对奖励值乱调；KL 惩罚让策略每一步都贴着 SFT 模型，不会为刷分而跑飞。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>不归一化 → 优势尺度随 batch 漂移、学习率敏感；不加 KL → 策略为刷奖励跑飞、复读。<strong>下一个问题：REINFORCE++ 用"全 batch"归一化，GRPO 换成"同一题的一组"，这两者差在哪？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','41-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','41-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-41-3" class="llm-section"><button class="llm-btn" onclick="startChat('41-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="41-3"><div class="chat-toolbar"><button onclick="copyChat('41-3')">📋 复制对话</button><button onclick="clearChat('41-3')">🗑 清空</button><button onclick="stopLLM('41-3')" id="stop-btn-41-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('41-3')" id="regen-btn-41-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="41-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 REINFORCE++ 有疑问？比如"KL 惩罚和 DPO 的 β 是一回事吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="41-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('41-3')}" rows="1" placeholder="例如：归一化为什么能稳住训练？"></textarea><button onclick="sendLLM('41-3')">发送</button></div></div></div>
+      <div id="tab-qna-41-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('41-3')">🔄 换一批</button></div><div class="qna-list" data-qna="41-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="41-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">GRPO 和 REINFORCE++ 都删了 critic，它凭什么还能再删掉参考模型？</div><div class="card-q-hint">提示：先想归一化的口径——用"全 batch"还是"同一题的一组"？再想 KL 惩罚依赖的参考模型，能不能直接去掉。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>GRPO（Group Relative Policy Optimization）</strong>出自 DeepSeekMath（Shao et al., arXiv:2402.03300, 2024）。它用"同一 prompt 一组 G 个输出的平均奖励"当基线，<strong>删掉 critic</strong>；组大小 G 常见 8~64（DeepSeekMath 用 64，TRL 默认 8）。原论文仍保留对参考模型的 KL 项，但 DeepSeek-R1-Zero（arXiv:2501.12948）用规则奖励把 β 取 0，<strong>连参考模型也删了</strong>。</div>
+      <div class="content-section"><p>上一张卡片 REINFORCE++ 在全 batch 上归一化。GRPO 换个口径：<strong>在"同一道题的一组回答"内做相对比较（组内基线）</strong>，组大小 G 常见 8~64。因为组内是"同题"的对比，基线更贴题；而且 R1-Zero 干脆把 KL 项去掉（β=0），参考模型也省了。</p><p>可以把这<strong>类比</strong>成排名：REINFORCE++ 是"全年级统一排名"（全局归一化），GRPO 是"同一道题的小组内互相对比"（组内基线）——<strong>同一道题上谁答得好，直接和同组的人比就够了，不必等全年级算完。</strong></p></div>
+      <div class="calc-block">
+        <div class="label">🧮 GRPO：组内基线 + 显存账</div>
+        <div class="step"><div class="step-title">Step 1：组内优势怎么算（G=4，奖励 [1,0,0,1]）</div>
+          <table><tr><th>样本</th><th>奖励 r</th><th>r − 组均值</th><th>归一化优势</th></tr><tr><td>1</td><td>1</td><td>1−0.5=+0.5</td><td>+1.0</td></tr><tr><td>2</td><td>0</td><td>0−0.5=−0.5</td><td>−1.0</td></tr><tr><td>3</td><td>0</td><td>0−0.5=−0.5</td><td>−1.0</td></tr><tr><td>4</td><td>1</td><td>1−0.5=+0.5</td><td>+1.0</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：删 critic / 删参考模型，省多少显存（以 7B 模型、fp16 为例）</div>
+          <table><tr><th>方法</th><th>驻留模型</th><th>显存</th></tr><tr><td>PPO</td><td>策略 + critic + 参考 + 奖励 = 4 份</td><td>4 × 14GB = 56GB</td></tr><tr><td>DPO</td><td>策略 + 参考 = 2 份</td><td>2 × 14GB = 28GB</td></tr><tr><td>GRPO（规则奖励）</td><td>仅策略 = 1 份</td><td>1 × 14GB = 14GB</td></tr></table>
+          <div class="step-desc">组均值 = (1+0+0+1)÷4 = 0.5；标准差 = 0.5（四个样本距均值都是 0.5），归一化后优势就是 [1, −1, −1, 1]。7B 模型 fp16 约 14GB，PPO 四份模型 56GB、GRPO 一份 14GB，<strong>省下 42GB</strong>。代价是：组内基线要求同一题采 G 个回答，采样量是 G 倍。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>组内基线依赖"同一题多采样"，采样量 = G × 题数，比离线贵 G 倍；但换来删 critic + 删参考模型，显存从 4 份砍到 1 份。<strong>下一个问题：GRPO 在"每个 token"上算重要性比，可奖励是给整条序列的，这错配了吗？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','41-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','41-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-41-4" class="llm-section"><button class="llm-btn" onclick="startChat('41-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="41-4"><div class="chat-toolbar"><button onclick="copyChat('41-4')">📋 复制对话</button><button onclick="clearChat('41-4')">🗑 清空</button><button onclick="stopLLM('41-4')" id="stop-btn-41-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('41-4')" id="regen-btn-41-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="41-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 GRPO 有疑问？比如"组内基线和 leave-one-out 是一回事吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="41-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('41-4')}" rows="1" placeholder="例如：G 取多大、采样贵多少？"></textarea><button onclick="sendLLM('41-4')">发送</button></div></div></div>
+      <div id="tab-qna-41-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('41-4')">🔄 换一批</button></div><div class="qna-list" data-qna="41-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="41-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">奖励是给"整条回答"的，GRPO 却在"每个 token"上算重要性比，是不是错配了？</div><div class="card-q-hint">提示：先想重要性比 = 新旧策略概率比，它该在一个 token 上算，还是在整条序列的概率上算？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>GSPO（Group Sequence Policy Optimization）</strong>出自 Zheng 等人的论文《Group Sequence Policy Optimization》（arXiv:2507.18071, 2025）。它把重要性比从 token 级改成<strong>序列级</strong>（长度归一化的几何平均），做序列级 clip，稳定 MoE（混合专家）训练，并用于 Qwen3。</div>
+      <div class="content-section"><p>上一张卡片 GRPO 用 token 级重要性比做 clip。GSPO 指出：<strong>奖励挂在整条序列上，token 级重要性比是错配</strong>——它把优化单元从"单个 token"换成"整条序列"。</p><p>可以把这<strong>类比</strong>成一场球赛：赢了是"整场"的结果，不该按"每个回合"单独算功过、再各自 clip。<strong>重要性比 = 新旧策略概率比，GSPO 把它在整条序列上取几何平均，得到序列级重要性比。</strong></p></div>
+      <div class="calc-block">
+        <div class="label">🧮 GSPO：序列级重要性比怎么算</div>
+        <div class="step"><div class="step-title">Step 1：从 token 级到序列级（几何平均）</div>
+          <table><tr><th>token</th><th>token 级重要性比 π_θ/π_old</th></tr><tr><td>1</td><td>1.2</td></tr><tr><td>2</td><td>0.9</td></tr><tr><td>3</td><td>1.5</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：序列级重要性比 = 几何平均</div>
+          <table><tr><th>算式</th><th>结果</th></tr><tr><td>1.2 × 0.9 × 1.5</td><td>= 1.62</td></tr><tr><td>(1.62)^(1/3)（3 个 token 的几何平均）</td><td>≈ 1.174</td></tr></table>
+          <div class="step-desc">序列级重要性比 = (π_θ(y|x) / π_old(y|x))^(1/|y|)，其中 |y| 是序列长度；它可以等价写成 PPL_old / PPL_θ（新旧困惑度之比）。<strong>取几何平均（即长度归一化）让长短不同的回答落在同一个数值尺度上，clip 范围不再随序列长度漂移。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>token 级 → 长序列的 clip 范围漂移、有长度偏差；序列级 → 长度归一化、数值范围统一、稳定 MoE。<strong>最后一个问题：在线（RLOO/REINFORCE++/GRPO/GSPO）和离线（DPO 族）到底怎么选？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','41-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','41-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-41-5" class="llm-section"><button class="llm-btn" onclick="startChat('41-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="41-5"><div class="chat-toolbar"><button onclick="copyChat('41-5')">📋 复制对话</button><button onclick="clearChat('41-5')">🗑 清空</button><button onclick="stopLLM('41-5')" id="stop-btn-41-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('41-5')" id="regen-btn-41-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="41-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 GSPO 有疑问？比如"序列级和 token 级差在一个 clip 上吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="41-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('41-5')}" rows="1" placeholder="例如：几何平均为什么能统一长度？"></textarea><button onclick="sendLLM('41-5')">发送</button></div></div></div>
+      <div id="tab-qna-41-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('41-5')">🔄 换一批</button></div><div class="qna-list" data-qna="41-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="41-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">在线和离线两条路各有代价，怎么按自己的任务选？</div><div class="card-q-hint">提示：三个判据——奖励能不能当场算出来？你的任务要不要探索新回答？显存够不够驻留多个模型？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>在线（RLOO / REINFORCE++ / GRPO / GSPO）与离线（DPO 族）不是新旧关系，而是<strong>"要不要探索、奖励能不能即时算、显存够不够"</strong>这三笔账的取舍。本课收口成一张选型表，第 43 课还会把它展开成最终的选型判据。</div>
+      <div class="content-section"><p>前面五张卡片走完了在线这条路：RLOO（删 critic）→ REINFORCE++（归一化 + KL）→ GRPO（组内基线、删参考模型）→ GSPO（序列级）。现在收口：<strong>在线和离线不是谁取代谁，是三笔账的取舍。</strong></p><p>可以把这<strong>类比</strong>成备考策略：题目固定就"背答案"（离线），题目会变、要现场应变就"边做题边改"（在线）——<strong>但边做题边改要花更多时间（采样成本），背答案则不用。</strong></p></div>
+      <div class="calc-block">
+        <div class="label">🧮 三个判据 + 六种方法横评</div>
+        <div class="step"><div class="step-title">Step 1：三个判据</div>
+          <table><tr><th>判据</th><th>回答"是" →</th><th>回答"否" →</th></tr><tr><td>奖励能当场验证？</td><td>在线 RL（规则/程序奖励）</td><td>偏好对齐（DPO 或需奖励模型）</td></tr><tr><td>要探索新回答？</td><td>在线（GRPO/RLOO 等）</td><td>离线（DPO 族）</td></tr><tr><td>显存够驻留多模型？</td><td>可上 PPO</td><td>GRPO / RLOO 等省显存的</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：六种方法横评</div>
+          <table><tr><th>方法</th><th>驻留模型数</th><th>采样</th><th>探索</th></tr><tr><td>DPO（离线）</td><td>2（策略+参考）</td><td>0</td><td>无</td></tr><tr><td>PPO</td><td>4</td><td>每步采样</td><td>有</td></tr><tr><td>RLOO</td><td>3（策略+参考+奖励模型）</td><td>每步采 K</td><td>有</td></tr><tr><td>REINFORCE++</td><td>3（策略+SFT参考+奖励模型）</td><td>每步采样</td><td>有</td></tr><tr><td>GRPO（规则奖励）</td><td>1（策略）</td><td>每步采 G</td><td>有</td></tr><tr><td>GSPO</td><td>1（策略）</td><td>每步采 G</td><td>有</td></tr></table>
+          <div class="step-desc">一句话收口：<strong>奖励能验证 + 要探索 + 显存紧 → GRPO/GSPO；数据已备好、不折腾 → DPO；有算力想稳 → PPO。</strong>细节选型见第 43 课。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>整课压成三句话：<strong>离线缺探索、在线补探索但要付采样与显存两笔账</strong>；<strong>删 critic（leave-one-out / 组内基线）、删参考模型（β=0）都是"砍掉不必要的模型"</strong>；<strong>GSPO 把优化单元从 token 换成序列，纠正了"奖励给序列、却在 token 上算比"的错配。</strong>下一课进入第二条线：偏好训不了"算对"，推理强化要用 0/1 对错信号。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','41-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','41-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-41-6" class="llm-section"><button class="llm-btn" onclick="startChat('41-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="41-6"><div class="chat-toolbar"><button onclick="copyChat('41-6')">📋 复制对话</button><button onclick="clearChat('41-6')">🗑 清空</button><button onclick="stopLLM('41-6')" id="stop-btn-41-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('41-6')" id="regen-btn-41-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="41-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对选型有疑问？比如"我该选在线还是离线？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="41-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('41-6')}" rows="1" placeholder="例如：我的任务没有标准答案，该选哪个？"></textarea><button onclick="sendLLM('41-6')">发送</button></div></div></div>
+      <div id="tab-qna-41-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('41-6')">🔄 换一批</button></div><div class="qna-list" data-qna="41-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 41 课完成 · 下一课：第 42 课「推理强化」</p>
+    <a href="#" onclick="switchLesson(42);return false;">进入第 42 课：推理强化 →</a>　·　<a href="#" onclick="switchLesson(40);return false;">← 上一课：DPO 变体族</a>
+  </div></div>

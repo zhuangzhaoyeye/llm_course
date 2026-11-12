@@ -1,0 +1,182 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 39 课：DPO</h2>
+    <p class="subtitle">DPO 即「直接偏好优化」——第 38 课我们为 PPO（近端策略优化）付了「四模型驻留 + 训练不稳定 + 调参难」的代价。这一课换一个问法：如果 RLHF（基于人类反馈的强化学习）的目标函数本来就有闭式解，为什么还要用强化学习一步步去逼近它？DPO 就是把 RL 问题变成「解方程」——反解出隐式奖励、消掉配分函数，最后得到一条可以直接梯度下降的分类损失。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 从 RLHF 最优解反解出隐式奖励 r=β·log(π/π_ref)，并说清 Z(x) 为什么能消去<br>② 把隐式奖励代进 Bradley-Terry，独立推出 DPO 损失<br>③ 说清 β 敏感、offline 无探索、可能退化三条缺陷，并知道哪个变体补哪条</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：从"闭式解"到"哪个变体补哪个缺陷"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">RLHF 的「奖励 − β·KL」目标有闭式解，<strong>因为</strong>带 KL 约束的最大化可以显式解出 π*，<strong>于是</strong>反解出隐式奖励 r = β·log(π/π_ref) + β·log Z(x)。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">把隐式奖励代进奖励模型的 Bradley-Terry 目标，<strong>因为</strong>两个回答作差时 β·log Z(x) 相消，<strong>于是</strong>RL 退化成一条分类损失，不再需要奖励模型和采样。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">损失里只剩一个 β（KL 惩罚系数）同时管「拟合偏好」和「贴住参考」，<strong>因为</strong>两头都要它管，<strong>因此</strong>β 太小学不动、太大梯度饱和——它极敏感。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">DPO 只用固定偏好数据、训练时不自己生成答案，<strong>因为</strong>探索被整个砍掉，<strong>于是</strong>学到的上限被数据封死，发现不了数据集之外的更优答案。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">把 DPO 的账算全：β 敏感、仍要参考模型、可能退化，<strong>因为</strong>损失只看 chosen/rejected 的相对差、不看绝对概率，<strong>因此</strong>模型可能靠压 rejected 过关、chosen 绝对概率反而掉。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text"><strong>【支链 · 引出变体族】</strong>每条缺陷都有人专门补：IPO 治 β、KTO 治无配对数据、CPO 治遗忘、ORPO/SimPO 删参考模型，<strong>因此</strong>下一课逐个展开它们的损失。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">DPO</span><span class="meta-tag">Direct Preference Optimization</span><span class="meta-tag">Bradley-Terry</span><span class="meta-tag">Implicit Reward</span><span class="meta-tag">Reference Model</span><span class="meta-tag">Preference Alignment</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="39-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">RLHF 要训奖励模型、再跑 PPO，能不能绕过强化学习、直接写出最优策略的公式？</div><div class="card-q-hint">提示：先想 RLHF 在最大化什么（奖励减 KL 惩罚）；再想「带约束的优化」能不能有闭式解。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>DPO（Direct Preference Optimization，直接偏好优化）</strong>由 Rafailov、Sharma、Mitchell、Manning、Ermon、Finn 提出（斯坦福，arXiv:2305.18290，NeurIPS 2023）。当时痛点：RLHF 要分三段（SFT 即监督微调 → 训奖励模型 → PPO），PPO 慢、不稳定、要同时驻留 4 个模型。DPO 的起点是一个数学事实——RLHF 那个「奖励 − β·KL 惩罚」的目标有闭式解，可以反解出奖励。</div>
+      <div class="content-section"><p>上一课（第 38 课）我们为 PPO 付了四模型驻留 + 不稳定 + 调参难的代价。DPO 换个问法：<strong>如果 RLHF 的目标函数本来就有闭式解，为什么要用强化学习一步步去逼近它？</strong></p><p>可以把这<strong>类比</strong>成爬山：PPO 是「靠反复试错一步步爬到山顶」，DPO 是「把函数直接求导、令导数为零解出山顶」——前者慢但通用，后者快但要求函数有显式解。RLHF 的目标恰好有。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 闭式解 + 反解出隐式奖励</div>
+        <div class="step"><div class="step-title">Step 1：RLHF 的最优策略有闭式形式</div>
+          <table><tr><th>量</th><th>式子</th><th>含义</th></tr><tr><td>优化目标</td><td>max E[r(x,y)] − β·KL(π ∥ π_ref)</td><td>既要高奖励，又不能偏离参考模型太远</td></tr><tr><td>最优解</td><td>π*(y|x) = (1/Z(x))·π_ref(y|x)·exp(r(x,y)/β)</td><td>参考分布乘奖励的指数</td></tr><tr><td>配分函数</td><td>Z(x) = Σ_y π_ref(y|x)·exp(r(x,y)/β)</td><td>归一化常数，让概率和为 1</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：两边取 log 反解出「隐式奖励」</div>
+          <table><tr><th>步骤</th><th>结果</th></tr><tr><td>两边取 log 再移项</td><td>r(x,y) = β·log(π*(y|x)/π_ref(y|x)) + β·log Z(x)</td></tr><tr><td>关键观察</td><td>β·log Z(x) 只跟 x 有关、跟 y 无关——它只是一个常数偏移</td></tr></table>
+          <div class="step-desc">这就是「你的语言模型其实是一个奖励模型」：<strong>奖励被策略 π 和参考 π_ref 隐式表达出来了</strong>，不用再单独训一个奖励模型。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：用 2 个回答把公式跑一遍（β=1）</div>
+          <table><tr><th>量</th><th>y1</th><th>y2</th></tr><tr><td>π_ref(y)</td><td>0.4</td><td>0.6</td></tr><tr><td>奖励 r(y)</td><td>1.0</td><td>0.0</td></tr><tr><td>π*(y) = π_ref·e^{r/β} / Z</td><td>0.644</td><td>0.356</td></tr></table>
+          <div class="step-desc">Z(x) = 0.4×e¹ + 0.6×e⁰ = 0.4×2.718 + 0.6 = 1.687；π*(y1) = 0.4×2.718/1.687 = 0.644，π*(y2) = 0.6/1.687 = 0.356。反解：r(y1) = log(0.644/0.4) + log(1.687) = 0.477 + 0.523 = 1.0 ✓——公式自洽。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>目标有闭式解 → RL 变成解方程；没有闭式解 → 只能 PPO 慢慢逼近。<strong>下一个问题：反解出的这个 r 里还带着讨厌的 Z(x)，怎么把它变成能直接梯度下降的损失？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','39-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','39-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-39-1" class="llm-section"><button class="llm-btn" onclick="startChat('39-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="39-1"><div class="chat-toolbar"><button onclick="copyChat('39-1')">📋 复制对话</button><button onclick="clearChat('39-1')">🗑 清空</button><button onclick="stopLLM('39-1')" id="stop-btn-39-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('39-1')" id="regen-btn-39-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="39-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 DPO 的闭式解有疑问？比如"Z(x) 到底是什么""为什么反解出来的 r 叫隐式奖励？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="39-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('39-1')}" rows="1" placeholder="例如：这个闭式解是怎么求出来的？"></textarea><button onclick="sendLLM('39-1')">发送</button></div></div></div>
+      <div id="tab-qna-39-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('39-1')">🔄 换一批</button></div><div class="qna-list" data-qna="39-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="39-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">反解出的隐式奖励 r=β·log(π/π_ref)，怎么变成一个能直接梯度下降的损失函数？</div><div class="card-q-hint">提示：先想奖励模型是怎么训的（Bradley-Terry 把「更喜欢」变成概率）；再把隐式奖励代进去，看 Z(x) 去哪了。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Bradley-Terry 模型</strong>（1952）把「成对比较」变成概率：P(y_w ≻ y_l | x) = σ(r_w − r_l)，奖励模型就是按这个目标训的。DPO 把上一卡反解出的 r = β·log(π/π_ref) + β·log Z(x) 代进去——<strong>两个回答作差时 β·log Z(x) 相消</strong>，于是奖励差只依赖 π 和 π_ref 的对数概率，训练奖励模型、采样这些步骤全都不需要了。</div>
+      <div class="content-section"><p>上一张卡片反解出了隐式奖励。现在把它接进奖励模型的训练目标（Bradley-Terry），惊喜就出现了：<strong>那个讨厌的配分函数 Z(x) 在作差时自动消掉。</strong></p><p>可以把这<strong>类比</strong>成比咖啡甜度：两杯咖啡都加了同量的糖（Z(x)），比较谁更甜时糖抵消了，只剩咖啡豆本身（π 对 π_ref）的差异——所以根本不用知道加了多少糖。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 从 Bradley-Terry 到 DPO 损失</div>
+        <div class="step"><div class="step-title">Step 1：Bradley-Terry 概率 + 隐式奖励</div>
+          <table><tr><th>量</th><th>式子</th></tr><tr><td>更喜欢 y_w 的概率</td><td>P(y_w ≻ y_l) = σ(r(y_w) − r(y_l))</td></tr><tr><td>奖励差（Z 消去后）</td><td>r(y_w) − r(y_l) = β·[log(π_w/ref_w) − log(π_l/ref_l)]</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：最大化似然 = 最小化负对数</div>
+          <table><tr><th>目标</th><th>式子</th></tr><tr><td>DPO 损失</td><td>L = −log σ(β·log(π_w/ref_w) − β·log(π_l/ref_l))</td></tr></table>
+          <div class="step-desc">这就是一条二分类的交叉熵损失：<strong>奖励模型、参考模型以外的采样、强化学习，全部消失</strong>，只剩策略 π 和参考 π_ref 的对数概率比。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 3：数字走查（β=0.1）</div>
+          <table><tr><th>量</th><th>chosen (w)</th><th>rejected (l)</th></tr><tr><td>策略概率 π</td><td>0.5</td><td>0.2</td></tr><tr><td>参考概率 π_ref</td><td>0.3</td><td>0.4</td></tr><tr><td>log-ratio = log(π/π_ref)</td><td>+0.511</td><td>−0.693</td></tr></table>
+          <div class="step-desc">差值 d = 0.511 − (−0.693) = 1.204；Δ = β·d = 0.1×1.204 = 0.120；σ(0.120) = 0.530；L = −log 0.530 = 0.635。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>Z(x) 在作差中消去 → 不训奖励模型、不采样、一条分类损失搞定；Z(x) 不消 → 必须对每个 x 求那个 Σ 求和（在词表上不可行），DPO 就做不成。<strong>下一个问题：损失里这个 β 为什么差一点就差很多？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','39-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','39-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-39-2" class="llm-section"><button class="llm-btn" onclick="startChat('39-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="39-2"><div class="chat-toolbar"><button onclick="copyChat('39-2')">📋 复制对话</button><button onclick="clearChat('39-2')">🗑 清空</button><button onclick="stopLLM('39-2')" id="stop-btn-39-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('39-2')" id="regen-btn-39-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="39-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 DPO 损失有疑问？比如"Z(x) 为什么能消掉""这和二分类到底差在哪？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="39-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('39-2')}" rows="1" placeholder="例如：能不能不消 Z(x) 直接算？"></textarea><button onclick="sendLLM('39-2')">发送</button></div></div></div>
+      <div id="tab-qna-39-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('39-2')">🔄 换一批</button></div><div class="qna-list" data-qna="39-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="39-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">损失里的 β 参数，为什么取 0.01 和取 1 会差出完全不同的结果？</div><div class="card-q-hint">提示：先想 β 在 RLHF 目标里是 KL 惩罚系数，惩罚越重模型越不敢偏离参考；再看它进损失后对梯度做了什么。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>β 本是 RLHF 目标「奖励 − β·KL」里的 <strong>KL 惩罚系数</strong>。DPO 论文（arXiv:2305.18290）在不同 β 下做实验，发现结果对 β 敏感。机制：β 太小 → 惩罚弱 → 模型敢大幅偏离 π_ref → 过拟合偏好标注里的噪声；β 太大 → 惩罚强 → 模型被钉在 π_ref 附近 → 对齐不足。</div>
+      <div class="content-section"><p>上一张卡片看到 β 是损失里的温度。它一头管「拟合偏好」，一头管「别偏离参考模型」——<strong>两头都要它管，所以特别敏感。</strong></p><p>可以把这<strong>类比</strong>成教练手里的缰绳：松了马乱跑（过拟合噪声），紧了马原地不动（对齐不足）——正好卡在中间一小段才好用。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 同一个 log-ratio 差值，β 不同 → 损失天差地别</div>
+        <div class="step"><div class="step-title">Step 1：固定 chosen 比 rejected 的 log-ratio 高 d = 4.2</div>
+          <table><tr><th>量</th><th>式子</th></tr><tr><td>奖励差标度</td><td>Δ = β·d</td></tr><tr><td>概率</td><td>σ(Δ) = 1/(1 + e^{−Δ})</td></tr><tr><td>损失</td><td>L = −log σ(Δ)</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：四个 β 的结果</div>
+          <table><tr><th>β</th><th>Δ = β·d</th><th>σ(Δ)</th><th>L</th><th>现象</th></tr><tr><td>0.01</td><td>0.042</td><td>0.511</td><td>0.672</td><td>σ≈0.5，区分度弱</td></tr><tr><td>0.1</td><td>0.42</td><td>0.604</td><td>0.505</td><td>正常区间</td></tr><tr><td>0.5</td><td>2.1</td><td>0.891</td><td>0.116</td><td>接近饱和</td></tr><tr><td>1.0</td><td>4.2</td><td>0.985</td><td>0.015</td><td>饱和，梯度≈0</td></tr></table>
+          <div class="step-desc">β 太小 → σ 停在 0.5 附近（固定 d 时区分度弱）；β 太大 → σ 逼近 1（饱和、梯度消失）。<strong>只有中间一小段好用——这就是「β 敏感」的数字真相。</strong>注意：这是固定 d 的损失侧视角；真实训练里 β 太小还会削弱 KL 惩罚、表现为过拟合噪声（见知识背景），两者对应 β 的两个角色、并不矛盾。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>β 太小 → 学不动；β 太大 → 饱和。两头都不能要，得靠人工一格一格试。<strong>下一个问题：DPO 训练时只吃现成数据、不自己生成答案，会失去什么？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','39-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','39-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-39-3" class="llm-section"><button class="llm-btn" onclick="startChat('39-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="39-3"><div class="chat-toolbar"><button onclick="copyChat('39-3')">📋 复制对话</button><button onclick="clearChat('39-3')">🗑 清空</button><button onclick="stopLLM('39-3')" id="stop-btn-39-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('39-3')" id="regen-btn-39-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="39-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 β 敏感有疑问？比如"β 大了不是惩罚更强吗，怎么会学不动？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="39-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('39-3')}" rows="1" placeholder="例如：β 取多大才算合适？"></textarea><button onclick="sendLLM('39-3')">发送</button></div></div></div>
+      <div id="tab-qna-39-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('39-3')">🔄 换一批</button></div><div class="qna-list" data-qna="39-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="39-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">DPO 训练时只用固定的偏好数据集、不自己生成新答案，会失去什么？</div><div class="card-q-hint">提示：先想 PPO 训练时每轮都会从当前策略采样新回答让奖励模型打分；DPO 没有这一步，那「新答案」从哪来？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>DPO 是 <strong>离线（offline）</strong>方法：偏好数据集 {prompt, chosen, rejected} 是事先采好的，训练时策略只在固定答案上算概率，<strong>不再生成新答案</strong>。对比 PPO/GRPO（分组相对策略优化）的 <strong>在线（online）</strong>：每轮从当前策略采样新回答、用奖励模型/规则打分，能探索到数据集里没有的答案。</div>
+      <div class="content-section"><p>上一张卡片看到 β 敏感是「参数」问题。这一张是「数据」问题：<strong>DPO 把「探索」这一步整个砍掉了。</strong></p><p>可以把这<strong>类比</strong>成备考：一个学生只做「老师给的真题」（offline），从来不自己生成新答案，那他学到的上限就是这份真题的上限；另一个学生边做题边自己加练（online），可能发现老师没给的更优解法。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 离线 vs 在线：探索空间差多少</div>
+        <div class="step"><div class="step-title">Step 1：训练时各自「生成」多少新答案</div>
+          <table><tr><th>方法</th><th>训练时的数据来源</th><th>新生成的答案数</th></tr><tr><td>离线 DPO</td><td>固定 N 个 prompt × 每 prompt 1 对 (chosen, rejected)</td><td>0</td></tr><tr><td>在线 GRPO</td><td>每轮从当前策略采样 G 个新回答（G=8~64）</td><td>每轮 N×G 个</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：上限被数据封死</div>
+          <table><tr><th>情形</th><th>结果</th></tr><tr><td>数据集 chosen 的奖励只有 0.5（及格），真正最优是 1.0</td><td>离线 DPO 只能把策略往 0.5 的方向拉，永远到不了 1.0</td></tr><tr><td>在线方法每轮采样</td><td>有机会采样到接近 1.0 的新答案，把上限顶上去</td></tr></table>
+          <div class="step-desc">关键：离线的损失再低，也只证明「模型拟合了这批固定数据」，<strong>不证明「模型能产出比数据更好的答案」</strong>。探索是提升上限的唯一途径，而 DPO 把它关掉了。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>有探索 → 可能发现数据集之外的更优答案；没有探索 → 上限被数据封死。<strong>下一个问题：除了 β 敏感和没探索，DPO 自己还藏着哪些缺陷？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','39-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','39-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-39-4" class="llm-section"><button class="llm-btn" onclick="startChat('39-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="39-4"><div class="chat-toolbar"><button onclick="copyChat('39-4')">📋 复制对话</button><button onclick="clearChat('39-4')">🗑 清空</button><button onclick="stopLLM('39-4')" id="stop-btn-39-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('39-4')" id="regen-btn-39-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="39-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对离线无探索有疑问？比如"离线就一定比在线差吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="39-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('39-4')}" rows="1" placeholder="例如：能不能离线 + 在线混合？"></textarea><button onclick="sendLLM('39-4')">发送</button></div></div></div>
+      <div id="tab-qna-39-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('39-4')">🔄 换一批</button></div><div class="qna-list" data-qna="39-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="39-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">DPO 这么简洁，它自己还藏着哪些缺陷？</div><div class="card-q-hint">提示：从三条线索想——β 那关过了吗、参考模型砍了吗、损失只看「相对差」不看「绝对概率」会怎样？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>DPO 的三个已知缺陷：① <strong>β 敏感</strong>（Card 3）；② <strong>仍要驻留参考模型 π_ref</strong>——策略 + 参考 = 2 个模型，比 PPO 的 4 个少，但仍不是 1 个，省下的显存有限；③ <strong>可能退化（degeneration）</strong>——DPO 损失只看 chosen 与 rejected 的 log-ratio 差，不看绝对概率，模型可能同时压低两者的概率来凑差值。</div>
+      <div class="content-section"><p>上一张卡片看到探索被砍。现在把 DPO 的账算全：<strong>三条缺陷，第三条最反直觉。</strong></p><p>可以把这<strong>类比</strong>成一场比赛：DPO 只要求「冠军必须比最后一名高」，却不要求冠军自己「够快」——选手们可能一起跑慢，只要差距拉开，损失照样下降。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 退化：损失在降，chosen 的绝对概率却在掉</div>
+        <div class="step"><div class="step-title">Step 1：正常 → 退化的概率变化</div>
+          <table><tr><th>回答</th><th>训练前概率</th><th>退化后概率</th><th>变化</th></tr><tr><td>chosen（π_w）</td><td>0.5</td><td>0.4</td><td>掉了</td></tr><tr><td>rejected（π_l）</td><td>0.3</td><td>0.1</td><td>掉得更狠</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：log-ratio 差反而变大</div>
+          <table><tr><th>时刻</th><th>d = log(π_w/ref_w) − log(π_l/ref_l)</th></tr><tr><td>训练前</td><td>log(0.5/0.3) − log(0.3/0.4) = 0.799</td></tr><tr><td>退化后</td><td>log(0.4/0.3) − log(0.1/0.4) = 1.674</td></tr></table>
+          <div class="step-desc">损失下降（d 从 0.799 涨到 1.674，σ 变大、L 变小），<strong>但 chosen 的绝对概率从 0.5 掉到 0.4——模型更不会说「好话」了</strong>。这就是退化：损失只看相对差、不看绝对值，模型可以靠「把 rejected 压得更狠」过关。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>只看相对差 → 可能退化；补上绝对约束 → 才稳。<strong>下一个问题：这些缺陷，后来被哪些变体分别补上了？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','39-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','39-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-39-5" class="llm-section"><button class="llm-btn" onclick="startChat('39-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="39-5"><div class="chat-toolbar"><button onclick="copyChat('39-5')">📋 复制对话</button><button onclick="clearChat('39-5')">🗑 清空</button><button onclick="stopLLM('39-5')" id="stop-btn-39-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('39-5')" id="regen-btn-39-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="39-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 DPO 退化有疑问？比如"退化在真实训练里严重吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="39-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('39-5')}" rows="1" placeholder="例如：退化具体是怎么发生的？"></textarea><button onclick="sendLLM('39-5')">发送</button></div></div></div>
+      <div id="tab-qna-39-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('39-5')">🔄 换一批</button></div><div class="qna-list" data-qna="39-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="39-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">DPO 的 β 敏感、退化、参考模型这些缺陷，后来被哪些变体分别补上了？</div><div class="card-q-hint">提示：先想每个缺陷要「改损失的哪一项」才能补；再对照下一课的变体清单一一对应。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>DPO 之后出现一批变体（第 40 课展开）：<strong>IPO</strong>（Azar et al., arXiv:2310.12036）用平方损失正则化，缓解 β 敏感；<strong>KTO</strong>（Ethayarajh et al., arXiv:2402.01306）只需单个回答的好坏、不需配对，处理「无偏好对」数据；<strong>CPO</strong>（Xu et al., arXiv:2401.08417）加 SFT 正则防遗忘；<strong>ORPO</strong>（Hong et al., arXiv:2403.07691）把 SFT 和偏好合成一个目标、删掉参考模型；<strong>SimPO</strong>（Meng et al., arXiv:2405.14734）用序列平均对数概率 + 长度正则、也删掉参考模型。</div>
+      <div class="content-section"><p>上一张卡片列了三条缺陷。好消息是：<strong>每条缺陷都有人专门补。</strong></p><p>可以把这<strong>类比</strong>成修车：DPO 是一辆「够用但有三处小毛病」的车，后面每一代修一处——换减震（IPO 治 β 敏感）、改油箱（KTO 治数据形态）、拆备胎（ORPO/SimPO 删参考模型）。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 变体 × 补的缺陷对照表</div>
+        <div class="step"><div class="step-title">Step 1：每个变体砍/补了 DPO 的哪一项</div>
+          <table><tr><th>变体</th><th>arXiv</th><th>补的缺陷</th><th>做法</th></tr><tr><td>IPO</td><td>2310.12036</td><td>β 敏感</td><td>平方正则损失</td></tr><tr><td>KTO</td><td>2402.01306</td><td>必须成对偏好</td><td>只看单个好坏（KL 回归）</td></tr><tr><td>CPO</td><td>2401.08417</td><td>可能遗忘</td><td>加 SFT 负例正则</td></tr><tr><td>ORPO</td><td>2403.07691</td><td>仍需参考模型</td><td>SFT+偏好合并，删 π_ref</td></tr><tr><td>SimPO</td><td>2405.14734</td><td>参考模型 + 长度偏置</td><td>序列平均 + 长度正则，删 π_ref</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：驻留模型数变化</div>
+          <table><tr><th>方法</th><th>驻留模型数</th><th>驻留哪些</th></tr><tr><td>DPO</td><td>2</td><td>策略 + 参考</td></tr><tr><td>ORPO / SimPO</td><td>1</td><td>仅策略</td></tr></table>
+          <div class="step-desc">一条主线：每个变体都回答「DPO 还差什么」——<strong>下一课逐个展开它们的损失和数字。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>DPO 三条缺陷 → 五个变体各补一条：IPO 治 β、KTO 治数据、CPO 治遗忘、ORPO/SimPO 删参考模型。<strong>下一课（第 40 课）逐个拆它们的损失到底长什么样、数字怎么算。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','39-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','39-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-39-6" class="llm-section"><button class="llm-btn" onclick="startChat('39-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="39-6"><div class="chat-toolbar"><button onclick="copyChat('39-6')">📋 复制对话</button><button onclick="clearChat('39-6')">🗑 清空</button><button onclick="stopLLM('39-6')" id="stop-btn-39-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('39-6')" id="regen-btn-39-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="39-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对变体族有疑问？比如"我该优先看哪个变体？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="39-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('39-6')}" rows="1" placeholder="例如：这些变体哪个最常用？"></textarea><button onclick="sendLLM('39-6')">发送</button></div></div></div>
+      <div id="tab-qna-39-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('39-6')">🔄 换一批</button></div><div class="qna-list" data-qna="39-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 39 课完成 · 下一课：第 40 课「DPO 变体族」</p>
+    <a href="#" onclick="switchLesson(40);return false;">进入第 40 课：DPO 变体族 →</a>　·　<a href="#" onclick="switchLesson(38);return false;">← 上一课：RLHF 与 PPO</a>
+  </div></div>

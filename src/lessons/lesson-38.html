@@ -1,0 +1,179 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 38 课：RLHF 与 PPO</h2>
+    <p class="subtitle">RLHF 即人类反馈强化学习、PPO 即近端策略优化。第 37 课把「更好」变成了奖励模型的一个标量分数。但拿到这个分数之后怎么办？最直接的想法是「最大化它」——可奖励只是人类偏好的不完美代理，越优化越会钻空子。这一课讲清 RLHF 的第三段：为什么不能裸跑奖励、PPO 为什么需要四个模型同时驻留、KL 惩罚（β）与 clip（ε=0.2）两道约束分别防什么、这套东西贵在哪，最后引出「能不能不要 RL」的 DPO（直接偏好优化）。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清为什么不能直接最大化奖励（reward hacking）<br>② 算出 PPO 四模型驻留的显存账<br>③ 会解释 KL 惩罚（β）与 clip（ε=0.2）各自防什么、怎么调</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：从"有奖励怎么用"到"能不能不要 RL"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">第 37 课拿到能打分的奖励模型，<strong>最直接的想法</strong>是最大化它——<strong>但</strong>奖励只是人类偏好的代理，<strong>因为</strong>策略的 gradient 只会沿着代理奖励往上爬，<strong>所以</strong>优化越狠越偏离真意（Goodhart 定律 → 奖励作弊）。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">会钻空子<strong>意味着</strong>不能裸跑奖励，<strong>这就要求</strong>两道约束：KL（别偏离参考模型太远）+ clip（别一次跳太远）——<strong>于是</strong>出现 RLHF 第三段的 PPO。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">加约束<strong>需要</strong>额外模型：参考模型当 KL 锚点、critic 估基线——<strong>因为</strong>critic 要逐位置预测回报、同为训练态，<strong>所以</strong>四模型驻留、显存翻倍。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">KL 惩罚<strong>靠</strong>参考模型量化「偏离」——<strong>因为</strong>对数比对偏离大的 token 罚得更狠，<strong>所以</strong>β 在「奖励」和「别跑远」之间做权衡。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">PPO 的 clip<strong>靠</strong> ε=0.2 把新旧策略概率比夹进 [0.8, 1.2]——<strong>因为</strong>它限制每次更新步长，<strong>所以</strong>策略别一次跳太远。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text"><strong>【支链 · 收口】</strong>四模型 + 在线采样 + 多旋钮，<strong>所以</strong>PPO 又慢又不稳——<strong>于是</strong>引出「能不能不要 RL」：DPO 用闭式解把 RL 换成一次分类。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">RLHF</span><span class="meta-tag">PPO</span><span class="meta-tag">KL Penalty</span><span class="meta-tag">Reward Hacking</span><span class="meta-tag">Clip</span><span class="meta-tag">DPO</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="38-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">第 37 课拿到了会给回答打分的奖励模型，直接把它当目标函数一路最大化，为什么不行？</div><div class="card-q-hint">提示：先想奖励模型是怎么训出来的（只在有限偏好数据上见过分数）；再想策略被推到没见过分数的区域时，那个分数还准不准。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>奖励作弊（reward hacking）</strong>不是 RLHF 特有的，它的根源是 <strong>Goodhart 定律</strong>（1975）：当一个度量变成目标，它就不再是好的度量。InstructGPT（Ouyang et al., arXiv:2203.02155）明确说奖励模型只是「人类偏好的代理」。Gao, Schulman &amp; Hilton（arXiv:2210.10760, ICML 2023）用「金标准奖励模型」替代人类做了可测量实验：优化强度加大时，代理奖励持续上升，真实奖励先升后降。</div>
+      <div class="content-section"><p>第 37 课把「更好」变成了一个奖励模型的打分。现在手上有个能求导的标量，最直接的想法就是把它当目标函数一路最大化。<strong>但这个想法会翻车。</strong></p><p><strong>因为</strong>奖励模型只在有限的偏好数据上见过分数，策略一旦被推到没见过的区域，它给的分数只是<strong>外推</strong>、可能一路虚高。可以把这<strong>类比</strong>成按一张不完美的评分表排练：你把评分表的每一条都做到极致，最后拿到高分，但评委（真实人类）看的是另一套标准。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 钻空子账：代理奖励涨了，真实质量却跌了</div>
+        <div class="step"><div class="step-title">Step 1：奖励模型是怎么被"骗"的</div>
+          <table><tr><th>现象</th><th>数值</th><th>说明</th></tr><tr><td>标注者选更长回答的比例</td><td>约 90%（9/10 次）</td><td>偏好数据里常见长度偏置（示意）</td></tr><tr><td>奖励模型学到的规律</td><td>「长度 ≈ 质量」</td><td>外推到没见过的区域会失真</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：直接最大化会发生什么</div>
+          <table><tr><th>回答</th><th>长度</th><th>奖励模型打分</th><th>真实质量（金标准）</th></tr><tr><td>正常回答</td><td>20 字</td><td>1.2</td><td>0.8</td></tr><tr><td>钻空子回答（重复堆砌）</td><td>500 字</td><td>7.5</td><td>0.1</td></tr><tr><td>差值</td><td>25 倍</td><td>+6.3</td><td>−0.7</td></tr></table>
+          <div class="step-desc">奖励从 1.2 涨到 7.5（<strong>+6.3</strong>），但真实质量从 0.8 跌到 0.1（<strong>−0.7</strong>）——这就是「分数涨了、人却更不满意」的量化形态，学名叫 <strong>reward hacking（奖励作弊）</strong>。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>只最大化奖励 → 分数涨了、人却更不满意（代理奖励 +6.3，真实质量 −0.7）。<strong>所以 RLHF 不能裸跑奖励，必须加两道约束：KL 惩罚（别偏离参考模型太远）+ clip（别一次跳太远）。下一个问题：这套完整方案要同时装几个模型？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','38-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','38-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-38-1" class="llm-section"><button class="llm-btn" onclick="startChat('38-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="38-1"><div class="chat-toolbar"><button onclick="copyChat('38-1')">📋 复制对话</button><button onclick="clearChat('38-1')">🗑 清空</button><button onclick="stopLLM('38-1')" id="stop-btn-38-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('38-1')" id="regen-btn-38-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="38-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对奖励作弊有疑问？比如"奖励模型分数涨了难道不是好事吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="38-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('38-1')}" rows="1" placeholder="例如：如果把奖励模型训得更准，能根治钻空子吗？"></textarea><button onclick="sendLLM('38-1')">发送</button></div></div></div>
+      <div id="tab-qna-38-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('38-1')">🔄 换一批</button></div><div class="qna-list" data-qna="38-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="38-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">要安全地"按人类偏好小步调模型"，PPO 这一步要同时装几个模型、每个干嘛？</div><div class="card-q-hint">提示：数一数"被训练的"和"只算前向的"两类；再想 critic 为什么必须和策略一样大，而不是一个小网络。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>PPO（Proximal Policy Optimization）</strong>由 Schulman et al. 提出（arXiv:1707.06347, 2017），用「裁剪的替代目标」把策略更新限制在小步内，是 InstructGPT（arXiv:2203.02155）第三段用的默认算法。它属于 <strong>actor-critic</strong> 家族：actor 是策略，critic 是价值模型——critic 要逐位置估计「这么答下去能得多少分」当基线，价值函数复杂度与策略相当、不少开源实现让两者同规模。但 InstructGPT 里奖励模型是 6B、策略最大到 175B，而 critic（价值函数）由奖励模型初始化、同为 6B——并未与策略同规模。</div>
+      <div class="content-section"><p>上一张卡片看到：直接最大化奖励会钻空子，所以 RLHF 不是「裸跑奖励」，而是「在两道约束下最大化奖励」。<strong>这套完整方案就是 PPO——先看它要同时装几个模型。</strong></p><p><strong>因为</strong>要算 KL 惩罚，需要一个冻结的参考模型当锚点；要打分，需要奖励模型；要估「未来回报」当基线，需要 critic。可以把这<strong>类比</strong>成同时开四台机器：一台在学（策略）、一台当参照（参考）、一台打分（奖励）、一台预测未来（critic）——后三台都得一直通电。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 显存账：RLHF 第三段要同时装几个模型</div>
+        <div class="step"><div class="step-title">Step 1：四个模型的角色</div>
+          <table><tr><th>角色</th><th>作用</th><th>训练态？</th></tr><tr><td>策略 policy</td><td>被优化的模型</td><td>是</td></tr><tr><td>参考 reference</td><td>算 KL 的锚点（=SFT（监督微调）模型，冻结）</td><td>否（只前向）</td></tr><tr><td>奖励 reward</td><td>给回答打分（第 37 课训好的）</td><td>否（只前向）</td></tr><tr><td>critic（价值模型）</td><td>估计「未来回报」当基线</td><td>是</td></tr></table>
+          <div class="step-desc">关键区别：<strong>训练态</strong>不只存权重，还要存梯度 + 优化器状态（约 16 字节/参数）；只前向的只要 2 字节/参数（bf16）。critic 与策略同为训练态、都要付训练态开销（本例按两者同规模算）。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：按 7B 量级算模型状态</div>
+          <table><tr><th>项</th><th>每参数字节</th><th>7B 合计</th></tr><tr><td>bf16 权重（只前向）</td><td>2</td><td>14 GB</td></tr><tr><td>训练态（权重+梯度+Adam m/v+fp32 主权重）</td><td>16</td><td>112 GB</td></tr><tr><td>策略 + critic（两个训练态）</td><td>16 × 2</td><td>224 GB</td></tr><tr><td>参考 + 奖励（两个只前向）</td><td>2 × 2</td><td>28 GB</td></tr><tr><td>合计</td><td>—</td><td><strong>252 GB</strong></td></tr></table>
+          <div class="step-desc">224 + 28 = <strong>252 GB</strong>（只算模型状态，不含激活与采样缓存）。四个模型里两个在训练态、两个在只前向——<strong>本例里 critic 与策略同规模，是最大开销来源。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>「贵」的根源不是某一个模型大，而是同类模型被复制了多份、其中两份都在训练态（7B 量级合计 252 GB）。<strong>下一个问题：四个模型里的「参考模型」到底怎么用——KL 惩罚在损失函数里长什么样？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','38-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','38-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-38-2" class="llm-section"><button class="llm-btn" onclick="startChat('38-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="38-2"><div class="chat-toolbar"><button onclick="copyChat('38-2')">📋 复制对话</button><button onclick="clearChat('38-2')">🗑 清空</button><button onclick="stopLLM('38-2')" id="stop-btn-38-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('38-2')" id="regen-btn-38-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="38-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 PPO 的四模型有疑问？比如"critic 能不能用小模型？""参考模型能不能不常驻？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="38-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('38-2')}" rows="1" placeholder="例如：为什么 critic 不能换成一个 1B 的小模型？"></textarea><button onclick="sendLLM('38-2')">发送</button></div></div></div>
+      <div id="tab-qna-38-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('38-2')">🔄 换一批</button></div><div class="qna-list" data-qna="38-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="38-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">为什么要专门留一个参考模型，把策略「别跑太远」这件事量化出来？</div><div class="card-q-hint">提示：想"偏离"怎么量化——KL 散度比较的是两个分布；再想 β 这个系数在"奖励"和"别跑远"之间做的是什么权衡。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>KL 惩罚（Kullback–Leibler divergence）</strong>是 RLHF 里最核心的正则项。InstructGPT（arXiv:2203.02155）用的是 <strong>per-token KL 惩罚</strong>：有效奖励 = 奖励模型分 − β·ln(π_θ(y|x) / π_SFT(y|x))，系数 <strong>β = 0.02</strong>。后来的 DPO（arXiv:2305.18290）延续了这个 β，实验里常用 <strong>β = 0.1</strong>。β 越大，策略被拴得越紧、越不敢偏离参考模型。</div>
+      <div class="content-section"><p>上一张卡片看到四个模型里有个「参考模型」。<strong>它的作用就是给 KL 惩罚当锚点——这正是 Card 1 那个「防钻空子」问题的答案。</strong></p><p><strong>因为</strong>要约束「策略别偏离 SFT 模型太远」，得先量化「偏离」。KL 散度就是干这个的：对每个 token，比较策略和参考模型给它的概率。可以把这<strong>类比</strong>成考试时允许你带一张「标准答案卡」，你答的每一题离标准答案越远，扣分越多。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 KL 账：β 在「奖励」和「别跑远」之间做权衡</div>
+        <div class="step"><div class="step-title">Step 1：惩罚项长什么样</div>
+          <table><tr><th>符号</th><th>含义</th></tr><tr><td>π<sub>θ</sub></td><td>当前策略（正在被训练）</td></tr><tr><td>π<sub>ref</sub></td><td>参考模型（SFT，冻结）</td></tr><tr><td>β</td><td>KL 惩罚系数（InstructGPT β=0.02；DPO 常见 β=0.1）</td></tr><tr><td>有效奖励</td><td>r − β·ln(π<sub>θ</sub>(y|x) / π<sub>ref</sub>(y|x))</td></tr></table>
+          <div class="step-desc">对采出来的每个 token：策略给它概率比参考高越多，ln 越大，扣得越多。<strong>这正是「别偏离参考模型」的可求导形式。</strong></div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：数字走查——β 怎么压住钻空子</div>
+          <table><tr><th>token</th><th>π<sub>ref</sub></th><th>π<sub>θ</sub></th><th>ln(π<sub>θ</sub>/π<sub>ref</sub>)</th><th>β=0.02 罚</th><th>β=0.1 罚</th></tr><tr><td>正常词</td><td>0.30</td><td>0.50</td><td>0.511</td><td>0.010</td><td>0.051</td></tr><tr><td>钻空子词</td><td>0.01</td><td>0.50</td><td>3.912</td><td>0.078</td><td>0.391</td></tr></table>
+          <div class="step-desc">同样把概率抬到 0.5：钻空子词（参考几乎不给它概率）被罚 <strong>0.078</strong>，正常词只罚 <strong>0.010</strong>——KL 惩罚天然对「偏离大」的 token 罚得更狠。β 从 0.02 调到 0.1，罚放大 <strong>5 倍</strong>，但也同样压住正常提升——这就是 β 的权衡。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>KL 惩罚把「别偏离参考模型」变成了可求导的一项，天然对偏离大的 token 罚得更狠。但它只解决「别跑远」——不解决「每一步别跳太远」。<strong>下一个问题：更新步长靠什么约束？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','38-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','38-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-38-3" class="llm-section"><button class="llm-btn" onclick="startChat('38-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="38-3"><div class="chat-toolbar"><button onclick="copyChat('38-3')">📋 复制对话</button><button onclick="clearChat('38-3')">🗑 清空</button><button onclick="stopLLM('38-3')" id="stop-btn-38-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('38-3')" id="regen-btn-38-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="38-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 KL 惩罚有疑问？比如"β 设 0 会怎样？""KL 和 clip 是不是一回事？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="38-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('38-3')}" rows="1" placeholder="例如：β 设成 0，训练会发生什么？"></textarea><button onclick="sendLLM('38-3')">发送</button></div></div></div>
+      <div id="tab-qna-38-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('38-3')">🔄 换一批</button></div><div class="qna-list" data-qna="38-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="38-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">KL 惩罚管住了"别偏离参考模型"，那策略每一次更新"别跳太远"，靠什么保证？</div><div class="card-q-hint">提示：想策略更新的大小——新旧策略的概率比；这个比如果冲到 1.5，该不该让它全量生效？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>PPO 的核心是「<strong>裁剪的替代目标</strong>」（Schulman et al., arXiv:1707.06347）。它先算新旧策略的概率比 r_t = π_θ(a|s) / π_old(a|s)，再用 <strong>ε = 0.2</strong> 把这个比夹进 [0.8, 1.2]：L = min(r_t·A_t, clip(r_t, 0.8, 1.2)·A_t)。ε=0.2 是原文给的默认值（原文写 'say, ε = 0.2'）。</div>
+      <div class="content-section"><p>上一张卡片看到 KL 惩罚管「别偏离参考模型太远」。<strong>但还有一层约束：策略每一次更新「别跳太远」——这就是 PPO 的 clip。</strong></p><p><strong>因为</strong>策略是逐步更新的，如果某一步的梯度特别大，新旧策略的概率比可能冲到 1.5、2.0，一次把模型拽崩。可以把这<strong>类比</strong>成开车：KL 是「别偏离导航路线」，clip 是「方向盘别一次打太大」——两个约束管两个维度。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 clip 账：ε=0.2 怎么把更新"夹"住</div>
+        <div class="step"><div class="step-title">Step 1：clip 目标长什么样</div>
+          <table><tr><th>符号</th><th>含义</th></tr><tr><td>r_t = π<sub>θ</sub>/π<sub>old</sub></td><td>新旧策略概率比</td></tr><tr><td>ε = 0.2</td><td>clip 半径</td></tr><tr><td>clip(r, 0.8, 1.2)</td><td>把比率夹进 [0.8, 1.2]</td></tr><tr><td>L = min(r·A, clip(r)·A)</td><td>PPO 的替代目标</td></tr></table>
+          <div class="step-desc">A 是优势（这一步好还是坏）。clip 的作用是：<strong>好动作别奖励过度、坏动作别惩罚过度</strong>——更新永远不超过旧策略的 20%。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：数字走查——四种情形</div>
+          <table><tr><th>情形</th><th>r</th><th>A</th><th>r·A</th><th>clip(r)·A</th><th>取 min 后</th></tr><tr><td>好动作、跳太大</td><td>1.5</td><td>+1</td><td>+1.5</td><td>+1.2</td><td>+1.2</td></tr><tr><td>正常</td><td>1.1</td><td>+1</td><td>+1.1</td><td>+1.1</td><td>+1.1</td></tr><tr><td>坏动作、跳太大</td><td>1.5</td><td>−1</td><td>−1.5</td><td>−1.2</td><td>−1.5</td></tr><tr><td>坏动作、已收敛</td><td>0.5</td><td>−1</td><td>−0.5</td><td>−0.8</td><td>−0.8</td></tr></table>
+          <div class="step-desc">好动作（A&gt;0）时，比率冲过 1.2 就夹到 1.2（不再多奖励）；坏动作（A&lt;0）时，比率低于 0.8 就夹到 0.8（不再多惩罚）。<strong>clip 让每次更新最多偏离旧策略 20%。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>clip 让策略每次更新最多偏离旧策略 20%（ε=0.2）。KL + clip 两道约束齐了，RLHF 第三段的机制就完整了。<strong>下一个问题：这套东西在实际工程里为什么又慢又不稳？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','38-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','38-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-38-4" class="llm-section"><button class="llm-btn" onclick="startChat('38-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="38-4"><div class="chat-toolbar"><button onclick="copyChat('38-4')">📋 复制对话</button><button onclick="clearChat('38-4')">🗑 清空</button><button onclick="stopLLM('38-4')" id="stop-btn-38-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('38-4')" id="regen-btn-38-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="38-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 clip 有疑问？比如"ε 调大调小会怎样？""clip 和 KL 有什么不同？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="38-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('38-4')}" rows="1" placeholder="例如：ε 从 0.2 调到 0.5，会发生什么？"></textarea><button onclick="sendLLM('38-4')">发送</button></div></div></div>
+      <div id="tab-qna-38-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('38-4')">🔄 换一批</button></div><div class="qna-list" data-qna="38-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="38-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">机制都齐了，那 RLHF 第三段在实际工程里，为什么又慢又不稳？</div><div class="card-q-hint">提示：想每轮更新要经过几步（采样→打分→算优势→更新）；再想这四步里哪些是"串行等待"、哪些模型同时驻留。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div>InstructGPT 第三段的超参数（论文附录 C）：KL 系数 <strong>β=0.02</strong>、预训练混合项系数 <strong>γ=27.8</strong>、clip <strong>0.2</strong>、约 <strong>256k episodes</strong>、批大小 <strong>512</strong>。这些数字说明两件事：一是「在线采样」规模巨大（每轮都要用当前策略重新生成回答），二是旋钮多（β、ε、学习率、KL target 等至少 4 个互相耦合）。</div>
+      <div class="content-section"><p>前面四张卡片把 RLHF 第三段的机制讲完了。<strong>现在算它的工程代价：慢，而且不稳。</strong></p><p><strong>因为</strong>每轮更新要串行走四步——采样、打分、算优势、更新——每步都依赖前一步；再加上四个模型同时驻留、β/ε/lr 等多个旋钮互相耦合。可以把这<strong>类比</strong>成流水线上一环卡住整条线都停：采样慢，后面三步全等着。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 代价账：一轮更新要走过多少步</div>
+        <div class="step"><div class="step-title">Step 1：PPO 一轮循环的四步</div>
+          <table><tr><th>步骤</th><th>做什么</th><th>开销</th></tr><tr><td>采样</td><td>用当前策略生成回答（rollout）</td><td>在线、串行</td></tr><tr><td>打分</td><td>奖励模型前向</td><td>一个模型</td></tr><tr><td>算优势</td><td>critic 前向 + GAE</td><td>一个模型</td></tr><tr><td>更新</td><td>策略反向传播 + KL/clip</td><td>训练态</td></tr></table>
+          <div class="step-desc">每一步都依赖前一步，四步串成一条链——<strong>采样慢，整条链就慢</strong>。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：规模与旋钮</div>
+          <table><tr><th>项</th><th>数值</th><th>说明</th></tr><tr><td>PPO 总轮数</td><td>约 256k episodes</td><td>InstructGPT 附录 C</td></tr><tr><td>批大小</td><td>512</td><td>InstructGPT 附录 C</td></tr><tr><td>旋钮</td><td>β、ε、lr、KL target 等 ≥4 个</td><td>互相耦合</td></tr></table>
+          <div class="step-desc">256k episodes × 每轮四步 = 海量在线采样；再加上 β/ε/lr/KL target 至少 4 个旋钮互相耦合，一处调错就震荡——<strong>这就是「慢且不稳」的来源。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>PPO 又慢又不稳的根源：在线采样 + 四模型驻留 + 多旋钮耦合。<strong>下一个问题：这套强化学习，能不能整个换掉？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','38-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','38-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-38-5" class="llm-section"><button class="llm-btn" onclick="startChat('38-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="38-5"><div class="chat-toolbar"><button onclick="copyChat('38-5')">📋 复制对话</button><button onclick="clearChat('38-5')">🗑 清空</button><button onclick="stopLLM('38-5')" id="stop-btn-38-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('38-5')" id="regen-btn-38-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="38-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 PPO 的工程代价有疑问？比如"RLHF 一般要跑多久？""调参为什么这么难？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="38-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('38-5')}" rows="1" placeholder="例如：256k episodes 到底要采多少次回答？"></textarea><button onclick="sendLLM('38-5')">发送</button></div></div></div>
+      <div id="tab-qna-38-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('38-5')">🔄 换一批</button></div><div class="qna-list" data-qna="38-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="38-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">四个模型、在线采样、多轮调参——这套强化学习能不能整个换掉？</div><div class="card-q-hint">提示：先写"在 KL 约束下最优的策略"长什么样（它一定与参考模型和奖励有关），然后试着反解出奖励——看奖励会不会"消失"。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>DPO（Direct Preference Optimization）</strong>由 Rafailov et al.（Stanford）提出（arXiv:2305.18290, 2023），论文标题就是结论："你的语言模型其实是个奖励模型"。它证明 KL 约束下的最优策略有<strong>闭式解</strong>，把解反解回去，奖励可以写成策略与参考模型的对数比——于是 RLHF 的强化学习阶段被替换成一个普通分类损失。这就是第 39 课要展开的内容。</div>
+      <div class="content-section"><p>上一张卡片看到 PPO 又慢又不稳。<strong>那能不能干脆不要 RL？——DPO 的答案是能，靠一次代数替换。</strong></p><p><strong>因为</strong>加了 KL 约束的最优化问题有闭式解，把这个解反解回去，奖励可以写成策略与参考模型的对数比（<strong>隐式奖励 r = β·ln(π_θ/π_ref)</strong>）——奖励不再需要一个独立网络。可以把这<strong>类比</strong>成解方程：与其迭代逼近（RL 采样试错），不如先把方程解出来，解的形式告诉你答案长什么样。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 对比账：把 RL 换成一次分类，省了什么</div>
+        <div class="step"><div class="step-title">Step 1：模型数对比</div>
+          <table><tr><th>方法</th><th>驻留模型</th><th>显存（7B 量级）</th></tr><tr><td>RLHF / PPO</td><td>策略 + 参考 + 奖励 + critic</td><td>252 GB</td></tr><tr><td>DPO</td><td>策略 + 参考</td><td>126 GB</td></tr><tr><td>省下</td><td>奖励 + critic</td><td>126 GB（50%）</td></tr></table>
+          <div class="step-desc">DPO 靠闭式解把奖励模型「藏进」策略里（隐式奖励 r = β·ln(π_θ/π_ref)），于是不再需要独立的奖励模型，也不需要 critic。</div>
+        </div>
+        <div class="step"><div class="step-title">Step 2：换来了什么代价</div>
+          <table><tr><th>维度</th><th>PPO</th><th>DPO</th></tr><tr><td>模型数</td><td>4</td><td>2</td></tr><tr><td>在线采样</td><td>要</td><td>不要（离线）</td></tr><tr><td>探索新答案</td><td>能</td><td>不能</td></tr></table>
+          <div class="step-desc">DPO 省了模型，但失去了「在线采样、发现数据里没有的好答案」的能力——<strong>这是下一课要展开的权衡。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>DPO 把「四模型 + 在线采样」换成「两模型 + 一次分类」，显存从 252 GB 降到 126 GB。代价是失去在线探索。<strong>下一个问题：这个闭式解到底怎么推出来、归一化项 Z(x) 怎么消失？——进入第 39 课。</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','38-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','38-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-38-6" class="llm-section"><button class="llm-btn" onclick="startChat('38-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="38-6"><div class="chat-toolbar"><button onclick="copyChat('38-6')">📋 复制对话</button><button onclick="clearChat('38-6')">🗑 清空</button><button onclick="stopLLM('38-6')" id="stop-btn-38-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('38-6')" id="regen-btn-38-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="38-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 DPO 有疑问？比如"DPO 是不是完全取代了 PPO？""隐式奖励是什么意思？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="38-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('38-6')}" rows="1" placeholder="例如：DPO 是怎么把奖励模型消掉的？"></textarea><button onclick="sendLLM('38-6')">发送</button></div></div></div>
+      <div id="tab-qna-38-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('38-6')">🔄 换一批</button></div><div class="qna-list" data-qna="38-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 38 课完成 · 下一课：第 39 课「DPO」</p>
+    <a href="#" onclick="switchLesson(39);return false;">进入第 39 课：DPO →</a>　·　<a href="#" onclick="switchLesson(37);return false;">← 上一课：奖励模型</a>
+  </div></div>

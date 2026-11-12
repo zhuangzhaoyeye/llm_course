@@ -2,15 +2,15 @@
 // 限额数字是初始建议值，不是 DeepSeek 官方给的（官方只限账号级并发，见 README 对话记录）。
 
 export const DEFAULTS = {
-  PER_IP_PER_MINUTE: 5,
-  PER_IP_PER_DAY: 20,
-  GLOBAL_PER_DAY: 100,
+  PER_IP_PER_MINUTE: 50,
+  PER_IP_PER_DAY: 200,
+  GLOBAL_PER_DAY: 1000,
   MODEL: 'deepseek-flash',
-  MAX_TOKENS: 2048,
+  MAX_TOKENS: 20480,
   MAX_BODY_BYTES: 32 * 1024,
-  MAX_MESSAGES: 40,
+  MAX_MESSAGES: 400,
   WEB_SEARCH: true,
-  WEB_SEARCH_MAX_USES: 2,
+  WEB_SEARCH_MAX_USES: 20,
 };
 
 const MINUTE = 60 * 1000;

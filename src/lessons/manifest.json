@@ -211,6 +211,54 @@
       "display": 35,
       "title": "决策模型",
       "file": "lesson-35.html"
+    },
+    {
+      "id": 36,
+      "display": 36,
+      "title": "后训练范式地图",
+      "file": "lesson-36.html"
+    },
+    {
+      "id": 37,
+      "display": 37,
+      "title": "奖励模型",
+      "file": "lesson-37.html"
+    },
+    {
+      "id": 38,
+      "display": 38,
+      "title": "RLHF 与 PPO",
+      "file": "lesson-38.html"
+    },
+    {
+      "id": 39,
+      "display": 39,
+      "title": "DPO",
+      "file": "lesson-39.html"
+    },
+    {
+      "id": 40,
+      "display": 40,
+      "title": "DPO 变体族",
+      "file": "lesson-40.html"
+    },
+    {
+      "id": 41,
+      "display": 41,
+      "title": "在线与无参考优化",
+      "file": "lesson-41.html"
+    },
+    {
+      "id": 42,
+      "display": 42,
+      "title": "推理强化",
+      "file": "lesson-42.html"
+    },
+    {
+      "id": 43,
+      "display": 43,
+      "title": "前沿收口与选型判据",
+      "file": "lesson-43.html"
     }
   ]
 }

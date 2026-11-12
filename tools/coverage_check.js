@@ -74,6 +74,14 @@ const ANCHORS = {
   33: ['silent error', 'PaperBench', '复现', '五维'],
   34: ['L5', '免责', 'token', '可回滚'],
   35: ['token', '决策模型', 'Drex', 'DPDM'],
+  36: ['RLHF', 'DPO', 'GRPO', '后训练'],
+  37: ['奖励模型', 'Bradley-Terry', 'ORM', 'PRM'],
+  38: ['RLHF', 'PPO', 'critic', 'KL'],
+  39: ['DPO', '隐式奖励', '配分函数', 'Z(x)'],
+  40: ['IPO', 'KTO', 'ORPO', 'SimPO'],
+  41: ['GRPO', 'RLOO', 'REINFORCE', 'GSPO'],
+  42: ['RLVR', 'R1-Zero', 'Dr.GRPO', 'VAPO'],
+  43: ['DMPO', 'SPPO', 'RLAIF', 'best-of-N'],
 };
 
 const rows = [];

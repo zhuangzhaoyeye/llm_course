@@ -179,6 +179,12 @@ const RM_CONN      = /这就要求|因此|于是|否则|所以|这就/;
 // 技术术语表（模块级：B-1/B-3 在卡片级用、B-4 在课级用）
 const TERM_RE = /\b(self-attention|cross-attention|attention|query|keys?|values?|softmax|argmax|embedding|tokens?|heads?|mask|logits?|temperature|gradients?|cache|encoders?|decoders?|multi-head|causal|normaliz\w*|layer\s*norm|ffn|position\w*\s*encod\w*|projection|hidden state|dot product|representations?|context|residual|rope|rotary|gqa|mqa|rmsnorm|swiglu|pre-?norm|post-?norm|bpe|wordpiece|sentencepiece|tokeniz\w*|vocab\w*|perplexity|ppl|flops?|weight\s*tying|residual\s*stream|mle-bench|held-out|provenance|contamination|file-as-bus|worktree|best-so-far|silent error|hypothesis tree|paperbench|novelty|l1–l5|recomputation|activation\s*recomputation)\b/gi;
 
+// 后训练范式术语（仅 B-4 用）：TERM_RE 只覆盖 Transformer 注意力系术语，第 36–43 课「后训练范式」的
+// roadmap 节点大量使用后训练缩写/专名，导致 B-4「节点未含技术术语」对 8 门新课稳定误报。
+// 故单独列一张表供 B-4 识别节点主题，但**不进 TERM_RE**——否则 B-3「单句术语 ≤3」会把
+// 「五个变体（IPO/KTO/CPO/ORPO/SimPO）」这类合法枚举误判成术语串。
+const POST_TRAIN_TERM_RE = /\b(sft|rlhf|dpo|grpo|ppo|rlvr|kl|orm|prm|rlaif|reinforce|rloo|gspo|ipo|kto|orpo|simpo|cpo|best-of-n|sppo|self-rewarding|self-play|constitutional ai|vapo|dr\.grpo|cot|bradley-terry|goodhart|reward model|reward hacking|overoptimization|leave-one-out|critic|actor|baseline)\b/gi;
+
 function checkRoadmapChain(html, label) {
   const texts = [...html.matchAll(/class="rn-text"[^>]*>([\s\S]*?)<\/span>/g)]
     .map((m) => stripTags(m[1]).replace(/\s+/g, ' ').trim());
@@ -223,7 +229,9 @@ function checkRoadmapChain(html, label) {
     const cards = splitCards(html);
     const miss = [];
     for (let i = 0; i < Math.min(texts.length, cards.length); i++) {
-      const nodeTerms = new Set((texts[i].match(TERM_RE) || []).map((x) => x.toLowerCase()));
+      const nodeTerms = new Set(
+        [...(texts[i].match(TERM_RE) || []), ...(texts[i].match(POST_TRAIN_TERM_RE) || [])]
+          .map((x) => x.toLowerCase()));
       if (nodeTerms.size === 0) { miss.push(`节点${i + 1} 未含技术术语`); continue; }
       const cardText = stripTags(cards[i].html).toLowerCase();
       if (![...nodeTerms].some((t) => cardText.includes(t))) {

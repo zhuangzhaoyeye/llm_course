@@ -1,0 +1,174 @@
+<div class="main-container">
+
+
+  <div class="lesson-intro">
+    <h2>第 42 课：推理强化</h2>
+    <p class="subtitle">上一课把偏好线的 critic 也删掉了，但"让回答更好听"这条线再优化，也解决不了一个更根本的问题：偏好模型是人排序练出来的，它学的是"讨喜"，不是"算对"。这一课换一条线——推理强化：用程序能验证的 0/1 对错当奖励，让模型自己长出"多想一想、自我检查"的能力，再回头处理"长思考里有多少是刷分虚胖"，最后回答一个要发布的模型怎么把"算对"和"好听"串起来。</p>
+
+    <div class="lesson-goal">
+      <div class="goal-label">🎯 学完这 6 步你将能够：</div>
+      <div class="goal-text">① 说清为什么偏好信号训不了"算对"，必须换成 0/1 可验证对错<br>② 讲出 RLVR（可验证奖励强化学习）怎么用程序验证器替代奖励模型，R1-Zero 怎么用纯 RL 长出长思考<br>③ 说出 Dr.GRPO（分组相对策略优化）修正的长度/难度偏差，以及 VAPO 为什么重新请回价值网络<br>④ 用 R1 四阶段说明"推理 RL + 偏好对齐"怎么组合</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="roadmap-title">🗺 本节推理链（6 步：从"对错谁来判"到"两条线怎么组合"）</div>
+      <div class="roadmap-flow">
+        <div class="roadmap-node"><span class="rn-num">1</span><span class="rn-text">偏好模型（reward model）学的是"讨喜"不是"正确"，<strong>因为</strong>它从没见过标准答案——<strong>因此</strong>"算得对不对"需要一个能客观判 0/1 的信号。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">2</span><span class="rn-text">答案有客观对错（数学、代码），<strong>所以</strong> 0/1 可以直接由程序验证器给出、不必训奖励模型——<strong>于是</strong>有了 RLVR（可验证奖励 + REINFORCE）。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">3</span><span class="rn-text">0/1 奖励只在最终答案、中间全无，<strong>要求</strong>模型自己探索出"多想一想"，<strong>于是</strong> R1-Zero 纯 RL（GRPO）就长出了长思考、反思与"啊哈时刻"。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">4</span><span class="rn-text">长思考里混着"刷分虚胖"：GRPO 梯度除以回答长度、除以组内标准差，<strong>因此</strong>长度与难度偏差让"拉长"本身得分——<strong>于是</strong> Dr.GRPO 修掉这两个除法。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">5</span><span class="rn-text">修了偏差，但"组内均值当 baseline"在超长 CoT 上估计不准，<strong>所以</strong>重新请回价值网络，<strong>于是</strong> VAPO 用 value-based 方法在长推理上反超 GRPO。</span></div>
+        <div class="roadmap-arrow">↓</div>
+        <div class="roadmap-node"><span class="rn-num">6</span><span class="rn-text">推理 RL（GRPO）管"算对"、偏好对齐管"好听"，两件事要一起发布，<strong>因此</strong>按"先推理后偏好"组合——<strong>于是</strong> R1 四阶段把两条线串成一个完整配方。</span></div>
+      </div>
+    </div>
+
+    <div class="meta-tags"><span class="meta-tag">Reasoning RL</span><span class="meta-tag">RLVR</span><span class="meta-tag">R1-Zero</span><span class="meta-tag">GRPO</span><span class="meta-tag">Dr.GRPO</span><span class="meta-tag">VAPO</span></div>
+  </div>
+
+  <!-- ============ CARD 1 ============ -->
+  <div class="card" data-card="42-1">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">1</div><div class="card-q-content"><div class="card-q-text">偏好模型能给一个回答打 0.9 高分，可这个回答的答案是错的——"算得对不对"这件事，到底该怎么训练？</div><div class="card-q-hint">提示：先想偏好模型（用人类排序练出来的）学到的是"人爱看哪个"还是"哪个对"；再想数学题、代码题有没有一个能"客观判对错"的裁判。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>偏好模型（reward model）</strong>是拿人类对回答的排序练出来的，它学到的是"讨喜"而非"正确"。DeepSeek-R1（DeepSeek-AI, arXiv:2501.12948, 2025）把这件事说透：推理训练干脆不用偏好模型，改用<strong>规则奖励</strong>直接判 0/1——因为偏好模型给不出"算得对不对"的稳定打分。这是"偏好对齐"和"推理强化"分家的根因。</div>
+      <div class="content-section"><p>上一课（第 41 课）我们用 GRPO 删掉了 critic，把偏好对齐做到只剩一个模型。但这条线再省，也绕不开一个更基本的问题：<strong>偏好模型判不了"算得对不对"。</strong></p><p>可以把这<strong>类比</strong>成两个评委：作文评委看文笔（偏好），数学老师看答案（对错）。一篇"文笔漂亮但答案错"的作文，文笔评委打高分、数学老师打零分——<strong>同一个分数混着打，只会两头都糊</strong>。所以"好听"和"算对"必须用两套不同的信号。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 偏好分 vs 对错分：同一个回答，两种分可能完全相反</div>
+        <div class="step"><div class="step-title">Step 1：两个回答，各打两种分</div>
+          <table><tr><th>回答</th><th>偏好分（讨喜）</th><th>对错分（0/1）</th></tr><tr><td>A：步骤工整、结论错</td><td>0.9</td><td>0</td></tr><tr><td>B：步骤潦草、结论对</td><td>0.4</td><td>1</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：拿偏好分当奖励去训练，会发生什么</div>
+          <table><tr><th>被奖励的回答</th><th>偏好分</th><th>真实正确性</th><th>模型学到</th></tr><tr><td>A（工整但错）</td><td>0.9</td><td>错</td><td>越练越"像样"，正确率不动</td></tr><tr><td>B（潦草但对）</td><td>0.4</td><td>对</td><td>被打压</td></tr></table>
+          <div class="step-desc">偏好分 0.9 − 0.4 = 0.5，梯度会拼命推高 A、压低 B——<strong>可 A 的答案是错的。</strong>用偏好信号训推理，等于让"文笔"代替"对错"，模型格式练得越来越好、正确率原地踏步。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>有偏好模型 → 只会"写得像样"；没有客观 0/1 → 永远学不会"算对"。<strong>下一个问题：0/1 这个"对/错"信号，谁能客观地给出来？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','42-1')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','42-1')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-42-1" class="llm-section"><button class="llm-btn" onclick="startChat('42-1')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="42-1"><div class="chat-toolbar"><button onclick="copyChat('42-1')">📋 复制对话</button><button onclick="clearChat('42-1')">🗑 清空</button><button onclick="stopLLM('42-1')" id="stop-btn-42-1" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('42-1')" id="regen-btn-42-1" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="42-1"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"偏好分 vs 对错分"有疑问？比如"能不能把偏好分和 0/1 加在一起用？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="42-1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('42-1')}" rows="1" placeholder="例如：偏好模型为什么判不了对错？"></textarea><button onclick="sendLLM('42-1')">发送</button></div></div></div>
+      <div id="tab-qna-42-1" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('42-1')">🔄 换一批</button></div><div class="qna-list" data-qna="42-1"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2 ============ -->
+  <div class="card" data-card="42-2">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">2</div><div class="card-q-content"><div class="card-q-text">偏好模型判不了对错，那 0/1 这个"对/错"信号，能不能不靠人、也不靠训练模型，直接由程序给出来？</div><div class="card-q-hint">提示：想数学题有没有标准答案、代码题有没有单元测试、证明题有没有形式化证明器；这些东西能不能自动判定"对"还是"错"。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>RLVR（Reinforcement Learning with Verifiable Rewards，可验证奖励的强化学习）</strong>由 Tülu 3（Lambert et al., arXiv:2411.15124, 2024）命名：把 RLHF 里的"学习到的奖励模型"换成一个<strong>确定性的验证器</strong>——一个 Python 函数，吃进 prompt 和回答，吐出二元奖励：对给 1、错给 0。数学用符号等式比对答案，代码用编译 + 跑单测。</div>
+      <div class="content-section"><p>上一张卡片看到偏好模型判不了对错。突破口在于：<strong>只要答案有客观对错，0/1 就不用"学"出来，可以直接"算"出来。</strong></p><p>可以把这<strong>类比</strong>成判卷机和评委的分工：数学题用判卷机（对/错一眼判定），作文用评委（偏好）。<strong>判卷机不要钱、不会累、还能无限出题</strong>——这就是推理强化的奖励为什么比偏好数据便宜得多。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 RLVR：验证器怎么给出 0/1，以及一个 batch 的优势怎么算</div>
+        <div class="step"><div class="step-title">Step 1：三类任务的验证器</div>
+          <table><tr><th>任务</th><th>验证方式</th><th>奖励</th></tr><tr><td>数学题</td><td>提取最终答案，与标准答案做符号等式比对</td><td>对 1 / 错 0</td></tr><tr><td>代码题</td><td>编译通过 + 跑单元测试</td><td>全过 1 / 否则 0</td></tr><tr><td>定理证明</td><td>形式化证明器（如 Lean 4）逐步检查</td><td>全程验证 1 / 否则 0</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：一个 batch 的 0/1 奖励 → REINFORCE 优势</div>
+          <table><tr><th>回答</th><th>验证器奖励 r</th><th>基线（均值）</th><th>优势 = r − 均值</th></tr><tr><td>1</td><td>1</td><td>0.667</td><td>+0.333</td></tr><tr><td>2</td><td>0</td><td>0.667</td><td>−0.667</td></tr><tr><td>3</td><td>1</td><td>0.667</td><td>+0.333</td></tr></table>
+          <div class="step-desc">均值 = (1+0+1) ÷ 3 = 2/3 ≈ 0.667。REINFORCE（一种用"采样回报估计梯度"的策略梯度法）就靠这条优势去抬"对"的、压"错"的——<strong>奖励是客观的、可复现的，还能量产：数学题和代码题只要有标准答案就能无限合成数据。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>有可验证答案 → 0/1 奖励客观、可复现、能无限合成；没有可验证答案 → 只能退回偏好。<strong>下一个问题：0/1 只落在"最终答案"这一下，中间过程全无奖励——模型凭什么学会"多思考几步"？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','42-2')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','42-2')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-42-2" class="llm-section"><button class="llm-btn" onclick="startChat('42-2')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="42-2"><div class="chat-toolbar"><button onclick="copyChat('42-2')">📋 复制对话</button><button onclick="clearChat('42-2')">🗑 清空</button><button onclick="stopLLM('42-2')" id="stop-btn-42-2" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('42-2')" id="regen-btn-42-2" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="42-2"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 RLVR 的验证器有疑问？比如"代码题只判编译通过算不算对？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="42-2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('42-2')}" rows="1" placeholder="例如：REINFORCE 的优势怎么算？"></textarea><button onclick="sendLLM('42-2')">发送</button></div></div></div>
+      <div id="tab-qna-42-2" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('42-2')">🔄 换一批</button></div><div class="qna-list" data-qna="42-2"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3 ============ -->
+  <div class="card" data-card="42-3">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">3</div><div class="card-q-content"><div class="card-q-text">只给"最终答案对不对"这一下奖励、中间过程全不给，模型凭什么学会"多想一想、自我检查"？</div><div class="card-q-hint">提示：想"稀疏奖励"——如果只有最后一步有奖励，模型为了拿到那 1 分，会自己探索出什么中间行为？没人教它"要检查"的时候，它会不会自己学会？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>DeepSeek-R1-Zero（DeepSeek-AI, arXiv:2501.12948, 2025）</strong>证明了一件事：跳过 SFT（监督微调），直接从基座模型 + 规则奖励（准确率 + 格式）用 GRPO 训练，模型能<strong>自己长出</strong>长思考、反思、自我验证——论文里最著名的是 "aha moment"（啊哈时刻）：模型中途停下来"重新评估自己最初的方法"，像人一样意识到走错路。</div>
+      <div class="content-section"><p>上一张卡片得到的是稀疏的 0/1 奖励——它只落在最终答案。R1-Zero 的惊人之处在于：<strong>中间不给任何奖励，模型反而自己长出了"多想一想"。</strong></p><p>可以把这<strong>类比</strong>成闭卷考试：最后只按答案给分，中间过程没人打草稿分，但学生为了拿分只能自己多打草稿、反复检查——<strong>没人教他"要检查"，是稀疏奖励把他逼出来的</strong>。这个自发行为在论文里叫<strong>反射 / 自我验证（self-reflection / self-verification）</strong>。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 R1-Zero 的成绩：AIME 大幅涨 + 回答越来越长</div>
+        <div class="step"><div class="step-title">Step 1：AIME 2024 的 pass@1（一次采样做对的比例）</div>
+          <table><tr><th>模型</th><th>AIME 2024 pass@1</th></tr><tr><td>基座（DeepSeek-V3-Base）</td><td>15.6%</td></tr><tr><td>R1-Zero（纯 RL）</td><td>71.0%</td></tr><tr><td>提升</td><td>71.0 − 15.6 = +55.4 个百分点</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：平均回答长度随训练一路变长</div>
+          <table><tr><th>训练阶段</th><th>平均回答长度</th></tr><tr><td>开始</td><td>约几百 token</td></tr><tr><td>结束</td><td>数千 token（约 10 倍，示意）</td></tr></table>
+          <div class="step-desc">71.0 ÷ 15.6 ≈ 4.55 倍，而且这是"纯 RL、没做任何 SFT"的成绩。长度从几百 token 涨到几千 token，是因为模型学会了<strong>给难题分配更多思考时间</strong>——这正是"啊哈时刻"的外在表现。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>有纯 RL → 长出长思考与"啊哈时刻"；没有 SFT → 可读性差（中英文混用、格式乱）。<strong>下一个问题：这些长度增长里，有多少是"真思考"，有多少是 GRPO 的偏差让它"越长越占便宜"？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','42-3')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','42-3')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-42-3" class="llm-section"><button class="llm-btn" onclick="startChat('42-3')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="42-3"><div class="chat-toolbar"><button onclick="copyChat('42-3')">📋 复制对话</button><button onclick="clearChat('42-3')">🗑 清空</button><button onclick="stopLLM('42-3')" id="stop-btn-42-3" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('42-3')" id="regen-btn-42-3" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="42-3"><div class="role-label">AI 助教</div><div class="msg-content">👋 对"啊哈时刻"有疑问？比如"它真是模型自己冒出来的，不是模板吗？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="42-3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('42-3')}" rows="1" placeholder="例如：纯 RL 为什么能长出思考？"></textarea><button onclick="sendLLM('42-3')">发送</button></div></div></div>
+      <div id="tab-qna-42-3" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('42-3')">🔄 换一批</button></div><div class="qna-list" data-qna="42-3"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4 ============ -->
+  <div class="card" data-card="42-4">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">4</div><div class="card-q-content"><div class="card-q-text">R1-Zero 的"长思考"里，有多少是真正的推理，有多少只是 GRPO 的偏差让它"越长越占便宜"？</div><div class="card-q-hint">提示：回想 GRPO 的梯度公式——它除以了回答长度、组内标准差。这些除法会不会让"把答案写长"这件事本身被奖励，而不是"想得更对"被奖励？</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>Dr.GRPO（Liu et al., arXiv:2503.20783, 2025）</strong>《Understanding R1-Zero-Like Training: A Critical Perspective》指出 GRPO 有两个偏差：<strong>response-level length bias</strong>（长度偏差，因梯度除以回答长度 |oᵢ|）和 <strong>question-level difficulty bias</strong>（难度偏差，因除以组内标准差）。它还发现"啊哈时刻"在基座模型里其实早已存在，并非纯 RL 凭空造出。</div>
+      <div class="content-section"><p>上一张卡片看到 R1-Zero 的回答越训越长。Dr.GRPO 泼了盆冷水：<strong>这里面混着"刷分虚胖"——长度本身在 GRPO 里占便宜。</strong></p><p>可以把这<strong>类比</strong>成"按写满卷面给分"：如果评分公式奖励篇幅，学生就会把没把握的答案写得很长——<strong>长度成了得分项，而不是"想得对"的证据</strong>。Dr.GRPO 干的事，就是把这些不该有的奖励项从公式里抠掉。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 GRPO 的两个偏差，以及 Dr.GRPO 怎么修</div>
+        <div class="step"><div class="step-title">Step 1：长度偏差——梯度被回答长度 |oᵢ| 除</div>
+          <table><tr><th>回答</th><th>长度 |oᵢ|</th><th>相对梯度 ∝ 1/|oᵢ|</th><th>后果</th></tr><tr><td>正确 · 短</td><td>20 token</td><td>1/20 = 0.05</td><td>短答案梯度更大 → 正确时偏好简短</td></tr><tr><td>正确 · 长</td><td>100 token</td><td>1/100 = 0.01</td><td>被相对压制</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：难度偏差 + 修正方向</div>
+          <table><tr><th>偏差来源</th><th>GRPO 原式</th><th>Dr.GRPO 做法</th></tr><tr><td>长度偏差</td><td>优势 ÷ |oᵢ|</td><td>去掉除以长度</td></tr><tr><td>难度偏差</td><td>中心化奖励 ÷ std(组)</td><td>去掉除以标准差</td></tr></table>
+          <div class="step-desc">1/20 ÷ 1/100 = 5 倍——同样"答对"，20 token 的回答梯度是 100 token 的 5 倍，模型就被推着"能短则短"；反过来，答错的回答里，越长的被惩罚得越轻，又诱导"错了就把话写长"。<strong>Dr.GRPO 把这两个除法去掉，长度就不再是隐藏的得分项。</strong></div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>有偏差 → 模型为刷分而拉长，长度增长≠推理变强；去掉偏差 → 长度增长更接近真推理。<strong>下一个问题：GRPO 为了省显存用"组内均值"当 baseline、没训 critic——在越来越长的推理链上，这个省出来的代价是什么？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','42-4')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','42-4')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-42-4" class="llm-section"><button class="llm-btn" onclick="startChat('42-4')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="42-4"><div class="chat-toolbar"><button onclick="copyChat('42-4')">📋 复制对话</button><button onclick="clearChat('42-4')">🗑 清空</button><button onclick="stopLLM('42-4')" id="stop-btn-42-4" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('42-4')" id="regen-btn-42-4" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="42-4"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 Dr.GRPO 的偏差有疑问？比如"难度偏差具体怎么坑人？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="42-4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('42-4')}" rows="1" placeholder="例如：长度偏差是怎么算出来的？"></textarea><button onclick="sendLLM('42-4')">发送</button></div></div></div>
+      <div id="tab-qna-42-4" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('42-4')">🔄 换一批</button></div><div class="qna-list" data-qna="42-4"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 5 ============ -->
+  <div class="card" data-card="42-5">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">5</div><div class="card-q-content"><div class="card-q-text">GRPO 为了省显存，用"组内均值"当 baseline、砍掉了 critic——在越来越长的推理链上，这个省出来的代价是什么？</div><div class="card-q-hint">提示：想"组内均值"能不能准确估计"这条回答值多少"；当组内方差很大、回答又很长时，拿一个平均值当基线还准不准。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>VAPO（Byte Seed, arXiv:2504.05118, 2025，Value-based Augmented PPO，即近端策略优化）</strong>反过来把价值网络（critic）请回来：在 Qwen 32B 上 AIME 2024 拿到 <strong>60.4 分</strong>。核心技巧是 <strong>Decoupled GAE</strong>（价值网络用 λ=1.0 学回报，策略用另一套 λ 算优势）+ <strong>长度自适应</strong> λ_policy = 1 − 1/(α·l)。</div>
+      <div class="content-section"><p>上一张卡片 Dr.GRPO 修了偏差，但没动"组内均值当 baseline"这个结构。VAPO 的论点是：<strong>在超长 CoT 上，组内均值估计不准，还得把价值网络请回来。</strong></p><p>可以把这<strong>类比</strong>成用班级平均分当"你的成绩"：班里有人 100 分、有人 20 分，平均分对个体几乎没意义——<strong>你还需要一个"个体估值"</strong>。这个个体估值，在 RL 里就是<strong>价值网络（value network / critic）</strong>，VAPO 把它重新加了回来。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 VAPO：组内均值 vs 价值网络，以及长度自适应的 λ</div>
+        <div class="step"><div class="step-title">Step 1：baseline 的两种选择</div>
+          <table><tr><th>方法</th><th>baseline 用什么</th><th>在长 CoT 上的问题</th></tr><tr><td>GRPO</td><td>组内均值（不训 critic）</td><td>组内方差大时估计漂、噪声大</td></tr><tr><td>VAPO</td><td>价值网络（重训 critic）</td><td>更稳，但多一份显存</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：长度自适应 λ_policy = 1 − 1/(α·l)，取 α=0.05</div>
+          <table><tr><th>序列长度 l</th><th>1/(α·l)</th><th>λ_policy</th></tr><tr><td>100 token</td><td>1/5 = 0.2</td><td>0.80</td></tr><tr><td>500 token</td><td>1/25 = 0.04</td><td>0.96</td></tr><tr><td>1000 token</td><td>1/50 = 0.02</td><td>0.98</td></tr></table>
+          <div class="step-desc">链越长，λ 越接近 1——<strong>长序列更多看真实回报、少靠估计</strong>。这套组合让 VAPO 在 Qwen 32B 上把 AIME 2024 做到 60.4 分，在相同设置下反超 GRPO。代价：critic 回来了，显存账单也回来了。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 留下什么问题</div><p>有价值网络 → 长链上优势估计更准，AIME 反超；只用组内均值 → 长 CoT 上方差大、估计漂。<strong>最后一个问题：推理 RL 管"算对"、偏好对齐管"好听"，一个要发布的模型怎么把这两条线串起来？</strong></p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','42-5')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','42-5')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-42-5" class="llm-section"><button class="llm-btn" onclick="startChat('42-5')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="42-5"><div class="chat-toolbar"><button onclick="copyChat('42-5')">📋 复制对话</button><button onclick="clearChat('42-5')">🗑 清空</button><button onclick="stopLLM('42-5')" id="stop-btn-42-5" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('42-5')" id="regen-btn-42-5" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="42-5"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 VAPO 有疑问？比如"critic 不是已经被 GRPO 删了吗，为什么又请回来？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="42-5" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('42-5')}" rows="1" placeholder="例如：λ 随长度变大有什么用？"></textarea><button onclick="sendLLM('42-5')">发送</button></div></div></div>
+      <div id="tab-qna-42-5" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('42-5')">🔄 换一批</button></div><div class="qna-list" data-qna="42-5"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 6 ============ -->
+  <div class="card" data-card="42-6">
+    <div class="card-q" onclick="toggleCard(this)"><div class="card-num">6</div><div class="card-q-content"><div class="card-q-text">推理 RL 让模型"算得对"、偏好对齐让模型"答得好听"——一个要发布的模型，怎么把这两条线串起来？</div><div class="card-q-hint">提示：想 DeepSeek-R1 正式版不是纯 RL——它先做了什么、RL 之后又做了什么；再想"算对"和"好听"谁先谁后、顺序反了会怎样。</div></div><span class="card-arrow">▾</span><input type="checkbox" class="card-check" onclick="event.stopPropagation(); toggleCardCheck(this)" title="标记已学完"></div>
+    <div class="card-a">
+      <div class="card-bg"><div class="bg-label">知识背景</div><strong>DeepSeek-R1 正式版（DeepSeek-AI, arXiv:2501.12948, 2025）</strong>走四阶段：①冷启动 SFT（几千条高质量 CoT）→ ②推理 RL（R1-Zero 同款规则奖励）→ ③拒绝采样 + SFT（约 60 万条推理 + 约 20 万条非推理）→ ④全场景 RL（规则奖励 + 偏好奖励混合）。它解决了 R1-Zero 的可读性问题。</div>
+      <div class="content-section"><p>上一张卡片把推理 RL 做稳了。但"算对"不等于"好听"——<strong>一个要发布的模型两样都要，靠的是"分阶段串起来"，而不是一个混合奖励通吃。</strong></p><p>可以把这<strong>类比</strong>成数学天才 + 语文老师：<strong>先让数学天才把题算对（推理 RL），再让语文老师把表达打磨顺（偏好对齐）</strong>——顺序不能反，反了就是"文笔漂亮但结论错"。</p></div>
+      <div class="calc-block">
+        <div class="label">🧮 R1 四阶段：推理 RL 与偏好对齐的组合顺序</div>
+        <div class="step"><div class="step-title">Step 1：四个阶段各干什么</div>
+          <table><tr><th>阶段</th><th>做法</th><th>解决什么</th></tr><tr><td>① 冷启动 SFT</td><td>几千条高质量 CoT 示范</td><td>给个"会思考"的起点（可读性）</td></tr><tr><td>② 推理 RL</td><td>规则奖励（准确率 + 格式）</td><td>把"算对"逼出来</td></tr><tr><td>③ 拒绝采样 + SFT</td><td>采样高分回答再 SFT</td><td>把 RL 成果固化成数据</td></tr><tr><td>④ 全场景 RL</td><td>规则奖励 + 偏好奖励</td><td>补"好听"与"有用"</td></tr></table>
+        </div>
+        <div class="step"><div class="step-title">Step 2：第 ③ 阶段的数据账</div>
+          <table><tr><th>数据</th><th>条数</th><th>占比</th></tr><tr><td>推理数据（拒绝采样）</td><td>约 60 万</td><td>60 ÷ 80 = 75%</td></tr><tr><td>非推理数据（写作/问答等）</td><td>约 20 万</td><td>20 ÷ 80 = 25%</td></tr><tr><td>合计</td><td>约 80 万</td><td>100%</td></tr></table>
+          <div class="step-desc">顺序的深意：<strong>先推理后偏好</strong>——先确保"算对"（②③），最后才用偏好奖励补"好听"（④）。若反过来先偏好后推理，偏好那一步会把"像样但错"的回答固化进数据，后面怎么 RL 都救不回来。</div>
+        </div>
+      </div>
+      <div class="highlight-box"><div class="label">🎯 关键认知</div><p>整课收成一句话：<strong>偏好信号训不了"算对"，对错要用程序验证器判 0/1（RLVR）</strong>；<strong>0/1 稀疏奖励能逼出长思考（R1-Zero），但要注意长度虚胖（Dr.GRPO）与 baseline 精度（VAPO）</strong>；<strong>最终按"先推理后偏好"分阶段组合（R1）</strong>。回到第 36 课的三个判据——奖励可验证吗、要不要探索、显存够不够——就是本部分第 43 课的收口。</p></div>
+      <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(this,'ai','42-6')">💡 自定义问答</button><button class="tab-btn" onclick="switchTab(this,'qna','42-6')">🤔 你可能还想问</button></div>
+      <div id="tab-ai-42-6" class="llm-section"><button class="llm-btn" onclick="startChat('42-6')">💡 对这张卡片有疑问？点我开始对话</button><div class="llm-chat" data-llm="42-6"><div class="chat-toolbar"><button onclick="copyChat('42-6')">📋 复制对话</button><button onclick="clearChat('42-6')">🗑 清空</button><button onclick="stopLLM('42-6')" id="stop-btn-42-6" style="display:none">⏹ 停止</button><button onclick="regenerateLLM('42-6')" id="regen-btn-42-6" style="display:none">🔄 重新生成</button></div><div class="chat-messages" data-chat="42-6"><div class="role-label">AI 助教</div><div class="msg-content">👋 对 R1 四阶段有疑问？比如"拒绝采样那一步是干什么的？"<br><br>我会用具体数字帮你算。</div></div><div class="chat-input-row"><textarea data-input="42-6" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendLLM('42-6')}" rows="1" placeholder="例如：为什么先推理后偏好？"></textarea><button onclick="sendLLM('42-6')">发送</button></div></div></div>
+      <div id="tab-qna-42-6" class="qna-section" style="display:none;"><div class="qna-header"><div class="qna-title">🤔 学生最可能追问的 5 个问题</div><button class="qna-refresh-btn" onclick="refreshQnA('42-6')">🔄 换一批</button></div><div class="qna-list" data-qna="42-6"><div class="qna-loading"><span class="spinner"></span> AI 正在生成问题…</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer-nav">
+    <p style="font-size:14px;">第 42 课完成 · 下一课：第 43 课「前沿收口与选型判据」</p>
+    <a href="#" onclick="switchLesson(43);return false;">进入第 43 课：前沿收口与选型判据 →</a>　·　<a href="#" onclick="switchLesson(41);return false;">← 上一课：在线与无参考优化</a>
+  </div></div>

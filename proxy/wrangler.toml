@@ -13,14 +13,14 @@ routes = [
 [vars]
 # 只允许这个站点调用；多个用英文逗号分隔。Origin 可以被伪造，只能挡掉普通滥用，真正的保护是下面的限额。
 ALLOWED_ORIGINS = "https://zhuangzhaoyeye.github.io,https://learn.taleverse.cn"
-PER_IP_PER_MINUTE = "5"
-PER_IP_PER_DAY = "20"
+PER_IP_PER_MINUTE = "50"
+PER_IP_PER_DAY = "200"
 # 整站每天一共多少次（所有人加起来）。各 1 次实测（高峰价）：不联网约 0.0008 元（265 入/35 出，但那是不带卡片正文的短问题，是下限）；联网约 0.032 元（9795 入/315 出 + 2 次搜索），约 40 倍。真实使用带卡片正文，费用介于两者之间偏下。
-GLOBAL_PER_DAY = "100"
+GLOBAL_PER_DAY = "1000"
 # 联网搜索开关与单次最多搜索次数（搜索按成功次数计费，见 DeepSeek 价格页）
-WEB_SEARCH = "false"
-WEB_SEARCH_MAX_USES = "2"
-MAX_TOKENS = "2048"
+WEB_SEARCH = "true"
+WEB_SEARCH_MAX_USES = "20"
+MAX_TOKENS = "20480"
 
 # DEEPSEEK_API_KEY 不写在这里。部署时用: npx wrangler secret put DEEPSEEK_API_KEY
 # ID_SALT 同理（任意随机字符串，用来给 IP 哈希加盐）: npx wrangler secret put ID_SALT
