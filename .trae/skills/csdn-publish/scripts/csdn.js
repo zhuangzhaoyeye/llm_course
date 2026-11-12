@@ -173,6 +173,12 @@ async function update(ctx, file, articleId, titleOverride) {
   const page = await ctx.newPage();
   await page.goto(`https://editor.csdn.net/md?articleId=${articleId}`, { waitUntil: 'domcontentloaded', timeout: 45000 });
   await page.waitForTimeout(9000);
+  // 等正文真正加载出来,避免"更新前正文 2 行/1 字符"的加载竞态导致发布弹窗不出现
+  for (let i = 0; i < 10; i++) {
+    const chars = await page.evaluate(() => { const e = document.querySelector('.editor__inner'); return e ? e.innerText.length : 0; }).catch(() => 0);
+    if (chars > 100) break;
+    await page.waitForTimeout(3000);
+  }
 
   // 更新前正文基线(用于回读校验"行数没掉")
   const before = await page.evaluate(() => {
@@ -188,10 +194,11 @@ async function update(ctx, file, articleId, titleOverride) {
   await ti.press('Enter');
   await page.waitForTimeout(2000);
 
-  // 正文:全选重贴 md 正文(md 已在任务1里把尾链追加到末尾)。
+  // 正文:全选重贴 md 正文(md 是事实源,含首段系列句 + 末尾尾链)。
   // CSDN 编辑器 paste 不尊重 DOM selection(实测"设 selection 到末尾再 paste"会把内容插到开头),
   // 只有"全选重贴"可靠。内容来源是 md(事实源),重贴后回读校验字符数不显著减少,防丢失。
-  if (tailLinks) {
+  // 无尾链的课(如第 1、2 课)也要重贴,以写入正文首段的「这是大模型课程系列的第 N 课。」
+  {
     await page.locator('.editor__inner').first().click();
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
     await page.keyboard.press('Backspace');
@@ -202,7 +209,7 @@ async function update(ctx, file, articleId, titleOverride) {
       el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
     }, mdBody);
     await page.waitForTimeout(2000);
-    console.log('已重贴 md 正文(含尾链在末尾), 约', mdBody.split('\n').length, '行 /', mdBody.length, '字符');
+    console.log('已重贴 md 正文(含首段/尾链), 约', mdBody.split('\n').length, '行 /', mdBody.length, '字符');
   }
 
   await page.screenshot({ path: path.join(OUT, 'csdn_update_title.png') });
@@ -288,15 +295,20 @@ async function update(ctx, file, articleId, titleOverride) {
   });
   let modalInfo = null;
   try {
-    await p2.locator('button.btn-publish').first().click();
-    await p2.waitForTimeout(4000);
-    modalInfo = await p2.evaluate(() => {
-      const m = document.querySelector('.modal__publish-article');
-      if (!m) return null;
-      const sum = m.querySelector('textarea') ? m.querySelector('textarea').value : '';
-      const tg = Array.from(m.querySelectorAll('.mark_selection_title_el_tag .el-tag')).map((x) => (x.innerText || '').trim());
-      return { sum, tags: tg };
-    });
+    for (let attempt = 0; attempt < 3 && !modalInfo; attempt++) {
+      const alreadyOpen = await p2.evaluate(() => !!document.querySelector('.modal__publish-article'));
+      if (!alreadyOpen) {
+        await p2.locator('button.btn-publish').first().click();
+        await p2.waitForTimeout(5000);
+      }
+      modalInfo = await p2.evaluate(() => {
+        const m = document.querySelector('.modal__publish-article');
+        if (!m) return null;
+        const sum = m.querySelector('textarea') ? m.querySelector('textarea').value : '';
+        const tg = Array.from(m.querySelectorAll('.mark_selection_title_el_tag .el-tag')).map((x) => (x.innerText || '').trim());
+        return { sum, tags: tg };
+      });
+    }
   } catch (e) { console.log('回读弹窗读取失败:', e.message.split('\n')[0]); }
   await p2.close();
 
