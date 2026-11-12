@@ -4,6 +4,7 @@
 //   node csdn.js check                            检查登录态(无头)
 //   node csdn.js login                            未登录则弹出可见窗口等你登录,登录后自动退出
 //   node csdn.js draft <file.md> [articleId]      存草稿;带 articleId 则覆盖该草稿,不带则新建
+//   node csdn.js update <file.md> <articleId> [标题]  更新「已发布文章」的标题(仅改标题,不动正文);需用户已授权发布
 // 约定:md 第一行 "# 标题" 是标题,其余是正文。
 const fs = require('fs');
 const os = require('os');
@@ -125,8 +126,63 @@ async function draft(ctx, file, articleId) {
   if (!ok) process.exitCode = 1;
 }
 
+// 更新「已发布文章」的标题。仅改标题、不动正文;已发布文章改标题必须走「发布文章」按钮(语境下=更新)。
+// 用途:只用于已发布文章的点更新(用户已授权);新稿首发仍用 draft,绝不点发布。
+async function update(ctx, file, articleId, titleOverride) {
+  if (!articleId) { console.error('用法: node csdn.js update <file.md> <articleId> [标题]'); process.exitCode = 2; return; }
+  const raw = fs.readFileSync(file, 'utf-8').split('\n');
+  const title = (titleOverride || raw[0].replace(/^#\s*/, '').trim()).trim();
+  if (!title) { console.error('标题为空'); process.exitCode = 2; return; }
+
+  const page = await ctx.newPage();
+  await page.goto(`https://editor.csdn.net/md?articleId=${articleId}`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  await page.waitForTimeout(8000);
+
+  // 改标题(正文不碰)
+  await page.locator('.article-bar__title-display').click();
+  const ti = page.locator('input.article-bar__title--input');
+  await ti.fill(title);
+  await ti.press('Enter');
+  await page.waitForTimeout(2000);
+  await page.screenshot({ path: path.join(OUT, 'csdn_update_title.png') });
+
+  // 发布(已发布文章语境下 = 更新)
+  const pub = page.locator('button.btn-publish').first();
+  if (!(await pub.count()) || !(await pub.isVisible())) { console.error('未找到发布按钮 .btn-publish'); process.exitCode = 1; await page.close(); return; }
+  await pub.click();
+  await page.waitForTimeout(4000);
+  await page.screenshot({ path: path.join(OUT, 'csdn_update_dialog.png') });
+
+  // 弹窗确认按钮:发布设置弹窗里的「发布文章」(.modal .publish-article-modal__footer button.btn-b-red)
+  const confirm = page.locator('.modal .publish-article-modal__footer button.btn-b-red').first();
+  if (!(await confirm.count()) || !(await confirm.isVisible())) { console.error('未找到发布弹窗里的「发布文章」按钮'); process.exitCode = 1; await page.close(); return; }
+  await confirm.click();
+  await page.waitForTimeout(8000); // 等发布(更新)完成
+  await page.screenshot({ path: path.join(OUT, 'csdn_update_done.png') });
+
+  // 回读校验:新开页面读服务器上的标题与正文,确认标题已变、正文没被清空
+  const p2 = await ctx.newPage();
+  await p2.goto(`https://editor.csdn.net/md?articleId=${articleId}`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  await p2.waitForTimeout(9000);
+  const r = await p2.evaluate(() => {
+    const t = document.querySelector('.article-bar__title-display');
+    const e = document.querySelector('.editor__inner');
+    return { title: t ? t.innerText.trim() : '', lines: e ? e.innerText.split('\n').length : 0, chars: e ? e.innerText.length : 0 };
+  });
+  await p2.close();
+
+  const ok = normTitle(r.title) === normTitle(title) && r.lines > 5;
+  console.log(`回读标题: "${r.title}"`);
+  console.log(`目标标题: "${title}"`);
+  console.log(`正文: ${r.lines} 行 / ${r.chars} 字符${r.lines > 5 ? '' : '（疑似被清空）'}`);
+  console.log('更新链接:', `https://editor.csdn.net/md?articleId=${articleId}`);
+  console.log(ok ? '回读一致 → 通过' : '回读不一致 → 未通过');
+  if (!ok) process.exitCode = 1;
+  await page.close();
+}
+
 (async () => {
-  const [mode, file, articleId] = process.argv.slice(2);
+  const [mode, file, articleId, titleOverride] = process.argv.slice(2);
   if (mode === 'login') {
     let ctx = await chromium.launchPersistentContext(PROFILE, { headless: true });
     const ok = await loggedIn(ctx);
@@ -149,7 +205,11 @@ async function draft(ctx, file, articleId) {
       if (!file) { console.error('用法: node csdn.js draft <file.md> [articleId]'); process.exitCode = 2; }
       else if (!(await loggedIn(ctx))) { console.error('CSDN 未登录,先运行: node csdn.js login'); process.exitCode = 3; }
       else await draft(ctx, path.resolve(file), articleId);
-    } else { console.error('模式应为 check | login | draft'); process.exitCode = 2; }
+    } else if (mode === 'update') {
+      if (!file || !articleId) { console.error('用法: node csdn.js update <file.md> <articleId> [标题]'); process.exitCode = 2; }
+      else if (!(await loggedIn(ctx))) { console.error('CSDN 未登录,先运行: node csdn.js login'); process.exitCode = 3; }
+      else await update(ctx, path.resolve(file), articleId, titleOverride);
+    } else { console.error('模式应为 check | login | draft | update'); process.exitCode = 2; }
   } catch (e) { console.error('ERR', e.message.split('\n')[0]); process.exitCode = 1; }
   await ctx.close();
 })();

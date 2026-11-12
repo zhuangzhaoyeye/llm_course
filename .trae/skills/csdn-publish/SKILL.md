@@ -16,7 +16,7 @@ CSDN 没有找到官方的发文章 MCP 或开放发文 API(检索未命中,不�
 
 ## 铁律
 
-1. **只存草稿,不点"发布文章"(`.btn-publish`)。** 新版编辑器靠标题自动保存（不点任何保存按钮）；旧版才点 `button.btn-save`。CSDN 每天有发文额度(实测"今日还有 2 篇"),误点发布会消耗额度且文章公开。
+1. **只存草稿,不点"发布文章"(`.btn-publish`)。** 新版编辑器靠标题自动保存（不点任何保存按钮）；旧版才点 `button.btn-save`。CSDN 每天有发文额度(实测"今日还有 2 篇"),误点发布会消耗额度且文章公开。**唯一例外**：`update` 子命令——它**只对已发布文章做标题点更新**（用户已明确授权）时才点发布按钮；**新稿首发仍走 `draft`，禁止点发布**。
 2. **不碰用户的日常浏览器 cookie。** 登录态保存在独立目录 `~/.llm_course_publish_profile`(可用环境变量 `PUBLISH_PROFILE` 覆盖),仓库之外,不会被提交。凭证不写进任何文件,日志里不打印 cookie 值。
 3. **以回读为准。** 脚本存完会新开页面读服务器上的草稿,校验标题和行数,不凭"点了保存"就报成功。
 4. **每次批准只做一次明确的操作。** 稿子要先给用户看过,再存。
@@ -32,6 +32,7 @@ node .trae/skills/csdn-publish/scripts/csdn.js check                          # 
 node .trae/skills/csdn-publish/scripts/csdn.js login                          # 未登录则弹窗,登录后自动退出
 node .trae/skills/csdn-publish/scripts/csdn.js draft docs/文章.md              # 新建草稿
 node .trae/skills/csdn-publish/scripts/csdn.js draft docs/文章.md <articleId>  # 覆盖已有草稿
+node .trae/skills/csdn-publish/scripts/csdn.js update docs/文章.md <articleId> # 更新已发布文章的标题(仅改标题,不动正文)
 ```
 
 约定:md 第一行 `# 标题` 是标题,其余是正文。
@@ -69,6 +70,8 @@ node .trae/skills/csdn-publish/scripts/csdn.js draft docs/文章.md <articleId> 
 | 尾链 | 文末加「上一篇 / 下一篇」链接，利于系列识别 + 站内互导 |
 
 **摘要与标签**：CSDN 的摘要/标签在「发布设置」里（草稿编辑器内不一定有），`csdn.js` 的 `draft` 只存标题+正文，不填摘要/标签。因此：写文章时把摘要/标签一并生成、写进 `docs/csdn-优化方案.md`，**存草稿后提示用户在发布时手动填摘要和标签**（或先确认新编辑器是否支持内联填写）。
+
+**更新已发布文章标题（`update`）**：新增 `update` 子命令，用于**已发布文章**的标题点更新（用户已授权）。它打开 `https://editor.csdn.net/md?articleId=<ID>`，**只改标题、不动正文**，然后点「发布文章」并确认发布设置弹窗（摘要/标签/分类**保持原样**、不新增），再回读校验标题已变、正文未被清空。**`update` 只用于已发布文章的点更新**；新稿首发仍走 `draft`，禁止点发布。用法示例见上文「指令」块。
 
 ## 冷启动 SOP（发完后 30 分钟内做，触发二次推荐）
 
