@@ -29,6 +29,43 @@ async function loggedIn(ctx) {
   return NEED.every((n) => names.has(n));
 }
 
+// CSDN 编辑器会把直引号 " 规整成弯引号 “ ”，标题匹配与回读比对前统一归一化
+function normTitle(s) {
+  return (s || '').replace(/["“”‘’「」『』]/g, '').replace(/\s+/g, '');
+}
+
+// 2026-11 起新编辑器取消「保存草稿」按钮，标题一填就自动保存，URL 不再带 ?articleId=。
+// 自动保存落库后，到草稿列表页按标题匹配，取最新（id 最大）的那条草稿的 articleId。
+async function findArticleIdByTitle(ctx, title) {
+  const p = await ctx.newPage();
+  try {
+    await p.goto('https://mp.csdn.net/mp_blog/manage/article', { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await p.waitForTimeout(6000);
+    await p.evaluate(() => {
+      const els = Array.from(document.querySelectorAll('a, button, span, div, li'));
+      const target = els.find((el) => /^草稿箱/.test((el.innerText || '').trim()) && el.children.length === 0);
+      if (target) target.click();
+    });
+    await p.waitForTimeout(4000);
+    const want = normTitle(title);
+    const id = await p.evaluate((want) => {
+      const norm = (s) => (s || '').replace(/["“”‘’「」『』]/g, '').replace(/\s+/g, '');
+      let found = null;
+      document.querySelectorAll('a[href*="articleId="]').forEach((a) => {
+        const m = a.href.match(/articleId=(\d+)/);
+        const txt = (a.innerText || '').trim();
+        if (m && txt.length > 3 && norm(txt) === want) {
+          if (!found || Number(m[1]) > Number(found)) found = m[1];
+        }
+      });
+      return found;
+    }, want);
+    return id;
+  } finally {
+    await p.close();
+  }
+}
+
 async function draft(ctx, file, articleId) {
   const raw = fs.readFileSync(file, 'utf-8').split('\n');
   const title = raw[0].replace(/^#\s*/, '').trim();
@@ -68,10 +105,11 @@ async function draft(ctx, file, articleId) {
   }
   await page.screenshot({ path: path.join(OUT, 'csdn_draft.png') });
 
-  const id = (page.url().match(/articleId=(\d+)/) || [])[1];
+  let id = articleId || (page.url().match(/articleId=(\d+)/) || [])[1];
+  if (!id) id = await findArticleIdByTitle(ctx, title);
   console.log('草稿链接:', id ? `https://editor.csdn.net/md?articleId=${id}` : page.url());
   console.log('截图:', path.join(OUT, 'csdn_draft.png'));
-  if (!id) { console.log('警告:URL 里没有 articleId,草稿可能没建起来'); process.exitCode = 1; return; }
+  if (!id) { console.log('警告:草稿列表里没找到标题匹配的草稿,可能没保存成功'); process.exitCode = 1; return; }
 
   // 回读校验:新开页面读服务器上的内容,避免只凭"点了保存"就报成功
   const p2 = await ctx.newPage();
@@ -82,8 +120,8 @@ async function draft(ctx, file, articleId) {
     const e = document.querySelector('.editor__inner');
     return { title: t && t.innerText.trim(), chars: e ? e.innerText.length : 0, lines: e ? e.innerText.split('\n').length : 0 };
   });
-  const ok = r.title === title && r.lines > 5;
-  console.log(`回读: 标题${r.title === title ? '一致' : '不一致'},${r.lines} 行 / ${r.chars} 字符 →`, ok ? '通过' : '未通过');
+  const ok = normTitle(r.title) === normTitle(title) && r.lines > 5;
+  console.log(`回读: 标题${normTitle(r.title) === normTitle(title) ? '一致' : '不一致'},${r.lines} 行 / ${r.chars} 字符 →`, ok ? '通过' : '未通过');
   if (!ok) process.exitCode = 1;
 }
 
