@@ -37,6 +37,41 @@ node .trae/skills/course-publish/scripts/publish.js --list         # 看已登�
 
 脚本会：读 `docs/第<中文数字>课文章.md` → 查 `registry.json` 里该课已有的平台 ID → 依次调三个单平台脚本（带 ID 则覆盖）→ 从输出里解析草稿链接 → 写回 `registry.json` → 打印三行结果。
 
+## 用户明确授权「直接发布」时
+
+默认只存草稿。只有用户明确说「直接发布 / 直接公开」时，才用各平台脚本的 `publish` 模式（或 CSDN 的 `update`）：
+
+```bash
+# 掘金：填分类/标签/摘要后点「确定并发布」
+PUBLISH_SUMMARY="50–100 字摘要" PUBLISH_TAGS="LLM,NLP" \
+  node .trae/skills/juejin-publish/scripts/juejin.js publish docs/第N课文章.md [draftId]
+
+# CSDN：新稿首发也走 update（打开草稿 → 重贴正文 → 点发布文章 → 弹窗填摘要/标签 → 确认）
+node .trae/skills/csdn-publish/scripts/csdn.js update docs/第N课文章.md <articleId>
+
+# 知乎：填话题后点「发布」
+node .trae/skills/zhihu-publish/scripts/zhihu.js publish docs/第N课文章.md <draftId>
+```
+
+发布前脚本会核对标题与正文行数；发布后回读。掘金实测约束（2026-11-13）：
+
+- **标签不可自建**：只能选平台已有标签；`大模型课程`、`大模型入门` 不存在，本账号上限 2 个，用 `LLM`、`NLP` 等已有标签。
+- **摘要必须 50–100 字**：低于 50 字会被前端静默拦截（控制台报「摘要不满足最低50字的要求」），页面无提示。
+- **发布后 URL 跳 `/published`**：文章 ID 从草稿详情接口 `article_data.article_id` 补取。
+- **新稿先进入审核中**：公开页短暂 404 属正常，不代表失败；以创作中心「审核中」列表为准。
+
+CSDN 实测约束（2026-11-13）：
+
+- 新稿首发用 `update`：摘要/标签在点「发布文章」之后的弹窗里填。
+- 首发后可能直接进「已发布」，也可能进「审核中/未通过 → 待审核」；**不能凭脚本回读通过判定已公开**，必须看管理页状态。
+
+知乎实测约束（2026-11-13）：
+
+- 话题（＝标签）只能精确匹配已有话题，匹配不到就跳过；
+- 发布后 ID 一般不变，若另建新篇以公开页实际 `/p/<id>` 为准回写；
+- 匿名 curl 回读会 403，要用浏览器看 status 200。
+
+
 ## 文章不存在时
 
 脚本会以退出码 3 结束。此时按 `course-content` 的标准写文章：从 `src/lessons/lesson-<N>.html` 提取 6 张卡片的问题、正文和计算块，改写成「问题 → 表格 → 一句话结论」的连载格式，数字用 `python3` 独立复算，事实类逐条联网核验，经验数字标「估算」。写完再跑本脚本。

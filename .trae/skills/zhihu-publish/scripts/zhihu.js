@@ -4,6 +4,7 @@
 //   node zhihu.js check                         检查登录态(无头)
 //   node zhihu.js login                         未登录则弹出可见窗口等你登录,登录后自动退出
 //   node zhihu.js draft <file.md> [articleId]   存草稿;带 articleId 则覆盖该草稿,不带则新建
+//   node zhihu.js publish <file.md> <articleId> 发布(填话题后点「发布」);需用户明确授权
 // 约定:md 第一行 "# 标题" 是标题,其余是正文。正文按 Markdown 转 HTML 后粘贴。
 const fs = require('fs');
 const os = require('os');
@@ -79,6 +80,124 @@ function mdToHtml(md) {
     out.push(`<p>${inline(buf.join(''))}</p>`);
   }
   return out.join('\n');
+}
+
+// 解析 docs/csdn-优化方案.md：按文件名取该课的摘要与标签（数据源唯一，不在此处重造）。
+function parsePlan(file) {
+  const planPath = path.resolve(__dirname, '../../../..', 'docs', 'csdn-优化方案.md');
+  if (!fs.existsSync(planPath)) return { summary: '', tags: [] };
+  const text = fs.readFileSync(planPath, 'utf-8');
+  const base = path.basename(file);
+  const idx = text.indexOf('## ' + base);
+  if (idx < 0) return { summary: '', tags: [] };
+  const nextIdx = text.indexOf('\n## ', idx + 1);
+  const section = text.slice(idx, nextIdx < 0 ? undefined : nextIdx);
+  const sum = (section.match(/-\s*\*\*摘要\*\*：([^\n]*)/) || [])[1];
+  const tagLine = (section.match(/-\s*\*\*标签\*\*：([^\n]*)/) || [])[1] || '';
+  const tags = [...tagLine.matchAll(/`([^`]+)`/g)].map((m) => m[1]).filter(Boolean);
+  return { summary: sum ? sum.trim() : '', tags };
+}
+
+// 发布后知乎可能另建一篇，ID 会变：先看 URL，再按标题到创作中心列表取最新一篇。
+async function findArticleIdByTitle(ctx, title) {
+  const p = await ctx.newPage();
+  try {
+    await p.goto('https://www.zhihu.com/creator/manage/creation/all', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await p.waitForTimeout(7000);
+    const want = (title || '').replace(/\s+/g, '');
+    return await p.evaluate((want) => {
+      let found = null;
+      document.querySelectorAll('a[href*="/p/"]').forEach((a) => {
+        const m = a.href.match(/\/p\/(\d+)/);
+        const txt = (a.innerText || '').replace(/\s+/g, '');
+        if (m && txt && txt === want) { if (!found || Number(m[1]) > Number(found)) found = m[1]; }
+      });
+      return found;
+    }, want);
+  } finally { await p.close(); }
+}
+
+// 发布：填话题后点「发布」，以公开页实际链接回写（ID 可能与草稿不同）。
+async function publish(ctx, file, articleId) {
+  if (!articleId) { console.error('用法: node zhihu.js publish <file.md> <草稿ID>'); process.exitCode = 2; return; }
+  const raw = fs.readFileSync(file, 'utf-8').split('\n');
+  const title = raw[0].replace(/^#\s*/, '').trim();
+  const plan = parsePlan(file);
+  console.log(`计划: 标题="${title}" | 话题=[${plan.tags.slice(0, 3).join(', ')}]`);
+
+  const page = await ctx.newPage();
+  await page.goto(`https://zhuanlan.zhihu.com/p/${articleId}/edit`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForTimeout(9000);
+  const before = await page.evaluate(() => ({
+    title: (document.querySelector('textarea[placeholder*="请输入标题"]') || {}).value || '',
+    chars: (document.querySelector('.public-DraftEditor-content') || {}).innerText ? document.querySelector('.public-DraftEditor-content').innerText.length : 0,
+  }));
+  console.log(`发布前正文: ${before.chars} 字符 | 标题${before.title === title ? '一致' : '不一致'}`);
+  if (before.title !== title || before.chars < 500) {
+    console.error('草稿标题或正文不正确，停止发布');
+    process.exitCode = 1; await page.close(); return;
+  }
+
+  // 话题（知乎的「标签」）：能搜到的才加，最多 3 个
+  const added = [];
+  for (const tag of plan.tags) {
+    if (added.length >= 3) break;
+    try {
+      const addBtn = page.getByText('添加话题', { exact: true }).first();
+      if (await addBtn.count()) { await addBtn.click(); await page.waitForTimeout(900); }
+      const box = page.locator('input[placeholder="搜索话题..."]').first();
+      if (!(await box.count())) continue;
+      await box.click();
+      await page.keyboard.type(tag, { delay: 100 });
+      await page.waitForTimeout(2500);
+      const opt = page.locator('button').filter({ hasText: new RegExp('^' + tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$') }).first();
+      if (await opt.count()) { await opt.click(); added.push(tag); await page.waitForTimeout(1200); }
+      else { await page.keyboard.press('Escape').catch(() => {}); console.log(`话题「${tag}」: 知乎无精确匹配，跳过`); }
+    } catch (e) { console.log(`话题「${tag}」: ${e.message.split('\n')[0]}`); }
+  }
+  console.log('已添加话题:', JSON.stringify(added));
+
+  // 点「发布」（右下角 primary 按钮，不是工具栏里的图标按钮）
+  const pub = page.locator('button.Button--primary').filter({ hasText: /^发布$/ }).last();
+  if (!(await pub.count())) { console.error('未找到「发布」按钮'); process.exitCode = 1; await page.close(); return; }
+  await pub.click();
+  await page.waitForTimeout(6000);
+
+  // 可能弹确认框
+  const confirm = page.locator('button.Button--primary').filter({ hasText: /^(确认发布|发布|确定)$/ }).last();
+  const txt = await page.evaluate(() => document.body.innerText.slice(-400));
+  if (/确认发布|确定发布/.test(txt) && (await confirm.count())) {
+    await confirm.click();
+    await page.waitForTimeout(8000);
+  }
+  await page.screenshot({ path: path.join(OUT, 'zhihu_published.png') });
+
+  let publicId = null;
+  for (let i = 0; i < 15; i++) {
+    const m = page.url().match(/\/p\/(\d+)(?!\/edit)/);
+    if (m && m[1] !== articleId) { publicId = m[1]; break; }
+    if (m && !/\/edit/.test(page.url())) { publicId = m[1]; break; }
+    await page.waitForTimeout(2000);
+  }
+  console.log('发布后 URL:', page.url());
+  if (!publicId) publicId = await findArticleIdByTitle(ctx, title);
+  if (!publicId) publicId = articleId;
+  console.log('公开链接:', `https://zhuanlan.zhihu.com/p/${publicId}`);
+  await page.close();
+
+  // 回读公开页
+  const p2 = await ctx.newPage();
+  const resp = await p2.goto(`https://zhuanlan.zhihu.com/p/${publicId}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await p2.waitForTimeout(4000);
+  const rb = await p2.evaluate(() => ({
+    title: (document.querySelector('h1') || {}).innerText || document.title,
+    chars: document.body.innerText.length,
+  }));
+  const status = resp ? resp.status() : 0;
+  const ok = status === 200 && rb.chars > 1000;
+  console.log(`回读: status=${status}, 标题="${(rb.title || '').trim().slice(0, 60)}", 正文 ${rb.chars} 字符 → ${ok ? '通过' : '未通过'}`);
+  if (!ok) process.exitCode = 1;
+  await p2.close();
 }
 
 async function draft(ctx, file, articleId) {
@@ -161,11 +280,16 @@ async function draft(ctx, file, articleId) {
   const ctx = await chromium.launchPersistentContext(PROFILE, { headless: true, viewport: { width: 1400, height: 900 } });
   try {
     if (mode === 'check') console.log('知乎', (await loggedIn(ctx)) ? '已登录' : '未登录');
+    else if (mode === 'publish') {
+      if (!file || !articleId) { console.error('用法: node zhihu.js publish <file.md> <草稿ID>'); process.exitCode = 2; }
+      else if (!(await loggedIn(ctx))) { console.error('知乎 未登录,先运行: node zhihu.js login'); process.exitCode = 3; }
+      else await publish(ctx, path.resolve(file), articleId);
+    }
     else if (mode === 'draft') {
       if (!file) { console.error('用法: node zhihu.js draft <file.md> [articleId]'); process.exitCode = 2; }
       else if (!(await loggedIn(ctx))) { console.error('知乎 未登录,先运行: node zhihu.js login'); process.exitCode = 3; }
       else await draft(ctx, path.resolve(file), articleId);
-    } else { console.error('模式应为 check | login | draft'); process.exitCode = 2; }
+    } else { console.error('模式应为 check | login | draft | publish'); process.exitCode = 2; }
   } catch (e) { console.error('ERR', e.message.split('\n')[0]); process.exitCode = 1; }
   await ctx.close();
 })();

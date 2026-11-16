@@ -49,7 +49,11 @@ if (argv.includes('--list')) {
   const reg = loadReg();
   console.log(Object.keys(reg).sort((a, b) => a - b).map((k) => {
     const v = reg[k];
-    return `第${k}课  ` + Object.entries(v).map(([p, id]) => `${PLATFORMS[p] ? PLATFORMS[p].label : p}:${id}`).join('  ');
+    return `第${k}课  ` + Object.entries(v)
+      .filter(([p]) => PLATFORMS[p])
+      .map(([p, id]) => `${PLATFORMS[p].label}:${id}`)
+      .concat(Object.entries(v.status || {}).map(([p, s]) => `[${PLATFORMS[p] ? PLATFORMS[p].label : p}=${s}]`))
+      .join('  ');
   }).join('\n') || '（还没有登记任何草稿）');
   process.exit(0);
 }
