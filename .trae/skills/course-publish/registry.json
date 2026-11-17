@@ -99,6 +99,26 @@
       "zhihu": "published"
     }
   },
+  "15": {
+    "juejin": "7708716545457192987",
+    "csdn": "170902592",
+    "zhihu": "2105962518535464512",
+    "status": {
+      "juejin": "published",
+      "csdn": "published",
+      "zhihu": "published"
+    }
+  },
+  "16": {
+    "juejin": "7708737627927199754",
+    "csdn": "170902726",
+    "zhihu": "2105962803844718798",
+    "status": {
+      "juejin": "published",
+      "csdn": "published",
+      "zhihu": "published"
+    }
+  },
   "35": {
     "juejin": "7705441553599201306",
     "csdn": "170287302",
@@ -123,5 +143,15 @@
       "csdn": "reviewing",
       "zhihu": "published"
     }
+  },
+  "38": {
+    "juejin": "7708737627927232522",
+    "csdn": "170903648",
+    "zhihu": "2105964563577451301"
+  },
+  "39": {
+    "juejin": "7708690458897416218",
+    "csdn": "170903794",
+    "zhihu": "2105964839420027376"
   }
 }
